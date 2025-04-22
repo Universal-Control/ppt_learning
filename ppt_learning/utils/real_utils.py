@@ -28,7 +28,7 @@ import threading
 import concurrent.futures
 from numba import njit
 
-from gensim2.env.utils.pcd_utils import (
+from ppt_learning.utils.pcd_utils import (
     uniform_sampling,
     fps_sampling,
     pcd_filter_bound,
@@ -36,10 +36,10 @@ from gensim2.env.utils.pcd_utils import (
 )
 from ppt_learning.utils.pcd_utils import *
 from ppt_learning.utils.calibration import *
-from gensim2.env.task.origin_tasks import *
-from gensim2.env.task.primitive_tasks import *
+
 from gensim2.env.create_task import create_gensim
-from gensim2.paths import GENSIM_DIR, ASSET_ROOT
+
+from ppt_learning.paths import *
 
 sys.path.append(f"{PPT_DIR}/third_party/")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"

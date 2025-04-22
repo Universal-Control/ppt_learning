@@ -17,7 +17,7 @@ from ppt_learning.utils.shared_memory.shared_memory_queue import SharedMemoryQue
 from ppt_learning.utils.shared_memory.shared_memory_ring_buffer import (
     SharedMemoryRingBuffer,
 )
-from gensim2.env.utils.pcd_utils import uniform_sampling, fps_sampling, pcd_filter_bound
+from ppt_learning.utils.pcd_utils import uniform_sampling, fps_sampling, pcd_filter_bound
 from ppt_learning.utils.pcd_utils import (
     open3d_pcd_outlier_removal,
     dbscan_outlier_removal_idx,

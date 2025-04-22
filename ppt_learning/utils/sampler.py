@@ -8,7 +8,7 @@ from tqdm import tqdm
 import zarr
 
 from ppt_learning.utils.replay_buffer import ReplayBuffer
-from gensim2.paths import GENSIM_DIR
+from ppt_learning.paths import PPT_DIR
 
 
 def create_indices(

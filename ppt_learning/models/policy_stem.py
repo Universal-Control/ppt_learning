@@ -14,8 +14,8 @@ import torch.nn.functional as F
 
 import IPython
 
-from gensim2.paths import *
-from gensim2.env.utils.pcd_utils import BOUND
+
+from ppt_learning.utils.pcd_utils import BOUND
 from .clip.core.clip import build_model, load_clip, tokenize
 
 IMGNET_TFM = transforms.Compose(
@@ -25,6 +25,7 @@ IMGNET_TFM = transforms.Compose(
     ]
 )
 
+from ppt_learning.paths import *
 
 class MLP(nn.Module):
     def __init__(

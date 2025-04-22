@@ -14,8 +14,9 @@ from ppt_learning.utils.rollout_runner import preprocess_obs, update_pcd_transfo
 from ppt_learning.utils.robot.real_robot import RealRobot
 from ppt_learning.utils import utils, model_utils
 from ppt_learning.utils.warmup_lr_wrapper import WarmupLR
-from gensim2.paths import *
+
 from ppt_learning.utils.utils import dict_apply
+from ppt_learning.paths import *
 
 import numpy as np
 import time

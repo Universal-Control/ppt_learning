@@ -13,9 +13,10 @@ from ppt_learning.utils.pcd_utils import (
     voxelize_point_cloud,
     se3_augmentation,
 )
-from gensim2.paths import *
 
-from gensim2.env.utils.pcd_utils import BOUND as GENSIM_BOUNDS
+from ppt_learning.paths import *
+
+from ppt_learning.utils.pcd_utils import BOUND
 
 try:
     from gensim2.env.utils.rlbench import SCENE_BOUNDS as RLBENCH_BOUNDS
@@ -38,6 +39,7 @@ class TrajDataset:
     def __init__(
         self,
         dataset_path="",
+        state_keys=None,
         mode="train",
         episode_cnt=10,
         step_cnt=100,
@@ -98,9 +100,16 @@ class TrajDataset:
         self.pcd_num_points = None
         self.env_names = env_names
         self.se3_augmentation = se3_augmentation
-        self.bounds = (
-            RLBENCH_BOUNDS if "rlbench" in self.dataset_name else GENSIM_BOUNDS
-        )
+        self.bounds = BOUND
+
+        self.state_keys = state_keys
+        if state_keys is None:
+            self.state_keys = [
+                "eef_pos",
+                "eef_quat",
+                "joint_pos",
+                "joint_vel",
+            ]
 
         self.voxelization = voxelization
         self.voxel_size = voxel_size
@@ -164,8 +173,12 @@ class TrajDataset:
         self.pcd_num_points = pcd_setup_cfg.num_points
 
     def get_sa_dim(self):
-        self.action_dim = self[0]["data"]["action"].shape[-1]  #  * self.action_horizon
-        self.state_dim = self[0]["data"]["state"].shape[-1]
+        self.action_dim = self[0]["data"]["actions"].shape[-1]  #  * self.action_horizon
+        state_dim = 0
+        for key in self.state_keys:
+            if key in self[0]["data"].keys():
+                state_dim += self[0]["data"][key].shape[-1]
+        self.state_dim = state_dim
 
     def get_normalizer(self, mode="limits", **kwargs):
         """action normalizer"""
@@ -237,7 +250,7 @@ class TrajDataset:
             episode_mask=self.train_mask,
         )
         print(
-            f"{self.dataset_name} size: {len(self.sampler)} episodes: {n_episodes} train: {self.train_mask.sum()} eval: {self.val_mask.sum()}"
+            f"{self.dataset_path} size: {len(self.sampler)} episodes: {n_episodes} train: {self.train_mask.sum()} eval: {self.val_mask.sum()}"
         )
 
     def get_validation_dataset(self):
@@ -342,7 +355,7 @@ class TrajDataset:
         #     assert sample["pointcloud"].shape[-1] == self.pcd_channels, f"pointcloud channel mismatch! expected {self.pcd_channels}, got {sample['pointcloud'].shape[-1]}"
         recursive_horizon(sample)
 
-        return {"domain": self.dataset_name, "data": sample}
+        return {"data": sample}
 
     def save_dataset(self):
         self.replay_buffer.save_to_path(self.dataset_path)

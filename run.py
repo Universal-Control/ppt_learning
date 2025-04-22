@@ -14,7 +14,8 @@ from omegaconf import OmegaConf
 
 from ppt_learning.utils import utils, model_utils
 from ppt_learning.utils.warmup_lr_wrapper import WarmupLR
-from gensim2.paths import *
+from ppt_learning.paths import *
+
 
 sys.path.append(f"{PPT_DIR}/third_party/")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"

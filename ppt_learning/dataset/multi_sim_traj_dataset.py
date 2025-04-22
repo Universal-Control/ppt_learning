@@ -12,9 +12,10 @@ from ppt_learning.utils.pcd_utils import (
     randomly_drop_point,
     voxelize_point_cloud,
 )
-from gensim2.paths import *
 
-from gensim2.env.utils.pcd_utils import BOUND as GENSIM_BOUNDS
+from ppt_learning.paths import *
+
+from ppt_learning.utils.pcd_utils import BOUND as GENSIM_BOUNDS
 
 try:
     from gensim2.env.utils.rlbench import SCENE_BOUNDS as RLBENCH_BOUNDS

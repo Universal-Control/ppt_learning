@@ -28,10 +28,14 @@ from ppt_learning.utils.pcd_utils import (
     randomly_drop_point,
     add_gaussian_noise,
 )
-from gensim2.env.task.origin_tasks import *
-from gensim2.env.task.primitive_tasks import *
-from gensim2.env.create_task import create_gensim
-from gensim2.paths import GENSIM_DIR
+from ppt_learning.paths import *
+
+try:
+    from gensim2.env.task.origin_tasks import *
+    from gensim2.env.task.primitive_tasks import *
+    from gensim2.env.create_task import create_gensim
+except Exception as e:
+    print("Gensim2 not installed or error due to", e)
 
 try:
     from gensim2.env.utils.rlbench import *

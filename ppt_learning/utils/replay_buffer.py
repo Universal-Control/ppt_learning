@@ -108,8 +108,13 @@ class ReplayBuffer:
         def recursive_check(data):
             for key, value in data.items():
                 if isinstance(value, (zarr.hierarchy.Group, dict, OrderedDict)):
+                    if key == "initial_state":
+                        # skip initial state
+                        continue
                     recursive_check(value)
                 else:
+                    if value.shape[0] != root["meta"]["episode_ends"][-1]:
+                        import ipdb; ipdb.set_trace()
                     assert value.shape[0] == root["meta"]["episode_ends"][-1]
 
         recursive_check(root["data"])
