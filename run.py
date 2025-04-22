@@ -43,7 +43,7 @@ def run(cfg):
         print("wandb url:", wandb.run.get_url())
 
     device = "cuda"
-    domain_list = [d.strip() for d in cfg.domains.split(",").replace(".zarr", "")]
+    domain_list = [d.strip() for d in cfg.domains.split(",")]
     domain = domain_list[0] if len(domain_list) == 1 else "_".join(domain_list)
 
     output_dir_full = cfg.output_dir.split("/")
@@ -75,9 +75,9 @@ def run(cfg):
     # action_dim = 7  # 8 for rlbench, 7 for gensim2
     # state_dim = 15  # 15 # 24 for rlbench, 15 for gensim2
     if not is_eval:
+        cfg.dataset.dataset_path = cfg.dataset.get('dataset_path', '')+'/'+domain+'.zarr' if len(domain_list) == 1 else domain_list
         dataset = hydra.utils.instantiate(
             cfg.dataset,
-            dataset_path=cfg.dataset.get('dataset_path', '')+'/'+domain+'.zarr' if len(domain_list) == 1 else domain_list,
             **cfg.dataset,
         )
         normalizer = dataset.get_normalizer()

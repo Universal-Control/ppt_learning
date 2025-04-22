@@ -10,4 +10,11 @@ tqdm
 sentence_transformers 
 open3d
 tabulate
-zarr 
+zarr
+multimethod
+termcolor
+shortuuid
+diffusers
+pandas
+deepspeed
+numba
