@@ -11,7 +11,7 @@ suffix: "" # suffix for the experiment
 
 defaults:
   - _self_
-  - env: gensim2 # rlbench # gensim2
+  - env: isaacsim # rlbench # gensim2
   - datasetsize: all
 
 # self-explanatory torch config

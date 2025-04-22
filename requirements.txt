@@ -1,0 +1,13 @@
+torch
+torchvision
+ipdb
+trimesh
+einops
+hydra-core==1.3.2
+wandb
+transformers
+tqdm
+sentence_transformers 
+open3d
+tabulate
+zarr 

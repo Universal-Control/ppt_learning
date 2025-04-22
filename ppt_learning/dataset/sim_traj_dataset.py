@@ -174,11 +174,7 @@ class TrajDataset:
 
     def get_sa_dim(self):
         self.action_dim = self[0]["data"]["actions"].shape[-1]  #  * self.action_horizon
-        state_dim = 0
-        for key in self.state_keys:
-            if key in self[0]["data"].keys():
-                state_dim += self[0]["data"][key].shape[-1]
-        self.state_dim = state_dim
+        self.state_dim = self[0]["data"]["states"].shape[-1]
 
     def get_normalizer(self, mode="limits", **kwargs):
         """action normalizer"""
@@ -273,6 +269,7 @@ class TrajDataset:
     def __getitem__(self, idx: int):
         """normalize observation and actions"""
         sample = self.sampler.sample_sequence(idx)
+        del sample['states'] # original states are privileged info
 
         # the full horizon is for the trajectory
         def recursive_horizon(data):
@@ -280,7 +277,7 @@ class TrajDataset:
                 if isinstance(val, (dict, OrderedDict)):
                     recursive_horizon(val)
                 else:
-                    if (key != "action") and (key != "action_is_pad"):
+                    if (key != "actions") and (key != "action_is_pad"):
                         if key == "language":
                             data[key] = val
                         else:
@@ -369,6 +366,14 @@ class TrajDataset:
             for key, val in sample["obs"].items():
                 sample[key] = val
             del sample["obs"]
+        
+        sample["states"] = []
+        for key in self.state_keys:
+            if key in sample.keys():
+                sample["states"].append(sample[key])
+                del sample[key]
+        sample["states"] = np.concatenate(sample["states"], axis=-1)
+
         if not self.use_pcd:
             if "pointcloud" in sample.keys():
                 del sample["pointcloud"]
@@ -448,7 +453,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     dataset = TrajDataset(
-        dataset_path="/home/mhliu/IsaacLab/GR-Isaaclab/source/test_dataset.zarr",
+        dataset_path="/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_close_microwave_version_3_annotated.zarr",
         from_empty=False,
         use_disk=True,
         load_from_cache=True,

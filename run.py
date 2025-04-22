@@ -16,12 +16,10 @@ from ppt_learning.utils import utils, model_utils
 from ppt_learning.utils.warmup_lr_wrapper import WarmupLR
 from ppt_learning.paths import *
 
-
 sys.path.append(f"{PPT_DIR}/third_party/")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 from ppt_learning import train_test
-
 
 @hydra.main(
     config_path=f"{PPT_DIR}/experiments/configs",
@@ -45,7 +43,7 @@ def run(cfg):
         print("wandb url:", wandb.run.get_url())
 
     device = "cuda"
-    domain_list = [d.strip() for d in cfg.domains.split(",")]
+    domain_list = [d.strip() for d in cfg.domains.split(",").replace(".zarr", "")]
     domain = domain_list[0] if len(domain_list) == 1 else "_".join(domain_list)
 
     output_dir_full = cfg.output_dir.split("/")
@@ -74,12 +72,12 @@ def run(cfg):
     )
 
     normalizer = None
-    action_dim = 7  # 8 for rlbench, 7 for gensim2
-    state_dim = 15  # 15 # 24 for rlbench, 15 for gensim2
+    # action_dim = 7  # 8 for rlbench, 7 for gensim2
+    # state_dim = 15  # 15 # 24 for rlbench, 15 for gensim2
     if not is_eval:
         dataset = hydra.utils.instantiate(
             cfg.dataset,
-            dataset_name=domain if len(domain_list) == 1 else domain_list,
+            dataset_path=cfg.dataset.get('dataset_path', '')+'/'+domain+'.zarr' if len(domain_list) == 1 else domain_list,
             **cfg.dataset,
         )
         normalizer = dataset.get_normalizer()
