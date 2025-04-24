@@ -12,6 +12,7 @@ from ppt_learning.utils.pcd_utils import (
     randomly_drop_point,
     voxelize_point_cloud,
     se3_augmentation,
+    depth_to_pcd,
 )
 
 from ppt_learning.paths import *
@@ -299,7 +300,21 @@ class TrajDataset:
                             ]
 
         if self.use_pcd:
-            sample["obs"]["pointcloud"]["x"] = sample["obs"]["pointcloud"]["colors"]
+            if "pointcloud" not in sample["obs"]:
+                sample["obs"]["pointcloud"] = OrderedDict()
+                for cam_idx, cam_name in enumerate(sample["obs"]["depths"]):
+                    depth = sample["obs"]["depths"][cam_name]
+                    sample["obs"]["pointcloud"][f"camera_{cam_idx}"] = OrderedDict()
+                    import ipdb; ipdb.set_trace()
+                    sample["obs"]["pointcloud"][f"camera_{cam_idx}"]["pos"] = depth_to_pcd(
+                        depth=depth,
+                        intrinsic_matrix=self.replay_buffer.meta["camera_info"][f"camera_{cam_idx}"]["intrinsics"][0],
+                        position=self.replay_buffer.meta["camera_info"][f"camera_{cam_idx}"]["extrinsics"][0,:3],
+                        orientation=self.replay_buffer.meta["camera_info"][f"camera_{cam_idx}"]["extrinsics"][0,3:],
+                    )
+            import ipdb; ipdb.set_trace()
+            # TODO
+            # sample["obs"]["pointcloud"]["x"] = sample["obs"]["pointcloud"]["colors"]
 
             if self.data_augmentation:
                 sample["obs"]["pointcloud"]["pos"] = self.pcd_aug(
@@ -424,7 +439,7 @@ def delete_indices(
     env_name: str,
 ) -> np.ndarray:
     episode_ends = replay_buffer.episode_ends[:]
-    episode_desc = replay_buffer.episode_descriptions[:]
+    episode_desc = replay_buffer.meta["episode_descriptions"]
     env_names = replay_buffer.meta["env_names"]
 
     indices = list()
@@ -434,7 +449,7 @@ def delete_indices(
             if i > 0:
                 start_idx = episode_ends[i - 1]
             end_idx = episode_ends[i]
-            eps_description = episode_desc[i]
+            eps_description = episode_desc
             episode_length = end_idx - start_idx
 
             # TODO
@@ -453,7 +468,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     dataset = TrajDataset(
-        dataset_path="/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_close_microwave_version_3_annotated.zarr",
+        dataset_path="/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_close_microwave/ur5_close_microwave_version_4_generated_1000_2.zarr",
         from_empty=False,
         use_disk=True,
         load_from_cache=True,

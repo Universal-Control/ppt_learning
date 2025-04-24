@@ -1,12 +1,12 @@
 # @package _global_
-domains: "ur5_close_microwave_version_3_annotated" # dataset name to be loaded
+domains: "ur5_close_microwave_version_4_generated_1000_2" # dataset name to be loaded
 batch_size: 32 # batch size
 save_interval: 25
 
 # dataset config
 dataset:
   _target_: ppt_learning.dataset.sim_traj_dataset.TrajDataset
-  dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets
+  dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_close_microwave
   horizon: -1 # horizon for each dataset sample. should be action_horizon+observation_horizon-1 and will be replaced
   val_ratio: 0. # the train-validation ratio
   pad_after: ${dataset.action_horizon} # padding after the episode
