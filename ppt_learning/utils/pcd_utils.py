@@ -7,7 +7,8 @@ from scipy.spatial.transform import Rotation as R
 import plotly.graph_objects as go
 import os
 import torch
-from typing import Sequence, Union
+from typing import Sequence, Union, Dict, Tuple
+from collections import OrderedDict
 import copy
 # import warp as wp
 
@@ -26,7 +27,7 @@ except:
 
 TensorData = Union[np.ndarray, torch.Tensor]
 
-DESK2ROBOT_Z_AXIS = 0.0  # close laptop
+DESK2ROBOT_Z_AXIS = 0.0 
 BOUND = [0.15, 0.8, -0.6, 0.6, DESK2ROBOT_Z_AXIS + 0.005, 0.8]
 
 def rand_dist(size, min=-1.0, max=1.0):
@@ -750,7 +751,7 @@ def convert_to_torch(
             array = array.astype(np.int32)
         # need to deal with object arrays (np.void) separately
         tensor = torch.from_numpy(array)
-    # elif isinstance(array, wp.array):
+    # elif isinstance(array):
     #     if array.dtype == wp.uint32:
     #         array = array.view(wp.int32)
     #     tensor = wp.to_torch(array)
@@ -765,13 +766,13 @@ def convert_to_torch(
 
     return tensor
 
-def depth_to_pcd(
+def create_pointcloud_from_depth(
     intrinsic_matrix: np.ndarray | torch.Tensor,
     depth: np.ndarray | torch.Tensor,
     keep_invalid: bool = False,
     position: Sequence[float] | None = None,
     orientation: Sequence[float] | None = None,
-    device: torch.device | str | None = None,
+    device: torch.device | str | None = None
 ) -> np.ndarray | torch.Tensor:
     r"""Creates pointcloud from input depth image and camera intrinsic matrix.
 
@@ -836,7 +837,7 @@ def depth_to_pcd(
     if not keep_invalid:
         pts_idx_to_keep = torch.all(
             torch.logical_and(~torch.isnan(depth_cloud), ~torch.isinf(depth_cloud)),
-            dim=1,
+            dim=-1,
         )
         depth_cloud = depth_cloud[pts_idx_to_keep, ...]
 
@@ -845,3 +846,139 @@ def depth_to_pcd(
         return depth_cloud.detach().cpu().numpy()
     else:
         return depth_cloud
+    
+
+def create_pointcloud_from_rgbd(
+    intrinsic_matrix: torch.Tensor | np.ndarray,
+    depth: torch.Tensor | np.ndarray,
+    rgb: torch.Tensor | np.ndarray | Tuple[float, float, float] = None,
+    normalize_rgb: bool = False,
+    position: Sequence[float] | None = None,
+    orientation: Sequence[float] | None = None,
+    device: torch.device | str | None = None,
+    num_channels: int = 3,
+) -> Dict[str, Union[torch.Tensor, np.ndarray]]:
+    """Creates pointcloud from input depth image and camera transformation matrix.
+
+    This function provides the same functionality as :meth:`create_pointcloud_from_depth` but also allows
+    to provide the RGB values for each point.
+
+    The ``rgb`` attribute is used to resolve the corresponding point's color:
+
+    - If a ``np.array``/``wp.array``/``torch.tensor`` of shape (H, W, 3), then the corresponding channels encode RGB values.
+    - If a tuple, then the point cloud has a single color specified by the values (r, g, b).
+    - If None, then default color is white, i.e. (0, 0, 0).
+
+    If the input ``normalize_rgb`` is set to :obj:`True`, then the RGB values are normalized to be in the range [0, 1].
+
+    Args:
+        intrinsic_matrix: A (3, 3) array/tensor providing camera's calibration matrix.
+        depth: An array/tensor of shape (H, W) with values encoding the depth measurement.
+        rgb: Color for generated point cloud. Defaults to None.
+        normalize_rgb: Whether to normalize input rgb. Defaults to False.
+        position: The position of the camera in a target frame. Defaults to None.
+        orientation: The orientation `(w, x, y, z)` of the camera in a target frame. Defaults to None.
+        device: The device for torch where the computation should be executed. Defaults to None, in which case
+            it takes the device that matches the depth image.
+        num_channels: Number of channels in RGB pointcloud. Defaults to 3.
+
+    Returns:
+        A tuple of (N, 3) arrays or tensors containing the 3D coordinates of points and their RGB color respectively.
+        The returned datatype is torch if input depth is of type torch.tensor or wp.array. Otherwise, a np.ndarray
+        is returned.
+
+    Raises:
+        ValueError:  When rgb image is a numpy array but not of shape (H, W, 3) or (H, W, 4).
+    """
+    # check valid inputs
+    if rgb is not None and not isinstance(rgb, tuple):
+        if len(rgb.shape) == 3:
+            rgb = rgb[None]
+            if rgb.shape[2] not in [3, 4]:
+                raise ValueError(
+                    f"Input rgb image of invalid shape: {rgb.shape} != (H, W, 3) or (H, W, 4)."
+                )
+        elif len(rgb.shape) == 4:
+            if rgb.shape[3] not in [3, 4]:
+                raise ValueError(
+                    f"Input rgb image of invalid shape: {rgb.shape}!= (H, W, 3) or (H, W, 4)."
+                )
+        else:
+            raise ValueError(
+                f"Input rgb image not three-dimensional. Received shape: {rgb.shape}."
+            )
+    if num_channels not in [3, 4]:
+        raise ValueError(f"Invalid number of channels: {num_channels} != 3 or 4.")
+
+    # check if input depth is numpy array
+    is_numpy = isinstance(depth, np.ndarray)
+    # decide device
+    if device is None and is_numpy:
+        device = torch.device("cpu")
+    # convert depth to torch tensor
+    if is_numpy:
+        depth = torch.from_numpy(depth).to(device=device)
+    # retrieve XYZ pointcloud
+    points_xyz = create_pointcloud_from_depth(
+        intrinsic_matrix, depth, True, position, orientation, device=device
+    )
+
+    # get image height and width
+    im_height, im_width = depth.shape[-2:]
+    # total number of points
+    num_points = im_height * im_width
+    # extract color value
+    if rgb is not None:
+        if isinstance(rgb, (np.ndarray, torch.Tensor)):
+            # copy numpy array to preserve
+            rgb = convert_to_torch(rgb, device=device, dtype=torch.float32)
+            rgb = rgb[:, :, :, :3]
+            # convert the matrix to (W, H, 3) from (H, W, 3) since depth processing
+            # is done in the order (u, v) where u: (0, W-1) and v: (0 - H-1)
+            batch_size, H, W, _ = rgb.shape
+            
+            # 使用 permute 重排维度，从 [B, H, W, 3] 变为 [B, W, H, 3]
+            # 然后 reshape 为 [B, W*H, 3]
+            points_rgb = rgb.permute(0, 2, 1, 3).reshape(batch_size, W*H, 3)
+        elif isinstance(rgb, (tuple, list)):
+            # same color for all points
+            points_rgb = torch.Tensor(
+                (rgb,) * num_points, device=device, dtype=torch.uint8
+            )
+        else:
+            # default color is white
+            points_rgb = torch.Tensor(
+                ((0, 0, 0),) * num_points, device=device, dtype=torch.uint8
+            )
+    else:
+        points_rgb = torch.Tensor(
+            ((0, 0, 0),) * num_points, device=device, dtype=torch.uint8
+        )
+    # normalize color values
+    if normalize_rgb:
+        points_rgb = points_rgb.float() / 255
+
+    # remove invalid points
+    pts_idx_to_keep = torch.all(
+        torch.logical_and(~torch.isnan(points_xyz), ~torch.isinf(points_xyz)), dim=-1
+    )
+    points_rgb[pts_idx_to_keep, ...] = -1.
+    points_xyz[pts_idx_to_keep, ...] = 0
+
+    # add additional channels if required
+    if num_channels == 4:
+        points_rgb = torch.nn.functional.pad(
+            points_rgb, (0, 1), mode="constant", value=1.0
+        )
+
+    # return everything according to input type
+    if is_numpy:
+        res = {}
+        res["pos"] = points_xyz.cpu().numpy()
+        res["color"] = points_rgb.cpu().numpy()
+        return res
+    else:
+        res = {}
+        res["pos"] = points_xyz
+        res["color"] = points_rgb
+        return res

@@ -70,6 +70,7 @@ def run(cfg):
     cfg.dataset.horizon = (
         cfg.dataset.observation_horizon + cfg.dataset.action_horizon - 1
     )
+    cfg.dataset.domain = domain
 
     normalizer = None
     # action_dim = 7  # 8 for rlbench, 7 for gensim2

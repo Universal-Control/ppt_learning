@@ -120,6 +120,7 @@ class SequenceSampler:
         keys=None,
         key_first_k=dict(),
         episode_mask: Optional[np.ndarray] = None,
+        ignored_keys=[],
     ):
         """
         key_first_k: dict str: int
@@ -154,6 +155,7 @@ class SequenceSampler:
         self.sequence_length = sequence_length
         self.replay_buffer = replay_buffer
         self.key_first_k = key_first_k
+        self.ignored_keys = ignored_keys
 
     def __len__(self):
         return len(self.indices)
@@ -171,6 +173,8 @@ class SequenceSampler:
 
         def recursive_sample(data, target_dict):
             for key, input_arr in data.items():
+                if key in self.ignored_keys:
+                    continue
                 if isinstance(input_arr, (dict, OrderedDict, zarr.Group)):
                     target_dict[key] = {}
                     recursive_sample(input_arr, target_dict[key])

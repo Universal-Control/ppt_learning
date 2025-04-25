@@ -12,7 +12,7 @@ from ppt_learning.utils.pcd_utils import (
     randomly_drop_point,
     voxelize_point_cloud,
     se3_augmentation,
-    depth_to_pcd,
+    create_pointcloud_from_rgbd,
 )
 
 from ppt_learning.paths import *
@@ -39,7 +39,8 @@ class TrajDataset:
 
     def __init__(
         self,
-        dataset_path="",
+        domain,
+        dataset_path,
         state_keys=None,
         mode="train",
         episode_cnt=10,
@@ -69,8 +70,10 @@ class TrajDataset:
         env_names=None,
         voxelization=False,
         voxel_size=0.01,
+        ignored_keys=None,
         **kwargs,
     ):
+        self.dataset_name = domain
         self.horizon = horizon
         self.pad_before = pad_before
         self.pad_after = pad_after
@@ -111,6 +114,9 @@ class TrajDataset:
                 "joint_pos",
                 "joint_vel",
             ]
+        self.ignored_keys = ignored_keys
+        if ignored_keys is None:
+            self.ignored_keys = ["initial_state", "states"]
 
         self.voxelization = voxelization
         self.voxel_size = voxel_size
@@ -174,8 +180,8 @@ class TrajDataset:
         self.pcd_num_points = pcd_setup_cfg.num_points
 
     def get_sa_dim(self):
-        self.action_dim = self[0]["data"]["actions"].shape[-1]  #  * self.action_horizon
-        self.state_dim = self[0]["data"]["states"].shape[-1]
+        self.action_dim = self[0]["data"]["action"].shape[-1]  #  * self.action_horizon
+        self.state_dim = self[0]["data"]["state"].shape[-1]
 
     def get_normalizer(self, mode="limits", **kwargs):
         """action normalizer"""
@@ -219,9 +225,12 @@ class TrajDataset:
         return self.replay_buffer.get_episode(idx)
 
     def _sample_to_data(self, sample):
-        data = {"action": sample["action"]}
-        if "state" in sample and self.normalize_state:
-            data["state"] = sample["state"]  # 1 x N
+        data = {"action": sample["action"]} if "action" in sample else {"action": sample["actions"]}
+        if self.normalize_state:
+            if "state" in sample:
+                data["state"] = sample["state"]  # 1 x N
+            else:
+                data["state"] = self.get_state(sample)
         return data
 
     def get_training_dataset(self, val_ratio, seed):
@@ -245,6 +254,7 @@ class TrajDataset:
             pad_before=self.pad_before,
             pad_after=self.pad_after,
             episode_mask=self.train_mask,
+            ignored_keys=self.ignored_keys,
         )
         print(
             f"{self.dataset_path} size: {len(self.sampler)} episodes: {n_episodes} train: {self.train_mask.sum()} eval: {self.val_mask.sum()}"
@@ -270,7 +280,9 @@ class TrajDataset:
     def __getitem__(self, idx: int):
         """normalize observation and actions"""
         sample = self.sampler.sample_sequence(idx)
-        del sample['states'] # original states are privileged info
+        if "actions" in sample: # Align the name
+            sample["action"] = sample["actions"]
+            del sample["actions"]
 
         # the full horizon is for the trajectory
         def recursive_horizon(data):
@@ -278,13 +290,13 @@ class TrajDataset:
                 if isinstance(val, (dict, OrderedDict)):
                     recursive_horizon(val)
                 else:
-                    if (key != "actions") and (key != "action_is_pad"):
+                    if (key not in ["action", "actions"]) and (key != "action_is_pad"):
                         if key == "language":
                             data[key] = val
                         else:
                             data[key] = val[: self.observation_horizon]
                     else:
-                        if key == "action":
+                        if key in ["action", "actions"]:
                             data["action"] = val[
                                 self.observation_horizon
                                 - 1 : self.action_horizon
@@ -301,21 +313,35 @@ class TrajDataset:
 
         if self.use_pcd:
             if "pointcloud" not in sample["obs"]:
-                sample["obs"]["pointcloud"] = OrderedDict()
-                for cam_idx, cam_name in enumerate(sample["obs"]["depths"]):
-                    depth = sample["obs"]["depths"][cam_name]
-                    sample["obs"]["pointcloud"][f"camera_{cam_idx}"] = OrderedDict()
-                    import ipdb; ipdb.set_trace()
-                    sample["obs"]["pointcloud"][f"camera_{cam_idx}"]["pos"] = depth_to_pcd(
-                        depth=depth,
+                sample["obs"]["pointcloud"] = {}
+                for cam_idx, (cam_name_depth, cam_name_rgb) in enumerate(zip(sample["obs"]["depths"], sample["obs"]["images"])):
+                    depth = sample["obs"]["depths"][cam_name_depth]
+                    rgb = sample["obs"]["images"][cam_name_rgb]
+                    sample["obs"]["pointcloud"][f"camera_{cam_idx}"] = create_pointcloud_from_rgbd(
+                        depth=depth[..., 0],
+                        rgb=rgb,
                         intrinsic_matrix=self.replay_buffer.meta["camera_info"][f"camera_{cam_idx}"]["intrinsics"][0],
                         position=self.replay_buffer.meta["camera_info"][f"camera_{cam_idx}"]["extrinsics"][0,:3],
                         orientation=self.replay_buffer.meta["camera_info"][f"camera_{cam_idx}"]["extrinsics"][0,3:],
                     )
-            import ipdb; ipdb.set_trace()
-            # TODO
-            # sample["obs"]["pointcloud"]["x"] = sample["obs"]["pointcloud"]["colors"]
-
+                camera_nums = len(sample["obs"]["pointcloud"])
+                sample["obs"]["pointcloud"]["pos"] = np.concatenate(
+                    [
+                        sample["obs"]["pointcloud"][f"camera_{cam_idx}"]["pos"]
+                        for cam_idx in range(camera_nums)
+                    ],
+                    axis=1,
+                )
+                sample["obs"]["pointcloud"]["color"] = np.concatenate(
+                    [
+                        sample["obs"]["pointcloud"][f"camera_{cam_idx}"]["color"]
+                        for cam_idx in range(camera_nums)
+                    ],
+                    axis=1,
+                )
+                for cam_idx in range(camera_nums):
+                    del sample["obs"]["pointcloud"][f"camera_{cam_idx}"]
+                
             if self.data_augmentation:
                 sample["obs"]["pointcloud"]["pos"] = self.pcd_aug(
                     sample["obs"]["pointcloud"]["pos"]
@@ -323,6 +349,7 @@ class TrajDataset:
 
             if self.se3_augmentation:
                 poses, gripper = sample["action"][:, :6], sample["action"][:, 6:]
+                import ipdb; ipdb.set_trace()
                 poses, sample["obs"]["pointcloud"]["pos"] = se3_augmentation(
                     poses, sample["obs"]["pointcloud"]["pos"], bounds=self.bounds
                 )
@@ -367,7 +394,7 @@ class TrajDataset:
         #     assert sample["pointcloud"].shape[-1] == self.pcd_channels, f"pointcloud channel mismatch! expected {self.pcd_channels}, got {sample['pointcloud'].shape[-1]}"
         recursive_horizon(sample)
 
-        return {"data": sample}
+        return {"domain": self.dataset_name, "data": sample}
 
     def save_dataset(self):
         self.replay_buffer.save_to_path(self.dataset_path)
@@ -376,18 +403,24 @@ class TrajDataset:
         self.replay_buffer = ReplayBuffer.copy_from_path(self.dataset_path)
         print("Replay buffer keys: ", self.replay_buffer.keys())
 
+    def get_state(self, sample):
+        sample["state"] = []
+        for key in self.state_keys:
+            if key in sample.keys():
+                sample["state"].append(sample[key])
+                del sample[key]
+        sample["state"] = np.concatenate(sample["state"], axis=-1)
+
+        return sample
+
     def flat_sample(self, sample):
         if "obs" in sample.keys():
             for key, val in sample["obs"].items():
                 sample[key] = val
             del sample["obs"]
         
-        sample["states"] = []
-        for key in self.state_keys:
-            if key in sample.keys():
-                sample["states"].append(sample[key])
-                del sample[key]
-        sample["states"] = np.concatenate(sample["states"], axis=-1)
+        if "state" not in sample:
+            sample = self.get_state(sample)
 
         if not self.use_pcd:
             if "pointcloud" in sample.keys():

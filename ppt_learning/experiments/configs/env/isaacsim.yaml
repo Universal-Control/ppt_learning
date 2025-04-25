@@ -6,13 +6,14 @@ save_interval: 25
 # dataset config
 dataset:
   _target_: ppt_learning.dataset.sim_traj_dataset.TrajDataset
+  domain: "isaacsim"
   dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_close_microwave
   horizon: -1 # horizon for each dataset sample. should be action_horizon+observation_horizon-1 and will be replaced
   val_ratio: 0. # the train-validation ratio
   pad_after: ${dataset.action_horizon} # padding after the episode
   # episode_cnt: 100 # total episodes
   step_cnt: 30000 # total data transitions
-  data_augmentation: True # data augmentation
+  data_augmentation: False # data augmentation
   se3_augmentation: False # se3 augmentation
   use_disk: True # use disk ins1tead of memory to store the data
   pad_before: ${dataset.observation_horizon} # padding before the episode
@@ -123,7 +124,7 @@ stem:
     pcd_domain: 'scanobjectnn'
     finetune: True
     cfg_name: 'pointnext-s' # We need output_dim to be equal to `modality_embed_dim`, it happens to be 512 in this case so we do not need anything else
-    pretrained_path: "pretrained_weights/scanobjectnn-pointnext-s_best.pth" # path/to/pretrained/pointnet.pth
+    pretrained_path: "/mnt/bn/robot-minghuan-debug/ppt_learning/pretrained_weights/scanobjectnn-pointnext-s_best.pth" # path/to/pretrained/pointnet.pth
     # cfg_name: 'pointvector-s' # We need output_dim to be equal to `modality_embed_dim`, it happens to be 512 in this case so we do not need anything else
     # pretrained_path: "pretrained_weights/scanobjectnn-train-pointvector-s-ngpus1-seed4677-20230327-151936-XVPsr4boZEJ2dG2zfrH94T_ckpt_best.pth"
 
