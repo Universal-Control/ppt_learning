@@ -71,7 +71,7 @@ class TrajDataset:
         voxelization=False,
         voxel_size=0.01,
         ignored_keys=None,
-        use_lru_cache=True
+        use_lru_cache=True,
         **kwargs,
     ):
         self.dataset_name = domain
