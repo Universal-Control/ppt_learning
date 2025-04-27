@@ -17,17 +17,17 @@ defaults:
 # self-explanatory torch config
 dataloader:
   batch_size: ${batch_size}
-  num_workers: 1
+  num_workers: 8
   pin_memory: true
-  persistent_workers: false
+  persistent_workers: true
   shuffle: true
   drop_last: true
 val_dataloader:
   batch_size: ${batch_size}
-  num_workers: 1
+  num_workers: 8
   shuffle: false
   pin_memory: true
-  persistent_workers: false
+  persistent_workers: true
   drop_last: true
 optimizer:
   _target_: torch.optim.AdamW

@@ -120,7 +120,7 @@ def update_pcd_transform(pcdnet_pretrain_domain, pcd_setup_cfg=None):
 
 def preprocess_obs(sample, pcd_aug=None, pcd_transform=None, pcd_channels=4):
     if "pointcloud" in sample.keys():
-        sample["pointcloud"]["x"] = sample["pointcloud"]["colors"]
+        sample["pointcloud"]["x"] = sample["pointcloud"]["color"]
 
         if pcd_aug is not None:
             pcd_aug = lambda x: randomly_drop_point(add_gaussian_noise(x))
@@ -339,7 +339,7 @@ class RLBenchRolloutRunner:
 
     @torch.no_grad()
     def run(self, policy, env_name, seed=233):
-        env = self.env.get_task(ENV_DICT[env_name])  # -> Task
+        env = self.env
         if self.save_video:
             self.tr._current_snaps = []
             self.tr._cam_motion.save_pose()
@@ -450,7 +450,193 @@ class RLBenchRolloutRunner:
 
         return total_success / episode_num, total_reward / episode_num, self.tr
 
+def _recursive_flat_env_dim(obs: dict):
+    flatted_dict = {}
+    for k, v in obs.items():
+        if isinstance(v, dict):
+            flatted_dict[k] = _recursive_flat_env_dim(v)
+        else:
+            flatted_dict[k] = v[0]
+    return flatted_dict
 
+class IsaacEnvRolloutRunner:
+    def __init__(
+        self,
+        task_name,
+        episode_num=100,
+        save_video=False,
+        headless=True,
+        obs_mode="pointcloud",
+        pcd_channels=4,
+        pcdnet_pretrain_domain="",
+        random_reset=True,
+        collision_pred=False,
+        num_envs=1,
+        device="cuda:0",
+        seed=0,
+        state_keys=None,
+    ):
+        assert obs_mode == "pointcloud"
+
+        self.task_name = task_name
+        self.save_video = save_video
+        self.headless = headless
+        self.episode_num = episode_num
+        self.pcd_channels = pcd_channels
+        self.pcd_transform, self.pcd_num_points = update_pcd_transform(
+            pcdnet_pretrain_domain
+        )
+        self.random_reset = random_reset
+        self.collision_pred = collision_pred
+        self.device = device
+        self.num_envs = num_envs
+        self.state_keys = state_keys
+        if state_keys is None:
+            self.state_keys = [
+                "eef_pos",
+                "eef_quat",
+                "joint_pos",
+                "joint_vel",
+            ]
+        from isaaclab.app import AppLauncher
+        app_launcher_kwargs = {
+            "headless": self.headless,
+            "enable_cameras": True
+        }
+        self.app_launcher = AppLauncher(None, **app_launcher_kwargs)
+        self.app = self.app_launcher.app
+
+        self.pcd_aug = lambda x: randomly_drop_point(add_gaussian_noise(x))
+        import isaaclab_mimic.envs 
+        import bytemini_sim.tasks
+        from isaaclab_tasks.utils.parse_cfg import parse_env_cfg
+        from isaaclab.envs import ManagerBasedRLEnv
+        import gymnasium as gym
+        
+        env_cfg = parse_env_cfg(self.task_name, device=self.device, num_envs=self.num_envs)
+        self.success_term = env_cfg.terminations.success
+        env_cfg.seed = seed
+        self.env: ManagerBasedRLEnv = gym.make(self.task_name, cfg=env_cfg).unwrapped
+        print("Env created")
+
+    def get_state(self, sample):
+        sample["state"] = []
+        for key in self.state_keys:
+            if key in sample.keys():
+                sample["state"].append(sample[key])
+                del sample[key]
+        sample["state"] = torch.cat(sample["state"], dim=-1)
+
+        return sample
+
+    def _isaac_obs_warpper(self, obs):
+        ppt_obs = {}
+        ppt_obs["pointcloud"] = {
+            "color": obs["policy_infer"]["pointcloud"][..., 1],
+            "pos": obs["policy_infer"]["pointcloud"][..., 0]
+        }
+        ppt_obs.update(obs["policy"])
+        ppt_obs = _recursive_flat_env_dim(ppt_obs)
+        if "state" not in ppt_obs:
+            ppt_obs = self.get_state(ppt_obs)
+        return ppt_obs
+
+    @torch.inference_mode()
+    def run(self, policy):
+        episode_num = self.episode_num  # upper bound for number of trajectories
+        imgs = OrderedDict()
+
+        total_success = 0
+        total_reward = 0
+        env = self.env
+
+        pbar = tqdm(range(episode_num), position=1, leave=True)
+
+        for i in pbar:
+            eps_reward = 0
+            traj_length = 0
+            done = False
+            policy.reset()
+            obs, _ = env.reset()
+            openloop_actions = deque()
+            task_description = ""
+
+            for t in range(MAX_EP_STEPS):
+                traj_length += 1
+
+                with torch.no_grad():
+                    if len(openloop_actions) > 0:
+                        action = openloop_actions.popleft()
+                    else:
+                        if "pointcloud" in obs.keys() or 'pointcloud' in obs["policy_infer"].keys():
+                            action = policy.get_action(
+                                preprocess_obs(
+                                    self._isaac_obs_warpper(obs),
+                                    # self.pcd_aug,
+                                    None,
+                                    self.pcd_transform,
+                                    self.pcd_channels,
+                                ),
+                                pcd_npoints=self.pcd_num_points,
+                                in_channels=self.pcd_channels,
+                                task_description=task_description,
+                                t=t,
+                            )
+                        else:
+                            action = policy.get_action(
+                                preprocess_obs(self._isaac_obs_warpper(obs), None, None, 3),
+                                pcd_npoints=self.pcd_num_points,
+                                in_channels=3,
+                                task_description=task_description,
+                                t=t,
+                            )
+                        if len(action.shape) > 1:
+                            for a in action[1:]:
+                                openloop_actions.append(a)
+                            action = action[0]
+                action[-1] = 0.0 if action[-1] < 0.5 else 1.0
+                if self.collision_pred:
+                    assert False, "Temporarily not support collision pred"
+                    action[-2] = 0.0 if action[-2] < 0.5 else 1.0
+                    ignore_collisions = bool(action[-1])
+                    action = action[:-1]
+                    next_obs, reward, terminations, timeouts, info = env.step(
+                        action
+                    )
+                    done = torch.logical_or(terminations, timeouts)
+                else:
+                    if isinstance(action, np.ndarray):
+                        action = torch.from_numpy(action)
+                    next_obs, reward, terminations, timeouts, info = env.step(action[None])
+                    done = torch.logical_or(terminations, timeouts)
+                if self.save_video:
+                    for key, val in env.get_images().items():
+                        if key not in imgs:
+                            imgs[key] = []
+                        imgs[key].append(val)
+
+                eps_reward += reward
+                obs = next_obs
+
+                if done:
+                    break
+
+            # if not info["sub_task_success"]:
+            #     break
+
+            total_reward += eps_reward
+            total_success += eps_reward
+            # total_success += info["success"]
+
+            pbar.set_description(
+                f"{self.task_name} total_success: {total_success}"
+            )
+
+        return total_success / episode_num, total_reward / episode_num, imgs
+
+
+    
 if __name__ == "__main__":
     # generate for all tasks
-    runner = RolloutRunner(["all"], 200)
+    runner = IsaacEnvRolloutRunner("Isaac-UR5-CloseMicroWave-Mimic-v0", headless=True)
+    print("Done")

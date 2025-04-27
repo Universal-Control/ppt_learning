@@ -71,6 +71,7 @@ class TrajDataset:
         voxelization=False,
         voxel_size=0.01,
         ignored_keys=None,
+        use_lru_cache=True
         **kwargs,
     ):
         self.dataset_name = domain
@@ -116,7 +117,8 @@ class TrajDataset:
             ]
         self.ignored_keys = ignored_keys
         if ignored_keys is None:
-            self.ignored_keys = ["initial_state", "states"]
+            self.ignored_keys = ["initial_state", "states", "depths", "images", "color"]
+            # self.use_pcd = False
 
         self.voxelization = voxelization
         self.voxel_size = voxel_size
@@ -133,9 +135,16 @@ class TrajDataset:
         if use_disk:
             # self.replay_buffer = ReplayBuffer.create_empty_zarr(storage=zarr.DirectoryStore(path=dataset_path))
             if load_from_cache:
-                self.replay_buffer = ReplayBuffer.create_from_path(
-                    dataset_path, self.env_names
-                )
+                if use_lru_cache:
+                    store = zarr.DirectoryStore(dataset_path)
+                    cache = zarr.LRUStoreCache(store=store, max_size=2**30)
+                    group = zarr.open(cache, "r")
+                    self.replay_buffer = ReplayBuffer.create_from_group(group, env_names=self.env_names)
+                    print("Use lru cache")
+                else:
+                    self.replay_buffer = ReplayBuffer.create_from_path(
+                        dataset_path, self.env_names
+                    )
             else:
                 self.replay_buffer = ReplayBuffer.create_empty_zarr(
                     storage=zarr.DirectoryStore(path=dataset_path)
@@ -279,7 +288,11 @@ class TrajDataset:
 
     def __getitem__(self, idx: int):
         """normalize observation and actions"""
+        import time
+        start_time = time.time()
         sample = self.sampler.sample_sequence(idx)
+        end_time = time.time()
+        # print("Time used of sample:", end_time - start_time)
         if "actions" in sample: # Align the name
             sample["action"] = sample["actions"]
             del sample["actions"]
