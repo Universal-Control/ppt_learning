@@ -2,15 +2,16 @@ import os, sys
 from typing import Union
 
 import hydra
-import torch
-from torch.utils import data
-from torchvision import transforms
 from tqdm import trange
 
 import csv
-from torch.utils.data import DataLoader, RandomSampler
 import wandb
 from omegaconf import OmegaConf
+
+import torch
+from torch.utils import data
+from torchvision import transforms
+from torch.utils.data import DataLoader, RandomSampler
 
 from ppt_learning.utils import utils, model_utils
 from ppt_learning.utils.warmup_lr_wrapper import WarmupLR
@@ -31,9 +32,14 @@ def run(cfg):
     This script runs through the train / test / eval loop. Assumes single task for now.
     """
     is_eval = cfg.train.total_epochs == 0
+
+    device = "cuda"
+    domain_list = [d.strip() for d in cfg.domains.split(",")]
+    domain = domain_list[0] if len(domain_list) == 1 else "_".join(domain_list)
+
     if not cfg.debug:
         run = wandb.init(
-            project="mid-level",
+            project=domain,
             name=cfg.suffix,
             tags=[cfg.wb_tag],
             config=OmegaConf.to_container(cfg, resolve=True),
@@ -41,10 +47,6 @@ def run(cfg):
             resume="allow",
         )
         print("wandb url:", wandb.run.get_url())
-
-    device = "cuda"
-    domain_list = [d.strip() for d in cfg.domains.split(",")]
-    domain = domain_list[0] if len(domain_list) == 1 else "_".join(domain_list)
 
     output_dir_full = cfg.output_dir.split("/")
     output_dir = "/".join(output_dir_full[:-2] + [domain, ""])

@@ -19,4 +19,6 @@ pandas
 deepspeed
 numba
 easydict
+timm
 ftfy
+chamferdist

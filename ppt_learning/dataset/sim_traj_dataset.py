@@ -72,8 +72,10 @@ class TrajDataset:
         voxel_size=0.01,
         ignored_keys=None,
         use_lru_cache=True,
+        rank=0,  # Add rank for DDP
         **kwargs,
-    ):
+    ):  
+        self.rank = rank
         self.dataset_name = domain
         self.horizon = horizon
         self.pad_before = pad_before
@@ -140,7 +142,7 @@ class TrajDataset:
                     cache = zarr.LRUStoreCache(store=store, max_size=2**30)
                     group = zarr.open(cache, "r")
                     self.replay_buffer = ReplayBuffer.create_from_group(group, env_names=self.env_names)
-                    print("Use lru cache")
+                    print("Using lru cache")
                 else:
                     self.replay_buffer = ReplayBuffer.create_from_path(
                         dataset_path, self.env_names
@@ -410,7 +412,8 @@ class TrajDataset:
         return {"domain": self.dataset_name, "data": sample}
 
     def save_dataset(self):
-        self.replay_buffer.save_to_path(self.dataset_path)
+        if self.rank == 0:  # Only rank 0 saves the dataset
+            self.replay_buffer.save_to_path(self.dataset_path)
 
     def load_dataset(self):
         self.replay_buffer = ReplayBuffer.copy_from_path(self.dataset_path)
