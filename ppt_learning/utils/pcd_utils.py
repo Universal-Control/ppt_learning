@@ -588,7 +588,7 @@ def pcd_filter_bound(cloud, eps=1e-3, max_dis=1.5, bound=BOUND):
 
 def pcd_filter_with_mask(obs, mask, env=None):
     assert isinstance(obs, dict), f"{type(obs)}"
-    for key in ["pos", "colors", "seg", "visual_seg", "robot_seg"]:
+    for key in ["pos", "color", "seg", "visual_seg", "robot_seg"]:
         select_mask(obs, key, mask)
 
 

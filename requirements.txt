@@ -3,7 +3,7 @@ torchvision
 ipdb
 trimesh
 einops
-hydra-core==1.3.2
+hydra-core
 wandb
 transformers
 tqdm
