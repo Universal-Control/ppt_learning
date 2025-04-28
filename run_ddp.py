@@ -74,11 +74,9 @@ def run(rank: int, world_size: int, cfg: DictConfig):
         print("wandb url:", wandb.run.get_url())
 
     output_dir_full = cfg.output_dir.split("/")
-    output_dir = "/".join(output_dir_full[:-2] + [domain, ""])
+    output_dir = "/".join(output_dir_full + [domain, ""])
     if len(cfg.suffix):
         output_dir += f"{cfg.suffix}"
-    else:
-        output_dir += "-".join(output_dir_full[-2:])
     if is_eval:
         output_dir += "-eval"
     cfg.output_dir = output_dir

@@ -312,7 +312,7 @@ class Diffusion(nn.Module):
         )
 
         if num_inference_steps is None:
-            self.num_inference_steps = self.noise_scheduler.num_train_timesteps
+            self.num_inference_steps = self.noise_scheduler.config.num_train_timesteps
         else:
             self.num_inference_steps = num_inference_steps
 
@@ -379,7 +379,7 @@ class Diffusion(nn.Module):
         # Sample a random noising timestep for each item in the batch.
         timesteps = torch.randint(
             low=0,
-            high=self.noise_scheduler.num_train_timesteps,
+            high=self.noise_scheduler.config.num_train_timesteps,
             size=(trajectory.shape[0],),
             device=trajectory.device,
         ).long()

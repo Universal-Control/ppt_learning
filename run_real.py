@@ -38,7 +38,7 @@ MAX_EP_STEPS = 500
 # TODO fill in config_name with config from training
 @hydra.main(
     config_path=f"{PPT_DIR}/experiments/configs",
-    config_name="gensim_cotrain",
+    config_name="config",
     version_base="1.2",
 )
 def run(cfg):

@@ -55,73 +55,24 @@ def log_stat(
     model,
     optimizer,
     start_time,
-    rank=0,
-    world_size=1,
     use_wandb=True,
 ):
-    # Only rank 0 logs to avoid duplicates
-    if rank != 0:
-        return
-
     if domain + "_loss" not in info_log:
         info_log[domain + "_loss"] = deque([], maxlen=50)
 
-    # Clone loss to avoid modifying the original tensor
-    loss_item = loss.item()
+    info_log[domain + "_loss"].append(loss.item())
+    info_log["loss"].append(loss.item())
+    info_log["max_label_action"].append(target.max().item())
+    if output is not None:
+        info_log["max_action"].append(output.max().item())
 
-    # Aggregate metrics in DDP mode
-    if dist.is_initialized() and world_size > 1:
-        # Aggregate loss (average)
-        loss_tensor = torch.tensor(loss_item, device=loss.device)
-        dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
-        loss_item = loss_tensor.item() / world_size
-
-        # Aggregate max_label_action (maximum across processes)
-        max_label_action = torch.tensor(target.max().item(), device=loss.device)
-        dist.all_reduce(max_label_action, op=dist.ReduceOp.MAX)
-
-        # Aggregate max_action (maximum, if output is not None)
-        max_action = torch.tensor(output.max().item() if output is not None else 0.0, device=loss.device)
-        if output is not None:
-            dist.all_reduce(max_action, op=dist.ReduceOp.MAX)
-
-        # Aggregate gradients and mean_param (maximum for gradients, average for mean_param)
-        max_gradient = torch.tensor(module_max_gradient(model), device=loss.device)
-        max_stem_gradient = torch.tensor(module_max_gradient(model.stems), device=loss.device)
-        max_trunk_gradient = torch.tensor(module_max_gradient(model.trunk), device=loss.device)
-        max_head_gradient = torch.tensor(module_max_gradient(model.heads), device=loss.device)
-        mean_param = torch.tensor(module_mean_param(model), device=loss.device)
-
-        dist.all_reduce(max_gradient, op=dist.ReduceOp.MAX)
-        dist.all_reduce(max_stem_gradient, op=dist.ReduceOp.MAX)
-        dist.all_reduce(max_trunk_gradient, op=dist.ReduceOp.MAX)
-        dist.all_reduce(max_head_gradient, op=dist.ReduceOp.MAX)
-        dist.all_reduce(mean_param, op=dist.ReduceOp.SUM)
-        mean_param = mean_param.item() / world_size
-    else:
-        # Single-process mode: Use local values
-        max_label_action = target.max().item()
-        max_action = output.max().item() if output is not None else 0.0
-        max_gradient = module_max_gradient(model)
-        max_stem_gradient = module_max_gradient(model.stems)
-        max_trunk_gradient = module_max_gradient(model.trunk)
-        max_head_gradient = module_max_gradient(model.heads)
-        mean_param = module_mean_param(model)
-
-    # Store metrics in info_log
-    info_log[domain + "_loss"].append(loss_item)
-    info_log["loss"].append(loss_item)
-    info_log["max_label_action"].append(max_label_action)
-    info_log["max_action"].append(max_action)
-    info_log["max_gradient"].append(max_gradient)
-    info_log["max_stem_gradient"].append(max_stem_gradient)
-    info_log["max_trunk_gradient"].append(max_trunk_gradient)
-    info_log["max_head_gradient"].append(max_head_gradient)
-    info_log["mean_param"].append(mean_param)
+    info_log["max_gradient"].append(module_max_gradient(model))
+    info_log["max_stem_gradient"].append(module_max_gradient(model.stems))
+    info_log["max_trunk_gradient"].append(module_max_gradient(model.trunk))
+    info_log["max_head_gradient"].append(module_max_gradient(model.heads))
+    info_log["mean_param"].append(module_mean_param(model))
     info_log["batch_time"].append(time.time() - start_time)
     info_log["lr"].append(optimizer.param_groups[0]["lr"])
-
-    # Log to wandb (only rank 0)
     if use_wandb and (train_step % log_interval == 0):
         wandb_metrics = {
             f"{log_name}/{k}": np.mean(v) for k, v in info_log.items() if len(v) > 0
@@ -197,24 +148,22 @@ def train(
         model_ = model.module if isinstance(model, DDP) else model
 
         # Log stats (only rank 0, with aggregated metrics)
-        log_stat(
-            info_log,
-            train_step,
-            log_interval,
-            log_name,
-            batch["domain"][0],
-            target,
-            domain_loss,
-            output,
-            model_,
-            optimizer,
-            start_time,
-            rank=rank,
-            world_size=world_size,
-            use_wandb=not debug,
-        )
-
         if rank == 0:
+            log_stat(
+                info_log,
+                train_step,
+                log_interval,
+                log_name,
+                batch["domain"][0],
+                target,
+                domain_loss,
+                output,
+                model_,
+                optimizer,
+                start_time,
+                use_wandb=not debug,
+            )
+
             step_time = time.time() - start_time
             pbar.set_description(
                 f"Epoch: {epoch} Step: {batch_idx}/{epoch_size} Time: {step_time:.3f} {data_time:.3f} Loss: {info_log[batch['domain'][0] + '_loss'][-1]:.3f} Grad: {info_log['max_gradient'][-1]:.3f}"
@@ -274,18 +223,10 @@ def test(
         test_loss += loss.item() * target.size(0)  # Weighted by batch size
         num_examples += target.size(0)
 
-    # Aggregate test_loss and num_examples across processes
-    if dist.is_initialized() and world_size > 1:
-        loss_tensor, num_examples_tensor = torch.tensor([test_loss, num_examples], device=device)
-        dist.all_reduce(loss_tensor, op=dist.ReduceOp.SUM)
-        dist.all_reduce(num_examples_tensor, op=dist.ReduceOp.SUM)
-        test_loss = loss_tensor.item()
-        num_examples = num_examples_tensor.item()
     # Compute global average loss (only rank 0 logs)
     if rank == 0:
-        global_loss = test_loss / num_examples if num_examples > 0 else 0.0
         pbar.set_description(
-            f"Test Epoch: {epoch} Step: {batch_idx} Domain: {batch['domain'][0]} Loss: {global_loss:.3f}"
+            f"Test Epoch: {epoch} Step: {batch_idx} Domain: {batch['domain'][0]} Loss: {test_loss / (num_examples + 1):.3f}"
         )
 
     return test_loss / (num_examples + 1)
