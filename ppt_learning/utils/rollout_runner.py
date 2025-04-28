@@ -502,6 +502,8 @@ class IsaacEnvRolloutRunner:
                 "joint_pos",
                 "joint_vel",
             ]
+        self.pcd_aug = lambda x: randomly_drop_point(add_gaussian_noise(x))
+
         from isaaclab.app import AppLauncher
         app_launcher_kwargs = {
             "headless": self.headless,
@@ -510,7 +512,6 @@ class IsaacEnvRolloutRunner:
         self.app_launcher = AppLauncher(None, **app_launcher_kwargs)
         self.app = self.app_launcher.app
 
-        self.pcd_aug = lambda x: randomly_drop_point(add_gaussian_noise(x))
         import isaaclab_mimic.envs 
         import bytemini_sim.tasks
         from isaaclab_tasks.utils.parse_cfg import parse_env_cfg
@@ -522,14 +523,14 @@ class IsaacEnvRolloutRunner:
         env_cfg.terminations.success = None
         env_cfg.seed = seed
         self.gym_env = gym.make(self.task_name, cfg=env_cfg)
+        self.env = self.gym_env.unwrapped
+        print("Env created")
+
         self.video_save_dir = Path(video_save_dir)
         if self.save_video and self.video_save_dir is None:
             import time
             date_time = time.strftime("%m%d-%H%M%S")
             self.video_save_dir = Path(f'./outputs/video_eval/{date_time}')
-
-        self.env = self.gym_env.unwrapped
-        print("Env created")
 
     def get_state(self, sample):
         sample["state"] = []
@@ -567,7 +568,6 @@ class IsaacEnvRolloutRunner:
         for i in pbar:
             if self.save_video:
                 video_logger = {}
-                os.makedirs(self.video_save_dir / f"{i}-th-eval", exist_ok=True)
             eps_reward = 0
             traj_length = 0
             done = False
@@ -628,7 +628,6 @@ class IsaacEnvRolloutRunner:
                         terminations[0] = True
                     done = torch.logical_or(terminations, timeouts)
 
-
                 eps_reward += reward
                 if self.save_video:
                     for key in obs["images"]:
@@ -648,9 +647,9 @@ class IsaacEnvRolloutRunner:
             if self.save_video:
                 import imageio.v3 as imageio
                 for key in video_logger:
-                    imageio.imwrite(self.video_save_dir / f"{i}-th-eval" / f"{key}.mp4", video_logger[key])
-            # total_success += info["success"]
-
+                    postfix = "success" if success else "fail"
+                    os.makedirs(self.video_save_dir / f"{i}-th-{postfix}", exist_ok=True)
+                    imageio.imwrite(self.video_save_dir / f"{i}-th-{postfix}" / f"{key}.mp4", video_logger[key])
             pbar.set_description(
                 f"{self.task_name} total_success: {total_success}"
             )
@@ -658,7 +657,6 @@ class IsaacEnvRolloutRunner:
         return total_success / episode_num, total_reward / episode_num, imgs
 
 
-    
 if __name__ == "__main__":
     # generate for all tasks
     runner = IsaacEnvRolloutRunner("Isaac-UR5-CloseMicroWave-Mimic-v0", headless=True)
