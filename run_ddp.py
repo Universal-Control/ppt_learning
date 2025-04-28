@@ -212,17 +212,6 @@ def run(rank: int, world_size: int, cfg: DictConfig):
                 in_channels=dataset.pcd_channels,
                 debug=cfg.debug,
             )
-            test_loss = train_test.test(
-                policy,
-                device,
-                test_loader,
-                epoch,
-                rank=rank,
-                world_size=world_size,
-                pcd_npoints=pcd_num_points,
-                in_channels=dataset.pcd_channels,
-                debug=cfg.debug,
-            )
             train_steps = (epoch + 1) * len(train_loader)
 
             # Save policy (only rank 0)
@@ -235,7 +224,7 @@ def run(rank: int, world_size: int, cfg: DictConfig):
 
             if rank == 0 and "loss" in train_stats:
                 pbar.set_description(
-                    f"Steps: {train_steps}. Train loss: {train_stats['loss']:.4f}. Test loss: {test_loss:.4f}"
+                    f"Steps: {train_steps}. Train loss: {train_stats['loss']:.4f}."
                 )
 
             if train_steps > cfg.train.total_iters:
@@ -243,17 +232,14 @@ def run(rank: int, world_size: int, cfg: DictConfig):
 
         if rank == 0:
             policy.module.save(policy_path)
+            
         pbar.close()
-
-    # Evaluate jointly trained policy
-    if cfg.parallel_eval:
-        total_success = train_test.eval_policy_parallel(policy, cfg)
-    else:
-        total_success = train_test.eval_policy_sequential(policy, cfg)
 
     print("saved results to:", cfg.output_dir)
     # save the results
     utils.log_results(cfg, total_success)
+
+    dist.destroy_process_group()
 
 def filter_ddp_args():
     """Filter out DDP-specific arguments to avoid Hydra conflicts."""

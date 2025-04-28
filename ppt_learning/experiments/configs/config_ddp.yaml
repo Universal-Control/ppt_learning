@@ -5,7 +5,7 @@ log_interval: 10
 script_name: ''
 pretrained_dir: ''
 parallel_eval: false
-env_names: ${rollout_runner.env_names}
+env_names: ${dataset.env_names}
 debug: False # Turn off to allow wandb logging
 suffix: "" # suffix for the experiment
 

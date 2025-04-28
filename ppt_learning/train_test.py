@@ -210,8 +210,9 @@ def test(
         else:
             output = model.forward_train(batch)
         target = batch["data"]["action"].to(device)
-        if target.shape[1] == 0:
+        if rank == 0 and target.shape[1] == 0:
             continue
+        
         if isinstance(output, (dict, OrderedDict)):
             loss = output["loss"]
             output = None

@@ -29,7 +29,9 @@ dataset:
   use_pcd: False # To be replaced
   pcdnet_pretrain_domain : "" # To be replaced
   pcd_channels: 4 # 3 is pos, 4 is [pos, height], 5 is [pos, height, seg], 6 is [pos, color], 7 is [pos, color, height]
-  # env_names: ${rollout_runner.env_names}
+  env_names: [
+    "Isaac-UR5-CloseMicroWave-Mimic-v0"
+  ]
 
 # test
 rollout_runner:
@@ -41,7 +43,7 @@ rollout_runner:
   obs_mode: "pointcloud"
   pcdnet_pretrain_domain : "" # To be replaced
   pcd_channels: ${dataset.pcd_channels}
-  video_save_dir: "${hydra:runtime.output_dir}/eval_video"
+  video_save_dir: "${output_dir}/eval_video"
 
 # train:
 #   total_epochs: 5000  # maximum training epochs before termination
