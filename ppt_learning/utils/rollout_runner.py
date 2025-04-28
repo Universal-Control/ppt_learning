@@ -29,6 +29,7 @@ from ppt_learning.utils.pcd_utils import (
     add_gaussian_noise,
 )
 from ppt_learning.paths import *
+from pathlib import Path
 
 try:
     from gensim2.env.task.origin_tasks import *
@@ -50,6 +51,7 @@ except Exception as e:
 
 MAX_EP_STEPS = 100
 MAX_RLBENCH_EP_STEPS = 100
+MAX_ISAAC_EP_STEPS = 350
 
 
 def normalize_quaternion(q):
@@ -475,6 +477,8 @@ class IsaacEnvRolloutRunner:
         device="cuda:0",
         seed=0,
         state_keys=None,
+        video_save_dir=None,
+        **kwargs,
     ):
         assert obs_mode == "pointcloud"
 
@@ -515,8 +519,16 @@ class IsaacEnvRolloutRunner:
         
         env_cfg = parse_env_cfg(self.task_name, device=self.device, num_envs=self.num_envs)
         self.success_term = env_cfg.terminations.success
+        env_cfg.terminations.success = None
         env_cfg.seed = seed
-        self.env: ManagerBasedRLEnv = gym.make(self.task_name, cfg=env_cfg).unwrapped
+        self.gym_env = gym.make(self.task_name, cfg=env_cfg)
+        self.video_save_dir = Path(video_save_dir)
+        if self.save_video and self.video_save_dir is None:
+            import time
+            date_time = time.strftime("%m%d-%H%M%S")
+            self.video_save_dir = Path(f'./outputs/video_eval/{date_time}')
+
+        self.env = self.gym_env.unwrapped
         print("Env created")
 
     def get_state(self, sample):
@@ -551,8 +563,11 @@ class IsaacEnvRolloutRunner:
         env = self.env
 
         pbar = tqdm(range(episode_num), position=1, leave=True)
-
+        
         for i in pbar:
+            if self.save_video:
+                video_logger = {}
+                os.makedirs(self.video_save_dir / f"{i}-th-eval", exist_ok=True)
             eps_reward = 0
             traj_length = 0
             done = False
@@ -560,8 +575,8 @@ class IsaacEnvRolloutRunner:
             obs, _ = env.reset()
             openloop_actions = deque()
             task_description = ""
-
-            for t in range(MAX_EP_STEPS):
+            success = False
+            for t in range(MAX_ISAAC_EP_STEPS):
                 traj_length += 1
 
                 with torch.no_grad():
@@ -608,14 +623,18 @@ class IsaacEnvRolloutRunner:
                     if isinstance(action, np.ndarray):
                         action = torch.from_numpy(action)
                     next_obs, reward, terminations, timeouts, info = env.step(action[None])
+                    if self.success_term.func(env, **self.success_term.params):
+                        success = True
+                        terminations[0] = True
                     done = torch.logical_or(terminations, timeouts)
-                if self.save_video:
-                    for key, val in env.get_images().items():
-                        if key not in imgs:
-                            imgs[key] = []
-                        imgs[key].append(val)
+
 
                 eps_reward += reward
+                if self.save_video:
+                    for key in obs["images"]:
+                        if key not in video_logger:
+                            video_logger[key] = []
+                        video_logger[key].append(obs["images"][key][0].cpu().numpy())
                 obs = next_obs
 
                 if done:
@@ -625,7 +644,11 @@ class IsaacEnvRolloutRunner:
             #     break
 
             total_reward += eps_reward
-            total_success += eps_reward
+            total_success += success
+            if self.save_video:
+                import imageio.v3 as imageio
+                for key in video_logger:
+                    imageio.imwrite(self.video_save_dir / f"{i}-th-eval" / f"{key}.mp4", video_logger[key])
             # total_success += info["success"]
 
             pbar.set_description(
