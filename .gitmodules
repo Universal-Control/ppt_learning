@@ -1,0 +1,3 @@
+[submodule "python-urx-ur5e-fix"]
+	path = ppt_learning/third_party/python-urx-ur5e-fix
+	url = https://github.com/xshenhan/python-urx-ur5e-fix.git
