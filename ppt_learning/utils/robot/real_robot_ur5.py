@@ -25,7 +25,8 @@ from ppt_learning.utils.shared_memory.shared_memory_ring_buffer import (
 from ppt_learning.utils.pcd_utils import *
 from ppt_learning.utils.calibration import *
 from ppt_learning.paths import PPT_DIR
-import urx
+import rtde_control
+import rtde_receive
 from typing import List
 # cuRobo
 from curobo.types.base import TensorDeviceType
@@ -118,15 +119,20 @@ class UR5_IK:
 
 
 class RealRobot:
-    def __init__(self, ip="192.168.1.243", fps=15, init_q=None, 
+    def __init__(self, ip="192.168.1.243", fps=30, init_q=None, 
                 control_space='joint'):
         print("Intializing robot ...")
 
         # Initialize robot connection and libraries
-        self.robot = urx.Robot(ip)
+        self.robot_c = rtde_control.RTDEControlInterface(ip)
+        self.robot_r = rtde_receive.RTDEReceiveInterface(ip)
         self.gripper = None # Gripper TODO
         self.control_space = control_space
         self.dt = 1. / fps
+        self.velocity = 0.5
+        self.acceleration = 0.5
+        self.lookahead_time = 0.1
+        self.gain = 300
         self.init_q = init_q
         if self.init_q is None:
             self.init_q = [
@@ -200,8 +206,7 @@ class RealRobot:
 
     def init_robot(self):
         joint_pose = self.init_q
-        self.robot.get_realtime_monitor()
-        self.robot.movej(joint_pose, vel=0.2)
+        self.robot_c.moveJ(joint_pose)
         # self.gripper.move(width=0.0, speed=0.1) # Gripper TODO
 
         # replicate in sim
@@ -227,7 +232,7 @@ class RealRobot:
 
     @property
     def tcp_pose(self):
-        joint = self.robot.getj()
+        joint = self.robot_r.getActualQ()
         joint_torch = torch.tensor(joint, device="cuda").reshape(1, 6)
         ee_torch = self.ik_helper.kin_model.get_state(joint_torch)
         
@@ -244,14 +249,12 @@ class RealRobot:
         # gripper_state = self.gripper.read_once()
         # gripper_qpos = gripper_state.width
         gripper_qpos = 0.0
-        data = self.robot.rtmon.get_all_data(wait=False)
-        p = data["tcp"]
         ee_pose = self.tcp_pose
         obs = {
             "eef_pos": ee_pose[:3],
             "eef_quat": ee_pose[3:],
-            "joint_pos": np.concatenate([data["qActual"], np.array([0])], axis=-1),
-            "joint_vel": np.concatenate([data["qdActual"], np.array([0])], axis=-1),
+            "joint_pos": np.array(self.robot_r.getActualQ() + [0]),
+            "joint_vel": np.array(self.robot_r.getActualQd() + [0]),
         }
         return obs
 
@@ -281,7 +284,7 @@ class RealRobot:
         """
         import time
         start_time = time.time()
-        current_joint_np = self.robot.getj()
+        current_joint_np = self.robot_r.getActualQ()
         current_joint = torch.tensor(current_joint_np, device="cuda").reshape(1, 6)
         joint = self.ik_helper.solve_batch(
             torch.tensor(action[:3], device="cuda").to(torch.float32),
@@ -291,9 +294,16 @@ class RealRobot:
         end_time = time.time()
         print("time to solve ik {}".format(end_time - start_time))
         try:
-            # self.robot.movej(joint, vel=.4)
-            self.robot.servoj(joint, vel=0, acc=0, t=0.008, lookahead_time=0.01, gain=300)
-            # self.robot.speedx("speedj", (joint - current_joint_np) / self.dt, min_time=self.dt)
+            t_start = self.robot_c.initPeriod()
+            self.robot_c.servoJ(
+                joint.tolist(), self.velocity, self.acceleration,
+                self.dt, self.lookahead_time, self.gain
+            )
+            self.robot_c.waitPeriod(t_start)
+            # self.robot.movej(joint, vel=.4, acc=0.4)
+            # self.robot.servoj(joint, vel=0, acc=0, t=0.008, lookahead_time=0.01, gain=300, threshold=0.1)
+            # self.robot.speedx("speedj", (joint - current_joint_np)/0.2, acc=0.4, min_time=0.2)
+            # time.sleep(1 / self.fps - (time.time() - end_time))
             print("time to move robot {}".format(time.time() - end_time))
             # self.gripper.move(width=gripper, speed=0.3) # Gripper TODO
 
@@ -322,7 +332,8 @@ class RealRobot:
 
 
     def end(self):
-        self.robot.stop()
+        # self.robot.stop()
+        pass
 
 
 if __name__ == "__main__":

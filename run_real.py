@@ -27,7 +27,8 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 hostname = ""  # TODO fill in the hostname
 deploy_on_real = True
-MAX_EP_STEPS = 5000
+MAX_EP_STEPS = 600
+FPS = 15
 state_keys = [
                 "eef_pos",
                 "eef_quat",
@@ -46,7 +47,7 @@ def run(cfg):
     """
     This script runs through the train / test / eval loop. Assumes single task for now.
     """
-    robot = RealRobot()
+    robot = RealRobot(fps=FPS)
     assert hasattr(
         cfg, "prompt"
     ), "Prompt not found in config, use +prompt 'task description' to run"
@@ -175,6 +176,7 @@ def run_in_real(policy, cfg, robot=None):
 
         obs = next_obs
         this_time = time.time()
+        time.sleep(max(1 / FPS - (this_time - last_time), 0))
         logger.info(f"At step {t}: FPS this step: {1 / (this_time - last_time)}, FPS average step: {t / (this_time - init_time)}")
         last_time = this_time
 
