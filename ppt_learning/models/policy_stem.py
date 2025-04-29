@@ -83,6 +83,14 @@ class ResNet(nn.Module):
         **kwargs,
     ):
         super().__init__()
+
+        self.register_buffer(
+            "_mean", torch.tensor([0.485, 0.456, 0.406]).view(1, 1, 3, 1, 1)
+        )
+        self.register_buffer(
+            "_std", torch.tensor([0.229, 0.224, 0.225]).view(1, 1, 3, 1, 1)
+        )
+
         pretrained_model = getattr(torchvision.models, resnet_model)(weights=weights)
         # by default we use a separate image encoder for each view in downstream evaluation
         self.num_of_copy = num_of_copy
@@ -111,6 +119,10 @@ class ResNet(nn.Module):
         # flatten first
         B, N, D, H, W = x.shape
         x = x.reshape(len(x), -1, 3, H, W)
+        
+        # normalize
+        x = (x/255. - self._mean) / self._std
+
         if self.num_of_copy > 1:
             # separate encoding for each view
             out = []

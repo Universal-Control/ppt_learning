@@ -119,7 +119,7 @@ class TrajDataset:
             ]
         self.ignored_keys = ignored_keys
         if ignored_keys is None:
-            self.ignored_keys = ["initial_state", "states", "depths", "images", "color"]
+            self.ignored_keys = ["initial_state", "states", "depths"] # , "images", "color"]
             # self.use_pcd = False
 
         self.voxelization = voxelization
@@ -364,7 +364,6 @@ class TrajDataset:
 
             if self.se3_augmentation:
                 poses, gripper = sample["action"][:, :6], sample["action"][:, 6:]
-                import ipdb; ipdb.set_trace()
                 poses, sample["obs"]["pointcloud"]["pos"] = se3_augmentation(
                     poses, sample["obs"]["pointcloud"]["pos"], bounds=self.bounds
                 )
@@ -437,6 +436,9 @@ class TrajDataset:
         
         if "state" not in sample:
             sample = self.get_state(sample)
+
+        if "images" in sample.keys() and "image" not in sample.keys():
+            sample["image"] = sample.pop("images")
 
         if not self.use_pcd:
             if "pointcloud" in sample.keys():
