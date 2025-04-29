@@ -230,7 +230,7 @@ class RealRobot:
         """
         pcds = self.realsense.get()
         pcds = pcds["pcds"]
-        pcd = {"pos": pcds[..., :3], "colors": pcds[..., 3:]}
+        pcd = {"pos": pcds[..., :3], "color": pcds[..., 3:]}
 
         if visualize:
             vis_pcd(pcds)

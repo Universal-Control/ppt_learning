@@ -28,7 +28,8 @@ except:
 TensorData = Union[np.ndarray, torch.Tensor]
 
 DESK2ROBOT_Z_AXIS = 0.0 
-BOUND = [0.15, 0.8, -0.6, 0.6, DESK2ROBOT_Z_AXIS + 0.005, 0.8]
+# BOUND = [0.15, 0.8, -0.6, 0.6, DESK2ROBOT_Z_AXIS + 0.005, 0.8]
+BOUND = [0.2, 1.03, -1.2, 1.2, -0.3, 0.7]
 
 def rand_dist(size, min=-1.0, max=1.0):
     return (max - min) * torch.rand(size) + min

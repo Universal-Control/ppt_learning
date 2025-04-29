@@ -6,12 +6,8 @@ from torch.utils import data
 from torchvision import transforms
 from torch.utils.data import DataLoader, RandomSampler
 
-import panda_py
-from panda_py import libfranka
-from panda_py import controllers
-
 from ppt_learning.utils.rollout_runner import preprocess_obs, update_pcd_transform
-from ppt_learning.utils.robot.real_robot import RealRobot
+from ppt_learning.utils.robot.real_robot_ur5 import RealRobot
 from ppt_learning.utils import utils, model_utils
 from ppt_learning.utils.warmup_lr_wrapper import WarmupLR
 
@@ -23,7 +19,7 @@ import time
 import open3d as o3d
 from collections import deque
 import argparse
-
+from loguru import logger
 import threading
 
 sys.path.append(f"{PPT_DIR}/third_party/")
@@ -31,21 +27,26 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 hostname = ""  # TODO fill in the hostname
 deploy_on_real = True
-MAX_EP_STEPS = 500
-
+MAX_EP_STEPS = 5000
+state_keys = [
+                "eef_pos",
+                "eef_quat",
+                "joint_pos",
+                "joint_vel",
+            ]
 
 # TODO use +prompt "task description" to run specific task
 # TODO fill in config_name with config from training
 @hydra.main(
     config_path=f"{PPT_DIR}/experiments/configs",
-    config_name="config",
+    config_name="config_eval",
     version_base="1.2",
 )
 def run(cfg):
     """
     This script runs through the train / test / eval loop. Assumes single task for now.
     """
-
+    robot = RealRobot()
     assert hasattr(
         cfg, "prompt"
     ), "Prompt not found in config, use +prompt 'task description' to run"
@@ -86,8 +87,8 @@ def run(cfg):
     # initialize policy
     cfg.stem.pointcloud.pretrained_path = None
     cfg.stem.pointcloud.finetune = False
-    cfg.head["output_dim"] = cfg.network["action_dim"] = 7
-    cfg.stem.state["input_dim"] = 15
+    cfg.head["output_dim"] = cfg.network["action_dim"] = 8
+    cfg.stem.state["input_dim"] = 21
     policy = hydra.utils.instantiate(cfg.network)
     policy.init_domain_stem(domain, cfg.stem)
     policy.init_domain_head(domain, cfg.head, normalizer=None)  # no normalizer
@@ -96,7 +97,7 @@ def run(cfg):
     policy.finalize_modules()
     print("cfg.train.pretrained_dir:", cfg.train.pretrained_dir)
 
-    model_name = ""  # TODO fill in the model name
+    model_name = cfg.train.model_name  # TODO fill in the model name
     assert os.path.exists(
         os.path.join(cfg.train.pretrained_dir, model_name)
     ), "Pretrained model not found"
@@ -111,15 +112,21 @@ def run(cfg):
 
     policy.eval()
 
-    robot = RealRobot()
+    
 
-    t1 = threading.Thread(target=robot.log_pose)
+    # t1 = threading.Thread(target=robot.log_pose)
 
-    t1.start()
+    # t1.start()
     run_in_real(policy, cfg, robot)
 
+def get_state(sample):
+    res = []
+    for key in state_keys:
+        res.append(sample[key])
+    res = np.concatenate(res, axis=-1)
 
-@torch.no_grad()
+    return res
+
 def run_in_real(policy, cfg, robot=None):
     print("Running in real")
     pcdnet_pretrain_domain = cfg.dataset.pcdnet_pretrain_domain
@@ -132,9 +139,10 @@ def run_in_real(policy, cfg, robot=None):
     traj_length = 0
     done = False
     policy.reset()
-    obs = robot.get_obs(visualize=True)
+    obs = robot.get_obs(visualize=False)
     openloop_actions = deque()
-
+    init_time = time.time()
+    last_time = init_time
     for t in range(MAX_EP_STEPS):
         traj_length += 1
         if done:
@@ -143,6 +151,7 @@ def run_in_real(policy, cfg, robot=None):
             if len(openloop_actions) > 0:
                 action = openloop_actions.popleft()
             else:
+                obs["state"] = get_state(obs["state"])
                 obs = preprocess_obs(
                     obs, pcd_transform=pcd_transform, pcd_channels=pcd_channels
                 )
@@ -165,6 +174,9 @@ def run_in_real(policy, cfg, robot=None):
         next_obs = robot.step(action, visualize=False)
 
         obs = next_obs
+        this_time = time.time()
+        logger.info(f"At step {t}: FPS this step: {1 / (this_time - last_time)}, FPS average step: {t / (this_time - init_time)}")
+        last_time = this_time
 
 
 if __name__ == "__main__":

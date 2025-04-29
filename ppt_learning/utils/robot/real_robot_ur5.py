@@ -1,9 +1,5 @@
-import panda_py
-from panda_py import libfranka
-
 import time
 import threading
-import transforms3d
 import roboticstoolbox as rtb
 from scipy.spatial.transform import Rotation as R
 
@@ -28,32 +24,112 @@ from ppt_learning.utils.shared_memory.shared_memory_ring_buffer import (
 )
 from ppt_learning.utils.pcd_utils import *
 from ppt_learning.utils.calibration import *
-from ppt_learning.paths import PPT_DIR, ASSET_ROOT
+from ppt_learning.paths import PPT_DIR
 import urx
+from typing import List
+# cuRobo
+from curobo.types.base import TensorDeviceType
+from curobo.types.math import Pose
+from curobo.types.robot import RobotConfig
+from curobo.cuda_robot_model.cuda_robot_model import CudaRobotModel
+from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig
 
 # TODO fill in these values
 hostname = ""
 cameras = {
-    "wrist_cam": "",
-    "right_cam": "",
-    "left_cam": "",
+    "camera_0": "943222070526",
+    "camera_1": "233622074344",
 }  # wrist, left, right cam
+
+class UR5_IK:
+    def __init__(self,
+            urdf_path = f"{PPT_DIR}/third_party/ur5_isaac_simulation/robot.urdf",
+            init_q: np.ndarray = None,
+            ee_link_name: str = "",
+            base_link_name: str = ""
+    ):
+        """初始化 UR5 IK 求解器"""
+        # Essential parameters
+        self.tensor_args = TensorDeviceType(device=torch.device("cuda"))
+        self.ee_link_name = ee_link_name if ee_link_name else "wrist_3_link"
+        self.base_link_name = base_link_name if base_link_name else "base_link"
+        self.filter_state = None
+        
+        # Create robot config and IK solver
+        self.robot_cfg = RobotConfig.from_basic(
+            urdf_path, self.base_link_name, self.ee_link_name, self.tensor_args
+        )
+        
+        # Setup default configuration
+        self.kin_model = CudaRobotModel(self.robot_cfg.kinematics)
+
+        self.dof = self.kin_model.get_dof()
+        self.full_q0 = np.zeros(self.dof)
+        if self.dof >= 6:  # Assuming standard UR5 joint layout
+            self.full_q0[0] = -1.57
+            self.full_q0[1] = -1.57
+        
+        # Use provided initial configuration if available
+        if init_q is not None:
+            assert len(init_q) == len(self.full_q0), f"Initial position length mismatch"
+            self.full_q0 = np.copy(init_q)
+            
+        # Configure and initialize IK solver
+        self.ik_config = IKSolverConfig.load_from_robot_config(
+            self.robot_cfg,
+            None,
+            position_threshold=0.005,
+            num_seeds=1,
+            self_collision_check=True,
+            self_collision_opt=True,
+            tensor_args=self.tensor_args,
+            high_precision=False,
+            use_cuda_graph=True,
+            grad_iters=None,
+            regularization=False,
+        )
+        
+        self.ik_solver = IKSolver(self.ik_config)
+        self.last_shape = None
+        self.last_dtype = None
+    
+    def solve_batch(
+        self,
+        target_pos,
+        target_quat,
+        joints_batch,
+        orientation_cost=None,
+        stop_thres=0.02,
+        dt=0.01,
+        max_try_times=20,
+    ):
+        """批量IK问题并行求解"""
+        if target_pos.shape != self.last_shape or target_pos.dtype!= self.last_dtype:
+            self.last_shape = target_pos.shape
+            self.last_dtype = target_pos.dtype
+            infer_mode = False
+        else:
+            infer_mode = True
+        # with torch.inference_mode(infer_mode):
+        pose = Pose(target_pos, target_quat)
+        result = self.ik_solver.solve_batch(pose, retract_config=joints_batch, seed_config=joints_batch[None], return_seeds=1)
+        q_solution: torch.Tensor = result.solution
+        return q_solution[:, 0, :]
 
 
 class RealRobot:
-    def __init__(self, ip="192.168.1.243", fps=30, init_pose=None, 
+    def __init__(self, ip="192.168.1.243", fps=15, init_q=None, 
                 control_space='joint'):
         print("Intializing robot ...")
 
         # Initialize robot connection and libraries
         self.robot = urx.Robot(ip)
         self.gripper = None # Gripper TODO
-        self.panda.enable_logging(int(10))
         self.control_space = control_space
-        self.fps = fps
-        self.init_pose = init_pose
-        if self.init_pose is None:
-            self.init_pose = [
+        self.dt = 1. / fps
+        self.init_q = init_q
+        if self.init_q is None:
+            self.init_q = [
                 -3.02692452,
                 -2.00677957,
                 -1.50796447,
@@ -62,8 +138,14 @@ class RealRobot:
                 -0.055676
             ]
 
+        self.ik_helper = UR5_IK(
+            init_q = self.init_q,
+            ee_link_name="wrist_3_link"
+        )
+        
+
         self.init_robot()
-        # self.init_cameras() # 
+        self.init_cameras() # 
 
         # other
         self.current_step = 0
@@ -71,13 +153,14 @@ class RealRobot:
         self._buffer = {}
 
         print("Finished initializing robot.")
+        self._last_command_j = None
 
     def init_cameras(self):
         self.shm_manager = SharedMemoryManager()
         self.shm_manager.start()
 
         # get initial pose
-        init_pose = self.panda.get_pose()
+        init_pose = self.tcp_pose
 
         # same for time
         init_time = time.time()
@@ -116,22 +199,19 @@ class RealRobot:
             time.sleep(0.1)
 
     def init_robot(self):
-        joint_pose = self.init_pose
+        joint_pose = self.init_q
         self.robot.get_realtime_monitor()
-        self.robot.movej(joint_pose)
+        self.robot.movej(joint_pose, vel=0.2)
         # self.gripper.move(width=0.0, speed=0.1) # Gripper TODO
 
         # replicate in sim
         action = np.zeros((8,))
-        action[:-1] = joint_pose
+        action[:-1] = self.tcp_pose
 
     def log_pose(self, verbose=False):
         while True:
             start_time = time.time()
-            p = self.robot.get_pose()
-            pose = np.ascontiguousarray(np.concatenate([
-                p.pos.array, p.orientation.quaternion.array
-            ])).astype(np.float32)
+            pose = self.tcp_pose
             init_time = time.time()
 
             data = {
@@ -147,9 +227,12 @@ class RealRobot:
 
     @property
     def tcp_pose(self):
-        p = self.robot.get_pose()
+        joint = self.robot.getj()
+        joint_torch = torch.tensor(joint, device="cuda").reshape(1, 6)
+        ee_torch = self.ik_helper.kin_model.get_state(joint_torch)
+        
         pose = np.ascontiguousarray(np.concatenate([
-            p.pos.array, p.orientation.quaternion.array
+            ee_torch.ee_position.cpu().numpy()[0], ee_torch.ee_quaternion.cpu().numpy()[0]
         ])).astype(np.float32)
         return pose
 
@@ -161,11 +244,12 @@ class RealRobot:
         # gripper_state = self.gripper.read_once()
         # gripper_qpos = gripper_state.width
         gripper_qpos = 0.0
-        data = self.robot.rtmon.get_all_data()
+        data = self.robot.rtmon.get_all_data(wait=False)
         p = data["tcp"]
+        ee_pose = self.tcp_pose
         obs = {
-            "eef_pos": p.pos.array,
-            "eef_quat": p.orientation.quaternion.array,
+            "eef_pos": ee_pose[:3],
+            "eef_quat": ee_pose[3:],
             "joint_pos": np.concatenate([data["qActual"], np.array([0])], axis=-1),
             "joint_vel": np.concatenate([data["qdActual"], np.array([0])], axis=-1),
         }
@@ -180,10 +264,10 @@ class RealRobot:
         # TODO Mix pcds
         pcds = self.realsense.get()
         pcds = pcds["pcds"]
-        pcd = {"pos": pcds[..., :3], "colors": pcds[..., 3:]}
+        pcd = {"pos": pcds[..., :3], "color": pcds[..., 3:]}
 
         if visualize:
-            vis_pcd(pcds)
+            vis_pcd(pcd)
 
         state = self.get_robot_state()
 
@@ -195,16 +279,22 @@ class RealRobot:
         """
         Step robot in the real.
         """
-        # Simple motion in cartesian space
-        gripper = action[-1]
-        quat = action[3:-1]
-
-        pose = np.concatenate([action[:3], quat], axis=0)
-        print(pose)
-
+        import time
+        start_time = time.time()
+        current_joint_np = self.robot.getj()
+        current_joint = torch.tensor(current_joint_np, device="cuda").reshape(1, 6)
+        joint = self.ik_helper.solve_batch(
+            torch.tensor(action[:3], device="cuda").to(torch.float32),
+            torch.tensor(action[3:-1], device="cuda").to(torch.float32),
+            current_joint.to(torch.float32)
+        )[0].cpu().numpy()
+        end_time = time.time()
+        print("time to solve ik {}".format(end_time - start_time))
         try:
-
-            self.robot.movel(pose)
+            # self.robot.movej(joint, vel=.4)
+            self.robot.servoj(joint, vel=0, acc=0, t=0.008, lookahead_time=0.01, gain=300)
+            # self.robot.speedx("speedj", (joint - current_joint_np) / self.dt, min_time=self.dt)
+            print("time to move robot {}".format(time.time() - end_time))
             # self.gripper.move(width=gripper, speed=0.3) # Gripper TODO
 
         except Exception as e:

@@ -58,6 +58,7 @@ class MultiRealsense(mp.Process):
         capture_fps=30,
         put_fps=None,
         pose_buffer=None,
+        npoints_per_camera=8192,
     ):
         super().__init__()
         if shm_manager is None:
@@ -65,7 +66,7 @@ class MultiRealsense(mp.Process):
             shm_manager.start()
 
         n_cameras = len(serial_numbers.keys())
-
+        self.npoints_per_camera = npoints_per_camera
         cameras = dict()
         for cam_name in serial_numbers.keys():
             cameras[cam_name] = SingleRealsense(
@@ -74,8 +75,8 @@ class MultiRealsense(mp.Process):
                 serial_number=serial_numbers[cam_name],
                 resolution=resolution,
                 capture_fps=capture_fps,
-                transform=calib[cam_name]["transform"],
-                transform_T=calib[cam_name]["rotation"],
+                transform=calib_ur[cam_name]["transform"],
+                transform_T=calib_ur[cam_name]["rotation"],
                 put_fps=put_fps,
                 get_max_k=10,
             )
@@ -83,7 +84,7 @@ class MultiRealsense(mp.Process):
         pcd_ring_buffer = SharedMemoryRingBuffer.create_from_examples(
             shm_manager=shm_manager,
             examples={
-                "pcds": np.empty((16384, 6), dtype=np.float32),
+                "pcds": np.empty((self.npoints_per_camera, 6), dtype=np.float32),
             },
             get_time_budget=0.3,
             get_max_k=10,
@@ -221,21 +222,21 @@ class MultiRealsense(mp.Process):
             mask = pcd_filter_bound(pcds[..., :3])
             pcds = pcds[mask]
 
-            pcds = pcds[uniform_sampling(pcds, npoints=16384)]
+            pcds = pcds[uniform_sampling(pcds, npoints=8192)]
 
             # commented out for data collection. Uncomment for testing
 
-            fps_sampling_idx = fpsample.fps_sampling(pcds[..., :3], 5000)
+            # fps_sampling_idx = fpsample.fps_sampling(pcds[..., :3], 5000)
 
-            pcds = pcds[fps_sampling_idx]
+            # pcds = pcds[fps_sampling_idx]
 
-            pcds = pcds[
-                dbscan_outlier_removal_idx(pcds[..., :3], eps=0.3, min_samples=300)
-            ]
-            pcds = pcds[
-                dbscan_outlier_removal_idx(pcds[..., :3], eps=0.02, min_samples=5)
-            ]
-            pcds = pcds[uniform_sampling(pcds, npoints=4096)]
+            # pcds = pcds[
+            #     dbscan_outlier_removal_idx(pcds[..., :3], eps=0.3, min_samples=300)
+            # ]
+            # pcds = pcds[
+            #     dbscan_outlier_removal_idx(pcds[..., :3], eps=0.02, min_samples=5)
+            # ]
+            # pcds = pcds[uniform_sampling(pcds, npoints=8192)]
 
             pcds = {"pcds": pcds}
 
