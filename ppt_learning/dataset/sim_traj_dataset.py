@@ -3,6 +3,7 @@ import numpy as np
 from collections import OrderedDict
 from typing import Dict
 import copy
+import cv2
 
 from ppt_learning.utils.replay_buffer import ReplayBuffer
 from ppt_learning.utils.sampler import SequenceSampler, get_val_mask
@@ -56,6 +57,8 @@ class TrajDataset:
         seed=233,
         action_horizon=1,
         observation_horizon=1,
+        resize_img=True,
+        img_size=224,
         dataset_postfix="",
         dataset_encoder_postfix="",
         precompute_feat=False,
@@ -89,6 +92,8 @@ class TrajDataset:
         self.data_ratio = data_ratio
         self.use_multiview = use_multiview
         self.normalize_state = normalize_state
+        self.resize_img = resize_img
+        self.img_size = img_size
         if use_pcd:
             assert pcd_channels is not None, "pcd_channels must be provided for pcd"
         if pcd_channels is not None:
@@ -119,7 +124,7 @@ class TrajDataset:
             ]
         self.ignored_keys = ignored_keys
         if ignored_keys is None:
-            self.ignored_keys = ["initial_state", "states", "depths", "images", "color"]
+            self.ignored_keys = ["initial_state", "states", "depths"] # , "images", "color"]
             # self.use_pcd = False
 
         self.voxelization = voxelization
@@ -290,10 +295,10 @@ class TrajDataset:
 
     def __getitem__(self, idx: int):
         """normalize observation and actions"""
-        import time
-        start_time = time.time()
+        # import time
+        # start_time = time.time()
         sample = self.sampler.sample_sequence(idx)
-        end_time = time.time()
+        # end_time = time.time()
         # print("Time used of sample:", end_time - start_time)
         if "actions" in sample: # Align the name
             sample["action"] = sample["actions"]
@@ -364,7 +369,6 @@ class TrajDataset:
 
             if self.se3_augmentation:
                 poses, gripper = sample["action"][:, :6], sample["action"][:, 6:]
-                import ipdb; ipdb.set_trace()
                 poses, sample["obs"]["pointcloud"]["pos"] = se3_augmentation(
                     poses, sample["obs"]["pointcloud"]["pos"], bounds=self.bounds
                 )
@@ -404,6 +408,7 @@ class TrajDataset:
                     )
 
         self.flat_sample(sample)
+        self.transform(sample)
 
         # if "pointcloud" in sample.keys():
         #     assert sample["pointcloud"].shape[-1] == self.pcd_channels, f"pointcloud channel mismatch! expected {self.pcd_channels}, got {sample['pointcloud'].shape[-1]}"
@@ -429,6 +434,12 @@ class TrajDataset:
 
         return sample
 
+    def transform(self, sample):
+        if self.resize_img and "image" in sample.keys():
+            for key, val in sample["image"].items():
+                # Image shape N, H, W, C
+                resize_image_sequence(val, (self.img_size, self.img_size))
+
     def flat_sample(self, sample):
         if "obs" in sample.keys():
             for key, val in sample["obs"].items():
@@ -437,6 +448,9 @@ class TrajDataset:
         
         if "state" not in sample:
             sample = self.get_state(sample)
+
+        if "images" in sample.keys() and "image" not in sample.keys():
+            sample["image"] = sample.pop("images")
 
         if not self.use_pcd:
             if "pointcloud" in sample.keys():
@@ -506,6 +520,37 @@ def delete_indices(
             # remove i in replay.meta
 
             # remove start_idx:end_idx in replay.data
+
+
+def resize_image_sequence(images, target_size):
+    """
+    Resize an image sequence using OpenCV
+    
+    Args:
+        images: numpy array of shape (N, H, W, C) where:
+               N = number of images
+               H = height
+               W = width
+               C = channels
+        target_size: tuple of (height, width)
+    
+    Returns:
+        resized images array of shape (N, new_H, new_W, C)
+    """
+    N, H, W, C = images.shape
+    new_H, new_W = target_size
+    
+    # Reshape to 2D array of images for faster processing
+    reshaped = images.reshape(-1, H, W, C)
+    
+    # Preallocate output array
+    output = np.empty((N, new_H, new_W, C), dtype=images.dtype)
+    
+    # Resize each image
+    for i in range(N):
+        output[i] = cv2.resize(images[i], (new_W, new_H), interpolation=cv2.INTER_LINEAR)
+    
+    return output
 
 
 if __name__ == "__main__":

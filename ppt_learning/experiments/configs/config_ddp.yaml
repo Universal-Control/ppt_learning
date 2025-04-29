@@ -11,7 +11,7 @@ suffix: "" # suffix for the experiment
 
 defaults:
   - _self_
-  - env: isaacsim # rlbench # gensim2
+  - env: isaacsim_rgb # rlbench # gensim2
   - datasetsize: all
 
 # self-explanatory torch config
@@ -45,7 +45,7 @@ lr_scheduler:
   T_max: ${train.total_iters}
   eta_min: 1.0e-08
 train:
-  total_epochs: 250  # maximum training epochs before termination. usually set as maximum
+  total_epochs: 250 # maximum training epochs before termination. usually set as maximum
   total_iters: 100000000 # maximum training steps before termination
   epoch_iters: 1000  # training steps in each epoch
   validation_iters: 100 # maximum iterations for validation
