@@ -10,7 +10,7 @@ from ppt_learning.utils.rollout_runner import preprocess_obs, update_pcd_transfo
 from ppt_learning.utils.robot.real_robot_ur5 import RealRobot
 from ppt_learning.utils import utils, model_utils
 from ppt_learning.utils.warmup_lr_wrapper import WarmupLR
-
+from ppt_learning.utils.video import videoLogger
 from ppt_learning.utils.utils import dict_apply
 from ppt_learning.paths import *
 
@@ -113,8 +113,6 @@ def run(cfg):
 
     policy.eval()
 
-    
-
     # t1 = threading.Thread(target=robot.log_pose)
 
     # t1.start()
@@ -136,6 +134,9 @@ def run_in_real(policy, cfg, robot=None):
 
     if robot is None:
         robot = RealRobot()
+    save_video = cfg.get("save_video", False)
+    if save_video:
+        video_logger = videoLogger()
 
     traj_length = 0
     done = False
@@ -173,6 +174,13 @@ def run_in_real(policy, cfg, robot=None):
 
         # If want to visualize pcd for debugging turn to True
         next_obs = robot.step(action, visualize=False)
+
+        if save_video:
+            for key in obs["images"]:
+                self.video_logger.extend(key, obs["images"][key].cpu().numpy(), category="color")
+            for key in obs["depths"]:
+                self.video_logger.extend(key, obs["depths"][key].cpu().numpy(), category="depth")
+            self.video_logger.extend(key, obs["pcds"][key].cpu().numpy(), category="pointcloud")
 
         obs = next_obs
         this_time = time.time()

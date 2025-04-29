@@ -23,6 +23,7 @@ except RuntimeError:
 from multiprocessing import Process, Queue
 
 from ppt_learning.utils.utils import dict_apply
+from ppt_learning.utils.video import videoLogger
 from ppt_learning.utils.pcd_utils import (
     visualize_point_cloud,
     randomly_drop_point,
@@ -527,10 +528,8 @@ class IsaacEnvRolloutRunner:
         print("Env created")
 
         self.video_save_dir = Path(video_save_dir)
-        if self.save_video and self.video_save_dir is None:
-            import time
-            date_time = time.strftime("%m%d-%H%M%S")
-            self.video_save_dir = Path(f'./outputs/video_eval/{date_time}')
+        if self.save_video:
+            self.video_logger = videoLogger(self.video_save_dir)
 
     def get_state(self, sample):
         sample["state"] = []
@@ -566,8 +565,6 @@ class IsaacEnvRolloutRunner:
         pbar = tqdm(range(episode_num), position=1, leave=True)
         
         for i in pbar:
-            if self.save_video:
-                video_logger = {}
             eps_reward = 0
             traj_length = 0
             done = False
@@ -631,9 +628,7 @@ class IsaacEnvRolloutRunner:
                 eps_reward += reward
                 if self.save_video:
                     for key in obs["images"]:
-                        if key not in video_logger:
-                            video_logger[key] = []
-                        video_logger[key].append(obs["images"][key][0].cpu().numpy())
+                        self.video_logger.extend(key, obs["images"][key][0].cpu().numpy(), category="color")
                 obs = next_obs
 
                 if done:
@@ -644,12 +639,11 @@ class IsaacEnvRolloutRunner:
 
             total_reward += eps_reward
             total_success += success
+
             if self.save_video:
-                import imageio.v3 as imageio
-                for key in video_logger:
-                    postfix = "success" if success else "fail"
-                    os.makedirs(self.video_save_dir / f"{i}-th-{postfix}", exist_ok=True)
-                    imageio.imwrite(self.video_save_dir / f"{i}-th-{postfix}" / f"{key}.mp4", video_logger[key])
+                postfix = "success" if success else "fail"
+                self.video_logger.save(dir_name = f"{i}-th-{postfix}")
+                
             pbar.set_description(
                 f"{self.task_name} total_success: {total_success}"
             )
