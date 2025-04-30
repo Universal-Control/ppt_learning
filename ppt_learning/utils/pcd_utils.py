@@ -602,8 +602,10 @@ def vis_pcd(pcd):
             pcd_o3d.colors = o3d.utility.Vector3dVector(pcd[..., 3:])
     o3d.visualization.draw_geometries([pcd_o3d])
 
-def vis_depths(depths, near_depth=-1.0, far_depth=-1.0):
+def vis_depths(colors, depths, near_depth=-1.0, far_depth=-1.0):
     imgs = []
+    for color in colors:
+        imgs.append(color.transpose((1, 2, 0)))
     for depth in depths:
         img = colorize_depth_maps(
             depth,
@@ -611,9 +613,11 @@ def vis_depths(depths, near_depth=-1.0, far_depth=-1.0):
             depth.max() if far_depth < 0.0 else far_depth,
         )[0].transpose((1, 2, 0))
         imgs.append(img)
+    
     vis_img = np.concatenate(imgs, axis=1)
     
     plt.imshow(vis_img)
+    # plt.savefig("test.png")
     plt.show()
 
 def select_mask(obs, key, mask):

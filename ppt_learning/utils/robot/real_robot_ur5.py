@@ -357,9 +357,8 @@ class RealRobot:
             intr_matries[:, 0, 2] = intrs[:, 2]
             intr_matries[:, 1, 2] = intrs[:, 3]
             intr_matries[:, 2, 2] = 1
-            colors = colors.permute(0, 2, 3, 1)
             res = create_pointcloud_from_rgbd(
-                np.array(intr_matries), np.array(model_depths), np.array(colors)
+                np.array(intr_matries), np.array(model_depths), np.array(colors.permute(0, 2, 3, 1))
             )
             pos = np.concatenate(list(res["pos"]), axis=0)
             pos_color = np.concatenate(list(res["color"]), axis=0)
@@ -381,9 +380,9 @@ class RealRobot:
             }
 
         if visualize:
-            # vis_pcd(pcd)
+            vis_pcd(pcd)
             if self.use_model_depth:
-                vis_depths(np.concatenate([model_depths[:,None,...], depths.cpu().numpy()], axis=0))
+                vis_depths(colors.cpu().numpy(), np.concatenate([model_depths[:,None,...], depths.cpu().numpy()], axis=0))
 
         state = self.get_robot_state()
 

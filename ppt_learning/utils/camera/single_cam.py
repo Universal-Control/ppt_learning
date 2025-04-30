@@ -150,7 +150,7 @@ class SingleRealsense(mp.Process):
         rs_config.enable_stream(rs.stream.depth, w, h, rs.format.z16, fps)
 
         align_to = rs.stream.color
-        rs.align(align_to)
+        self.align = rs.align(align_to)
 
         try:
             rs_config.enable_device(self.serial_number)
@@ -186,6 +186,7 @@ class SingleRealsense(mp.Process):
 
                 # wait for frames to come in
                 frameset = pipeline.wait_for_frames()
+                frameset = self.align.process(frameset)
                 receive_time = time.time()
 
                 # grab data
