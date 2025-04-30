@@ -1,6 +1,9 @@
 import os
 import cv2
 import time
+import numpy as np
+import open3d as o3d
+from pathlib import Path
 
 import imageio.v3 as imageio
 
@@ -26,8 +29,8 @@ def save_video(images, name, path, fps=10):
 class videoLogger:
     def __init__(self, video_save_dir=None):
         self._snaps = {
-            "color": {}
-            "depth": {}
+            "color": {},
+            "depth": {},
             "pointcloud": {}
         }
 

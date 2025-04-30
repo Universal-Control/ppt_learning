@@ -100,7 +100,7 @@ head:
 #     token_postprocessing: ""
 
 stem:
-  modalities: ['state', 'pointcloud', 'image'] # no 'language'
+  modalities: ['state', 'pointcloud'] # no 'language'
   modality_embed_dim: 512
   normalize_state: False # normalize state vectors 
   state_embedding_dim: 32 # dimension of positional encoding for state

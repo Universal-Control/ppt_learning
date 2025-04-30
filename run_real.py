@@ -29,6 +29,7 @@ hostname = ""  # TODO fill in the hostname
 deploy_on_real = True
 MAX_EP_STEPS = 600
 FPS = 15
+USE_DEPTH_MODEL = True
 state_keys = [
                 "eef_pos",
                 "eef_quat",
@@ -47,7 +48,7 @@ def run(cfg):
     """
     This script runs through the train / test / eval loop. Assumes single task for now.
     """
-    robot = RealRobot(fps=FPS)
+    robot = RealRobot(fps=FPS, use_model_depth=USE_DEPTH_MODEL)
     assert hasattr(
         cfg, "prompt"
     ), "Prompt not found in config, use +prompt 'task description' to run"

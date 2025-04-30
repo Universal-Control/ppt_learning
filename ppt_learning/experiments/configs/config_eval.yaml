@@ -11,7 +11,7 @@ suffix: "" # suffix for the experiment
 
 defaults:
   - _self_
-  - env: isaacsim # rlbench # gensim2
+  - env: isaacsim_pcd # rlbench # gensim2
   - datasetsize: all
 
 # self-explanatory torch config
@@ -49,8 +49,8 @@ train:
   total_iters: 100000000 # maximum training steps before termination
   epoch_iters: 1000  # training steps in each epoch
   validation_iters: 100 # maximum iterations for validation
-  pretrained_dir: "/home/ubuntu/xiaoshen/IsaacLab-new/GR-Isaaclab/scripts/ppt_learning/outputs/ur5_close_microwave_version_4_generated_1000_426_1/2025-04-27-11-29-54/" # pretrained model path for testing
-  model_name: "model_50.pth"
+  pretrained_dir: "/home/minghuan/ppt_learning/" # pretrained model path for testing
+  model_name: "model_200.pth"
   freeze_trunk: False # whether to freeze the trunk during finetuning
 prompt: ""
 rollout_runner:

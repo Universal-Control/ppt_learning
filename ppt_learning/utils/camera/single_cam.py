@@ -200,7 +200,7 @@ class SingleRealsense(mp.Process):
                 pc = rs.pointcloud()
                 pc.map_to(color_frame)
                 points = pc.calculate(depth_frame)
-                data["depth"] = np.array(depth_frame.get_data())
+                data["depth"] = np.array(depth_frame.get_data()) / 1000
                 data["intr"] = intr
                 data["vertices"] = (
                     np.ascontiguousarray(points.get_vertices())

@@ -963,8 +963,8 @@ def create_pointcloud_from_rgbd(
     pts_idx_to_keep = torch.all(
         torch.logical_and(~torch.isnan(points_xyz), ~torch.isinf(points_xyz)), dim=-1
     )
-    points_rgb[pts_idx_to_keep, ...] = -1.
-    points_xyz[pts_idx_to_keep, ...] = 0
+    points_rgb[~pts_idx_to_keep, ...] = -1.
+    points_xyz[~pts_idx_to_keep, ...] = 0
 
     # add additional channels if required
     if num_channels == 4:
@@ -983,3 +983,136 @@ def create_pointcloud_from_rgbd(
         res["pos"] = points_xyz
         res["color"] = points_rgb
         return res
+
+
+
+def uniform_sampling_torch(points, npoints=1200):
+    """
+    均匀采样点云中的点（矩阵操作版本，无for循环）
+    
+    参数:
+        points: torch.Tensor - 形状为[B, N, 3]或[N, 3]的点云
+        npoints: int - 采样后的点数
+        
+    返回:
+        torch.Tensor - 采样点的索引，形状为[B, npoints]或[npoints]
+    """
+    # 检查输入维度
+    if len(points.shape) == 3:  # [B, N, 3]
+        batch_size, n, _ = points.shape
+        batch_mode = True
+    elif len(points.shape) == 2:  # [N, 3]
+        n = points.shape[0]
+        batch_mode = False
+        # 扩展为批处理模式以便统一处理
+        points = points.unsqueeze(0)
+        batch_size = 1
+    else:
+        raise ValueError(f"输入点云维度不正确，应为[B, N, 3]或[N, 3]，当前为{points.shape}")
+    
+    # 处理空点云情况
+    if n == 0:
+        if batch_mode:
+            return torch.zeros((batch_size, npoints), dtype=torch.int64, device=points.device)
+        else:
+            return torch.zeros(npoints, dtype=torch.int64, device=points.device)
+    
+    # 创建索引张量 [B, N]
+    indices = torch.arange(n, device=points.device).expand(batch_size, n)
+    
+    if n > npoints:
+        # 使用矩阵操作进行随机采样
+        # 为每个批次生成随机排列
+        rand_indices = torch.argsort(torch.rand(batch_size, n, device=points.device), dim=1)
+        # 选择前npoints个索引
+        sampled_indices = torch.gather(indices, 1, rand_indices[:, :npoints])
+    elif n < npoints:
+        # 计算重复次数和剩余数量
+        num_repeat = npoints // n
+        remaining = npoints - num_repeat * n
+        
+        # 重复整个索引张量
+        repeated_indices = indices.repeat_interleave(num_repeat, dim=1)
+        
+        # 添加剩余的索引
+        if remaining > 0:
+            remaining_indices = indices[:, :remaining]
+            sampled_indices = torch.cat([repeated_indices, remaining_indices], dim=1)
+        else:
+            sampled_indices = repeated_indices
+    else:
+        # 如果点数正好等于npoints，直接返回索引
+        sampled_indices = indices
+    
+    # 返回结果
+    if batch_mode:
+        return sampled_indices
+    else:
+        return sampled_indices[0]  # 移除批处理维度
+    
+def pcd_filter_bound_torch(pc, bound):
+    """
+    根据给定边界过滤点云（尽量避免循环的版本）
+    
+    参数:
+        cloud: torch.Tensor或dict - 点云数据，形状为[B, N, 3]、[N, 3]或包含'pos'键的字典
+        bound: list或torch.Tensor - 边界值 [x_min, x_max, y_min, y_max, z_min, z_max]
+        eps: float - 最小高度阈值
+        max_dis: float - 最大距离阈值
+        
+    返回:
+        torch.Tensor - 在边界内的点的索引掩码，形状为[B, N]
+        或
+        list of torch.Tensor - 每个批次在边界内的点的索引
+    """
+    # 确保bound是tensor并且在正确的设备上
+    if not isinstance(bound, torch.Tensor):
+        bound = torch.tensor(bound, device=pc.device)
+    
+    # 检查输入维度
+    batch_mode = len(pc.shape) == 3
+    
+    if not batch_mode:
+        pc = pc.unsqueeze(0)  # [N, 3] -> [1, N, 3]
+    
+    # 确保bound是正确的形状
+    if len(bound.shape) == 1:
+        bound = bound.unsqueeze(0).expand(pc.shape[0], -1)
+    
+    # 计算边界条件
+    within_bound_x = (pc[..., 0] > bound[:, 0:1]) & (pc[..., 0] < bound[:, 1:2])
+    within_bound_y = (pc[..., 1] > bound[:, 2:3]) & (pc[..., 1] < bound[:, 3:4])
+    within_bound_z = (pc[..., 2] > bound[:, 4:5]) & (pc[..., 2] < bound[:, 5:6])
+    
+    # 组合所有条件
+    within_bound = within_bound_x & within_bound_y & within_bound_z
+    
+    # 两种返回方式：
+    # 1. 返回掩码
+    if batch_mode:
+        return within_bound
+    else:
+        return within_bound[0]
+
+def pcd_downsample_torch(
+    obs,
+    bound_clip=False,
+    num=1200,
+    method="uniform",
+    bound=None,
+):
+    assert method in [
+        "uniform",
+    ], "expected method to be 'uniform', got {method}"
+
+    if bound_clip:
+        mask = pcd_filter_bound_torch(obs['pos'], bound=bound)
+        obs = {k: [v[i][mask[i]] for i in range(len(v))] for k, v in obs.items()}
+    res_obs = {k: [] for k in obs}
+    for i in range(len(obs['pos'])):
+        mask = uniform_sampling_torch(obs['pos'][i], npoints=num)
+        for k in res_obs:
+            res_obs[k].append(obs[k][i][mask])
+    for k in res_obs:
+        obs[k] = torch.stack(res_obs[k])
+    return obs

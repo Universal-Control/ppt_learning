@@ -120,7 +120,8 @@ class UR5_IK:
 
 class RealRobot:
     def __init__(self, ip="192.168.1.243", fps=30, init_q=None, 
-                control_space='joint'):
+                control_space='joint', use_model_depth=False,
+                align_scale=True, device="cuda", tar_size=(476, 630)):
         print("Intializing robot ...")
 
         # Initialize robot connection and libraries
@@ -134,6 +135,8 @@ class RealRobot:
         self.lookahead_time = 0.1
         self.gain = 300
         self.init_q = init_q
+        self.device = torch.device(device=device)
+        self.tar_size = tar_size
         if self.init_q is None:
             self.init_q = [
                 -3.02692452,
@@ -156,6 +159,17 @@ class RealRobot:
         # other
         self.current_step = 0
         self.horizon = 50  # TODO
+        self.use_model_depth = use_model_depth
+        if self.use_model_depth:
+            self.align_scale = align_scale
+            from ranging_anything.model import get_model as get_pda_model
+            from ranging_anything.compute_metric import (
+                interp_depth_rgb, add_noise_to_depth, save_vis_depth, compute_metrics,
+                recover_metric_depth_ransac, colorize_depth_maps
+            )
+            from ppt_learning.utils.ranging_depth_utils import get_model, model_infer
+            self.depth_model = get_model("/home/minghuan/ppt_learning/e049-s204800.ckpt").to(self.device)
+
         self._buffer = {}
 
         print("Finished initializing robot.")
@@ -265,9 +279,57 @@ class RealRobot:
         visualize: bool, whether to visualize the pointcloud.
         """
         # TODO Mix pcds
-        pcds = self.realsense.get()
-        pcds = pcds["pcds"]
+        rs_data = self.realsense.get()
+        pcds = rs_data["pcds"]
         pcd = {"pos": pcds[..., :3], "color": pcds[..., 3:]}
+
+        if self.use_model_depth:
+            from ranging_anything.model import get_model as get_pda_model
+            from ranging_anything.compute_metric import (
+                interp_depth_rgb, add_noise_to_depth, save_vis_depth, compute_metrics,
+                recover_metric_depth_ransac, colorize_depth_maps
+            )
+            from ppt_learning.utils.ranging_depth_utils import get_model, model_infer
+            from ppt_learning.utils.pcd_utils import create_pointcloud_from_rgbd
+            import cv2
+            depths = rs_data["depths"]
+            colors = rs_data["colors"]
+            depths_p = []
+            colors_p = []
+            for i, depth in enumerate(depths):
+                color = colors[i]
+                color = cv2.resize(color, self.tar_size[::-1], interpolation=cv2.INTER_AREA)
+                color = torch.from_numpy(color).permute(2, 0, 1).float() / 255.0
+                depth = cv2.resize(depth, self.tar_size[::-1], interpolation=cv2.INTER_AREA)
+                depth = interp_depth_rgb(depth, color)
+                depth = torch.from_numpy(depth).unsqueeze(0).float()
+                depths_p.append(depth)
+                colors_p.append(color)
+            depths = torch.stack(depths_p)
+            colors = torch.stack(colors_p)
+            intrs = rs_data["intrs"]
+            model_depths = model_infer(self.depth_model, colors, depths, self.align_scale)
+            intrs = torch.from_numpy(intrs)
+            intr_matries = torch.zeros((len(colors), 3, 3))
+            intr_matries[:, 0, 0] = intrs[:, 0]
+            intr_matries[:, 1, 1] = intrs[:, 1]
+            intr_matries[:, 0, 2] = intrs[:, 2]
+            intr_matries[:, 1, 2] = intrs[:, 3]
+            intr_matries[:, 2, 2] = 1
+            colors = colors.permute(0, 2, 3, 1)
+            res = create_pointcloud_from_rgbd(np.array(intr_matries), np.array(model_depths), np.array(colors))
+            pos = np.concatenate(list(res["pos"]), axis=0)
+            color = np.concatenate(list(res["color"]), axis=0)
+            pcd_dict = pcd_downsample_torch(
+                dict(pos=torch.from_numpy(pos)[None], color=torch.from_numpy(color)[None]),
+                bound=BOUND,
+                bound_clip=True,
+                num=8192
+            )
+            pcd = {
+                "pos": pcd_dict["pos"][0].cpu().numpy(),
+                "color": pcd_dict["color"][0].cpu().numpy()
+            }
 
         if visualize:
             vis_pcd(pcd)
@@ -337,10 +399,13 @@ class RealRobot:
 
 
 if __name__ == "__main__":
-    data = RealRobot()
+    data = RealRobot(use_model_depth=True)
 
-    t2 = threading.Thread(target=data.log_pose)
-    t2.start()
+    # t2 = threading.Thread(target=data.log_pose)
+    # t2.start()
 
-    data.test_sequence()
-    t2.join()
+    # data.test_sequence()
+    # t2.join()
+
+
+    data.get_obs()
