@@ -178,10 +178,10 @@ def run_in_real(policy, cfg, robot=None):
 
         if save_video:
             for key in obs["images"]:
-                self.video_logger.extend(key, obs["images"][key].cpu().numpy(), category="color")
+                video_logger.extend(key, obs["images"][key].cpu().numpy(), category="color")
             for key in obs["depths"]:
-                self.video_logger.extend(key, obs["depths"][key].cpu().numpy(), category="depth")
-            self.video_logger.extend(key, obs["pcds"][key].cpu().numpy(), category="pointcloud")
+                video_logger.extend(key, obs["depths"][key].cpu().numpy(), category="depth")
+            video_logger.extend(key, obs["pcds"][key].cpu().numpy(), category="pointcloud")
 
         obs = next_obs
         this_time = time.time()
