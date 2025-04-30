@@ -377,7 +377,7 @@ def model_infer(
     return output_depth
 
 
-def get_model(model_path: str, rank: int = 0) -> torch.nn.Module:
+def get_model(model_path: str, rank: int = 0, model_type = "promptda-robot") -> torch.nn.Module:
     """
     Load the pre-trained model.
     Args:
@@ -386,7 +386,7 @@ def get_model(model_path: str, rank: int = 0) -> torch.nn.Module:
     Returns:
         model: Pre-trained model.
     """
-    model_type = "promptda-robot"
+    
     if model_type == "promptda-robot":
         model = get_pda_model(model_path, rank=rank)
     elif model_type == "promptda":

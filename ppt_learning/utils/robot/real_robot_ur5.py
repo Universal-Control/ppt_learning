@@ -1,7 +1,9 @@
 import time
 import threading
+import sys, os
 import roboticstoolbox as rtb
 from scipy.spatial.transform import Rotation as R
+import cv2
 
 import multiprocessing as mp
 
@@ -11,7 +13,6 @@ from multiprocessing.managers import SharedMemoryManager
 from ppt_learning.utils.camera.multi_cam import MultiRealsense
 from ppt_learning.utils.shared_memory.shared_memory_queue import SharedMemoryQueue
 from ppt_learning.utils.calibration import *
-from ppt_learning.utils.robot.utils import *
 
 from ppt_learning.utils.pcd_utils import (
     uniform_sampling,
@@ -36,6 +37,8 @@ from curobo.types.robot import RobotConfig
 from curobo.cuda_robot_model.cuda_robot_model import CudaRobotModel
 from curobo.wrap.reacher.ik_solver import IKSolver, IKSolverConfig
 
+sys.path.append(f"{PPT_DIR}/third_party/")
+
 # TODO fill in these values
 hostname = ""
 cameras = {
@@ -47,7 +50,7 @@ cameras = {
 class UR5_IK:
     def __init__(
         self,
-        urdf_path=f"{PPT_DIR}/third_party/ur5_isaac_simulation/robot.urdf",
+        urdf_path=f"{PPT_DIR}/../assets/ur5.urdf",
         init_q: np.ndarray = None,
         ee_link_name: str = "",
         base_link_name: str = "",
@@ -138,6 +141,7 @@ class RealRobot:
         align_scale=True,
         device="cuda",
         tar_size=(644, 490),
+        **kwargs
     ):
         print("Intializing robot ...")
 
@@ -185,7 +189,6 @@ class RealRobot:
                 colorize_depth_maps,
             )
             from ppt_learning.utils.ranging_depth_utils import get_model, model_infer
-
             self.depth_model = get_model(depth_model_path).to(self.device)
 
         self._buffer = {}
@@ -230,6 +233,7 @@ class RealRobot:
             put_fps=None,
             pose_buffer=self.pose_buffer,
         )
+        self.realsense.daemon = True
 
         self.realsense.start(wait=True)
 
@@ -326,15 +330,18 @@ class RealRobot:
             colors_p = []
             for i, depth in enumerate(depths):
                 color = colors[i]
+                # cv2.imwrite(f"color_{i}.png", cv2.cvtColor(color, cv2.COLOR_BGR2RGB))
+                # cv2.imwrite(f"depth_{i}.png", (depth*1000).astype(np.uint16))
                 color = cv2.resize(
-                    color, self.tar_size[::-1], interpolation=cv2.INTER_AREA
+                    color, self.tar_size, interpolation=cv2.INTER_AREA
                 )
-                color = torch.from_numpy(color).permute(2, 0, 1).float() / 255.0
                 depth = cv2.resize(
-                    depth, self.tar_size[::-1], interpolation=cv2.INTER_AREA
+                    depth, self.tar_size, interpolation=cv2.INTER_NEAREST
                 )
-                depth = interp_depth_rgb(depth, color)
+                color = np.asarray(color / 255.0).astype(np.float32)
+                depth = interp_depth_rgb(depth, cv2.cvtColor(color, cv2.COLOR_RGB2GRAY))
                 depth = torch.from_numpy(depth).unsqueeze(0).float()
+                color = torch.from_numpy(color).permute(2, 0, 1).float()
                 depths_p.append(depth)
                 colors_p.append(color)
             depths = torch.stack(depths_p)
@@ -355,22 +362,28 @@ class RealRobot:
                 np.array(intr_matries), np.array(model_depths), np.array(colors)
             )
             pos = np.concatenate(list(res["pos"]), axis=0)
-            color = np.concatenate(list(res["color"]), axis=0)
-            pcd_dict = pcd_downsample_torch(
-                dict(
-                    pos=torch.from_numpy(pos)[None], color=torch.from_numpy(color)[None]
-                ),
-                bound=BOUND,
-                bound_clip=True,
-                num=8192,
-            )
+            pos_color = np.concatenate(list(res["color"]), axis=0)
+            pcd_dict = {
+                "pos": torch.from_numpy(pos)[None],
+                "color": torch.from_numpy(pos_color)[None],
+            }
+            # pcd_dict = pcd_downsample_torch(
+            #     dict(
+            #         pos=torch.from_numpy(pos)[None], color=torch.from_numpy(color)[None]
+            #     ),
+            #     bound=BOUND,
+            #     bound_clip=True,
+            #     num=8192,
+            # )
             pcd = {
                 "pos": pcd_dict["pos"][0].cpu().numpy(),
                 "color": pcd_dict["color"][0].cpu().numpy(),
             }
 
         if visualize:
-            vis_pcd(pcd)
+            # vis_pcd(pcd)
+            if self.use_model_depth:
+                vis_depths(np.concatenate([model_depths[:,None,...], depths.cpu().numpy()], axis=0))
 
         state = self.get_robot_state()
 

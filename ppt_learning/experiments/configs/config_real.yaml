@@ -15,9 +15,11 @@ defaults:
   - datasetsize: all
 
 real:
+  trained_policy: /home/minghuan/ppt_learning/models/close_microwave/model.pth
   fps: 15
-  use_depth_model: true
-  depth_model_path: /home/minghuan/ppt_learning/models/depth/480p-e042-s176128.ckpt
+  use_model_depth: true
+  depth_model_path: /home/minghuan/ppt_learning/models/depth/720p-e049-s204800.ckpt # /home/minghuan/ppt_learning/models/depth/480p-e042-s176128.ckpt
+  tar_size: [644, 490]
 
 # self-explanatory torch config
 dataloader:

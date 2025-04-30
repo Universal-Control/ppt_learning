@@ -15,7 +15,7 @@ from multiprocessing.managers import SharedMemoryManager
 from ppt_learning.utils.camera.multi_cam import MultiRealsense
 from ppt_learning.utils.shared_memory.shared_memory_queue import SharedMemoryQueue
 from ppt_learning.utils.calibration import *
-from ppt_learning.utils.robot.utils import *
+
 
 from ppt_learning.utils.pcd_utils import (
     uniform_sampling,

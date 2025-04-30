@@ -9,6 +9,7 @@ import os
 import torch
 from typing import Sequence, Union, Dict, Tuple
 from collections import OrderedDict
+import matplotlib
 import copy
 
 # import warp as wp
@@ -32,6 +33,45 @@ DESK2ROBOT_Z_AXIS = 0.0
 # BOUND = [0.15, 0.8, -0.6, 0.6, DESK2ROBOT_Z_AXIS + 0.005, 0.8]
 BOUND = [0.2, 1.03, -1.2, 1.2, -0.3, 0.7]
 
+def colorize_depth_maps(
+    depth_map, min_depth, max_depth, cmap="Spectral", valid_mask=None
+):
+    """
+    Colorize depth maps.
+    """
+    assert len(depth_map.shape) >= 2, "Invalid dimension"
+
+    if isinstance(depth_map, torch.Tensor):
+        depth = depth_map.detach().clone().squeeze().numpy()
+    elif isinstance(depth_map, np.ndarray):
+        depth = depth_map.copy().squeeze()
+    # reshape to [ (B,) H, W ]
+    if depth.ndim < 3:
+        depth = depth[np.newaxis, :, :]
+
+    # colorize
+    cm = matplotlib.colormaps[cmap]
+    depth = ((depth - min_depth) / (max_depth - min_depth)).clip(0, 1)
+    img_colored_np = cm(depth, bytes=False)[:, :, :, 0:3]  # value from 0 to 1
+    img_colored_np = np.rollaxis(img_colored_np, 3, 1)
+
+    if valid_mask is not None:
+        if isinstance(depth_map, torch.Tensor):
+            valid_mask = valid_mask.detach().numpy()
+        valid_mask = valid_mask.squeeze()  # [H, W] or [B, H, W]
+        if valid_mask.ndim < 3:
+            valid_mask = valid_mask[np.newaxis, np.newaxis, :, :]
+        else:
+            valid_mask = valid_mask[:, np.newaxis, :, :]
+        valid_mask = np.repeat(valid_mask, 3, axis=1)
+        img_colored_np[~valid_mask] = 0
+
+    if isinstance(depth_map, torch.Tensor):
+        img_colored = torch.from_numpy(img_colored_np).float()
+    elif isinstance(depth_map, np.ndarray):
+        img_colored = img_colored_np
+
+    return img_colored
 
 def rand_dist(size, min=-1.0, max=1.0):
     return (max - min) * torch.rand(size) + min
@@ -548,16 +588,33 @@ def se3_augmentation(gripper_poses_euler, point_clouds, bounds, rgbs=None):
 
     return augmented_gripper_poses_euler, augmented_point_clouds
 
-
 def vis_pcd(pcd):
     import open3d as o3d
 
     pcd_o3d = o3d.geometry.PointCloud()
-    pcd_o3d.points = o3d.utility.Vector3dVector(pcd["pos"])
-    if "colors" in pcd:
-        pcd_o3d.colors = o3d.utility.Vector3dVector(pcd["colors"] / 255)
+    if isinstance(pcd, dict):
+        pcd_o3d.points = o3d.utility.Vector3dVector(pcd["pos"])
+        if "colors" in pcd:
+            pcd_o3d.colors = o3d.utility.Vector3dVector(pcd["colors"] / 255)
+    else:
+        pcd_o3d.points = o3d.utility.Vector3dVector(pcd[..., :3])
+        if len(pcd.shape[-1] > 3):
+            pcd_o3d.colors = o3d.utility.Vector3dVector(pcd[..., 3:])
     o3d.visualization.draw_geometries([pcd_o3d])
 
+def vis_depths(depths, near_depth=-1.0, far_depth=-1.0):
+    imgs = []
+    for depth in depths:
+        img = colorize_depth_maps(
+            depth,
+            depth.min() if near_depth < 0.0 else near_depth,
+            depth.max() if far_depth < 0.0 else far_depth,
+        )[0].transpose((1, 2, 0))
+        imgs.append(img)
+    vis_img = np.concatenate(imgs, axis=1)
+    
+    plt.imshow(vis_img)
+    plt.show()
 
 def select_mask(obs, key, mask):
     if key in obs:
