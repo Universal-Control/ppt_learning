@@ -5,7 +5,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import Dataset, DataLoader, DistributedSampler
 import tyro
-import os 
+import os
 from os.path import join
 from tqdm.auto import tqdm
 import numpy as np
@@ -17,38 +17,46 @@ import torch.multiprocessing as mp
 
 from ranging_anything.model import get_model as get_pda_model
 from ranging_anything.compute_metric import (
-    interp_depth_rgb, add_noise_to_depth, save_vis_depth, compute_metrics,
-    recover_metric_depth_ransac, colorize_depth_maps
+    interp_depth_rgb,
+    add_noise_to_depth,
+    save_vis_depth,
+    compute_metrics,
+    recover_metric_depth_ransac,
+    colorize_depth_maps,
 )
 
 import argparse
 
-HDF5_PATH = '/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/code/GR-Isaaclab/datasets/ur5_close_microwave_version_2_generated_37.hdf5'
+HDF5_PATH = "/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/code/GR-Isaaclab/datasets/ur5_close_microwave_version_2_generated_37.hdf5"
 
-def load_image(image_path: str,
-               tar_size: Tuple[int, int] = (756, 1008),
-               ) -> torch.Tensor: 
-    '''
+
+def load_image(
+    image_path: str,
+    tar_size: Tuple[int, int] = (756, 1008),
+) -> torch.Tensor:
+    """
     Load image and resize to target size.
     Args:
         image_path: Path to input image.
         tar_size: Target size (h, w).
     Returns:
         image: Image tensor with shape (1, 3, h, w).
-    '''
+    """
     image = imageio.imread(image_path)
     image = cv2.resize(image, tar_size[::-1], interpolation=cv2.INTER_AREA)
     image = torch.from_numpy(image).permute(2, 0, 1).unsqueeze(0).float() / 255.0
     return image
 
+
 def load_depth(depth_path: str) -> torch.Tensor:
-    '''
+    """
     depth is in mm and stored in 16-bit PNG
-    '''
+    """
     depth = imageio.imread(depth_path)
-    depth = (depth / 1000.).astype(np.float32)
+    depth = (depth / 1000.0).astype(np.float32)
     depth = torch.from_numpy(depth).unsqueeze(0).unsqueeze(0).float()
     return depth
+
 
 class hdf5Dataset(Dataset):
     def __init__(self, hdf5_path, tar_size=(476, 630), key="third"):
@@ -61,26 +69,29 @@ class hdf5Dataset(Dataset):
         return self.traj_ends[-1]
 
     def __getitem__(self, idx):
-        traj_idx = np.searchsorted(self.traj_ends, idx, side='right') - 1
+        traj_idx = np.searchsorted(self.traj_ends, idx, side="right") - 1
         data_idx = idx - self.traj_ends[traj_idx - 1] if traj_idx > 0 else idx
         data = h5py.File(self.hdf5_path)[f"data/demo_{traj_idx}"]
         rgb_key = f"obs/images/{self.key}_rgb"
         depth_key = f"obs/depths/{self.key}_depth"
-        
+
         rgb_s = data[rgb_key]
-        depth_s = data[depth_key][()].astype(np.float32) / 1000.
-        
+        depth_s = data[depth_key][()].astype(np.float32) / 1000.0
+
         rgb = rgb_s[f"{data_idx}"][()]
         rgb = cv2.imdecode(rgb, cv2.IMREAD_COLOR)
         rgb = cv2.resize(rgb, self.tar_size[::-1], interpolation=cv2.INTER_AREA)
         rgb = torch.from_numpy(rgb).permute(2, 0, 1).float() / 255.0
 
-        depth = cv2.resize(depth_s[data_idx], self.tar_size[::-1], interpolation=cv2.INTER_AREA)
+        depth = cv2.resize(
+            depth_s[data_idx], self.tar_size[::-1], interpolation=cv2.INTER_AREA
+        )
         depth = interp_depth_rgb(depth, rgb)
         depth = torch.from_numpy(depth).unsqueeze(0).float()
 
         return rgb, depth
-    
+
+
 class hdf5TrajDataset(Dataset):
     def __init__(self, hdf5_path, tar_size=(1008, 756), key="third"):
         self.hdf5_path = hdf5_path
@@ -95,9 +106,9 @@ class hdf5TrajDataset(Dataset):
         data = h5py.File(self.hdf5_path)[f"data/demo_{idx}"]
         rgb_key = f"obs/images/{self.key}_rgb"
         depth_key = f"obs/depths/{self.key}_depth"
-        
+
         rgb_s = data[rgb_key]
-        depth_s = data[depth_key][()].astype(np.float32) / 1000.
+        depth_s = data[depth_key][()].astype(np.float32) / 1000.0
         length = len(rgb_s)
         rgbs_lst = []
         depths_lst = []
@@ -105,7 +116,9 @@ class hdf5TrajDataset(Dataset):
             rgb = rgb_s[f"{i}"][()]
             rgb = cv2.imdecode(rgb, cv2.IMREAD_COLOR)
             rgb = cv2.resize(rgb, self.tar_size[::-1], interpolation=cv2.INTER_AREA)
-            depth = cv2.resize(depth_s[i], self.tar_size[::-1], interpolation=cv2.INTER_AREA)
+            depth = cv2.resize(
+                depth_s[i], self.tar_size[::-1], interpolation=cv2.INTER_AREA
+            )
             depth = interp_depth_rgb(depth, rgb)
             depths_lst.append(torch.from_numpy(depth).unsqueeze(0).float())
             image = torch.from_numpy(rgb).permute(2, 0, 1).float() / 255.0
@@ -115,12 +128,15 @@ class hdf5TrajDataset(Dataset):
 
         return idx, rgbs, depths
 
-def load_hdf5(hdf5_path: str, tar_size: Tuple[int, int] = (476, 630), demo_index = 133, key="third") -> Tuple[torch.Tensor, torch.Tensor]:
+
+def load_hdf5(
+    hdf5_path: str, tar_size: Tuple[int, int] = (476, 630), demo_index=133, key="third"
+) -> Tuple[torch.Tensor, torch.Tensor]:
     data = h5py.File(hdf5_path)[f"data/demo_{demo_index}"]
     rgb_key = f"obs/images/{key}_rgb"
     depth_key = f"obs/depths/{key}_depth"
     rgb_s = data[rgb_key]
-    depth_s = data[depth_key][()].astype(np.float32) / 1000.
+    depth_s = data[depth_key][()].astype(np.float32) / 1000.0
     length = len(rgb_s)
     rgbs_lst = []
     depths_lst = []
@@ -137,24 +153,31 @@ def load_hdf5(hdf5_path: str, tar_size: Tuple[int, int] = (476, 630), demo_index
     depths = torch.stack(depths_lst, dim=0)
     return rgbs, depths
 
-def plot_depth(image: torch.Tensor, depth: torch.Tensor, lowres_depth: torch.Tensor, output_path: str) -> None:
+
+def plot_depth(
+    image: torch.Tensor,
+    depth: torch.Tensor,
+    lowres_depth: torch.Tensor,
+    output_path: str,
+) -> None:
     plt.subplot(1, 3, 1)
     plt.imshow(image.squeeze(0).permute(1, 2, 0).cpu().numpy())
-    plt.title('Input Image')
-    plt.axis('off')
+    plt.title("Input Image")
+    plt.axis("off")
     plt.subplot(1, 3, 2)
     plt.imshow(depth.detach().squeeze(0).squeeze(0).cpu().numpy())
-    plt.title('Predicted Depth')
-    plt.axis('off')
+    plt.title("Predicted Depth")
+    plt.axis("off")
     plt.subplot(1, 3, 3)
     plt.imshow(lowres_depth.detach().squeeze(0).squeeze(0).cpu().numpy())
-    plt.title('Input Depth')
-    plt.axis('off')
+    plt.title("Input Depth")
+    plt.axis("off")
     plt.tight_layout()
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
     plt.savefig(output_path, dpi=300)
 
-def write_to_videos(images, depths, lowres_depths, output_path, traj_id = "") -> None:
+
+def write_to_videos(images, depths, lowres_depths, output_path, traj_id="") -> None:
     """
     Write the predicted depth map to a video.
     Args:
@@ -172,16 +195,29 @@ def write_to_videos(images, depths, lowres_depths, output_path, traj_id = "") ->
     min_depth = lowres_depths_np.min()
     max_depth = lowres_depths_np.max()
     for i in range(depths_np.shape[0]):
-        depths_colorize_lst.append(colorize_depth_maps(depths_np[i], min_depth, max_depth))
-        lowres_depths_colorize_lst.append(colorize_depth_maps(lowres_depths_np[i], min_depth, max_depth))
+        depths_colorize_lst.append(
+            colorize_depth_maps(depths_np[i], min_depth, max_depth)
+        )
+        lowres_depths_colorize_lst.append(
+            colorize_depth_maps(lowres_depths_np[i], min_depth, max_depth)
+        )
     depths_colorize = np.concatenate(depths_colorize_lst, axis=0)
     lowres_depths_colorize = np.concatenate(lowres_depths_colorize_lst, axis=0)
     depths_colorize = np.moveaxis(depths_colorize, 1, 3)
     lowres_depths_colorize = np.moveaxis(lowres_depths_colorize, 1, 3)
 
-    imageio.imwrite(os.path.join(output_path, f"rgb{traj_id}.mp4"), np.uint8(images_np*255.0))
-    imageio.imwrite(os.path.join(output_path, f"depth{traj_id}.mp4"), (depths_colorize*255.0).astype(np.uint8))
-    imageio.imwrite(os.path.join(output_path, f"lowres_depth{traj_id}.mp4"), (lowres_depths_colorize*255.0).astype(np.uint8))
+    imageio.imwrite(
+        os.path.join(output_path, f"rgb{traj_id}.mp4"), np.uint8(images_np * 255.0)
+    )
+    imageio.imwrite(
+        os.path.join(output_path, f"depth{traj_id}.mp4"),
+        (depths_colorize * 255.0).astype(np.uint8),
+    )
+    imageio.imwrite(
+        os.path.join(output_path, f"lowres_depth{traj_id}.mp4"),
+        (lowres_depths_colorize * 255.0).astype(np.uint8),
+    )
+
 
 def batch_inference(
     model: torch.nn.Module,
@@ -200,33 +236,39 @@ def batch_inference(
         depth: Predicted depth map tensor with
     """
     raw_shape_len = len(image.shape)
-    if raw_shape_len > 4: # traj data
+    if raw_shape_len > 4:  # traj data
         image = image.reshape(-1, *image.shape[2:])
         lowres_depth = lowres_depth.reshape(-1, *lowres_depth.shape[2:])
-        
+
     depth = []
     tqdm_bar = tqdm(total=image.shape[0], desc="Inference")
-    for i in range(0, image.shape[0], batch_size):    
-        image_batch = image[i:i+batch_size]
-        lowres_depth_batch = lowres_depth[i:i+batch_size]
+    for i in range(0, image.shape[0], batch_size):
+        image_batch = image[i : i + batch_size]
+        lowres_depth_batch = lowres_depth[i : i + batch_size]
         if isinstance(model, DDP):
-            depth_batch = model.module.inference(image=image_batch, lowres_depth=lowres_depth_batch)
+            depth_batch = model.module.inference(
+                image=image_batch, lowres_depth=lowres_depth_batch
+            )
         else:
-            depth_batch = model.inference(image=image_batch, lowres_depth=lowres_depth_batch)
+            depth_batch = model.inference(
+                image=image_batch, lowres_depth=lowres_depth_batch
+            )
         depth.append(depth_batch)
         tqdm_bar.update(batch_size)
     tqdm_bar.close()
     depth = torch.cat(depth, dim=0)
 
-    if raw_shape_len > 4: # traj data
+    if raw_shape_len > 4:  # traj data
         depth = depth.reshape(image.shape[0], -1, *depth.shape[1:])
     return depth
 
 
-def plot_metrics_dict(metrics_dict, fig_size=(15, 10), n_cols=3, title="Metrics Comparison"):
+def plot_metrics_dict(
+    metrics_dict, fig_size=(15, 10), n_cols=3, title="Metrics Comparison"
+):
     """
     Plot line graphs for each item in a metrics dictionary and combine them into one figure.
-    
+
     Parameters:
     -----------
     metrics_dict : dict
@@ -241,24 +283,24 @@ def plot_metrics_dict(metrics_dict, fig_size=(15, 10), n_cols=3, title="Metrics 
     # Calculate number of plots and determine grid dimensions
     n_plots = len(metrics_dict)
     n_rows = (n_plots + n_cols - 1) // n_cols  # Ceiling division
-    
+
     # Find global min and max for consistent y-axis scaling
     all_values = []
     for values in metrics_dict.values():
         all_values.extend(values)
-    
+
     global_min = min(all_values) if all_values else 0
     global_max = max(all_values) if all_values else 1
-    
+
     # Add some buffer to the min and max
     y_range = global_max - global_min
     y_min = global_min - 0.05 * y_range
     y_max = global_max + 0.05 * y_range
-    
+
     # Create figure and subplots
     fig, axes = plt.subplots(n_rows, n_cols, figsize=fig_size, sharey=True)
     fig.suptitle(title, fontsize=16)
-    
+
     # Flatten axes array for easy indexing
     if n_rows > 1 and n_cols > 1:
         axes = axes.flatten()
@@ -268,7 +310,7 @@ def plot_metrics_dict(metrics_dict, fig_size=(15, 10), n_cols=3, title="Metrics 
         axes = axes.flatten()
     else:
         axes = [axes]  # Make a list for single subplot
-    
+
     # Plot each metric
     for i, (key, values) in enumerate(metrics_dict.items()):
         if i < len(axes):
@@ -277,15 +319,16 @@ def plot_metrics_dict(metrics_dict, fig_size=(15, 10), n_cols=3, title="Metrics 
             ax.plot(x, values)
             ax.set_title(key)
             ax.set_ylim(y_min, y_max)
-            ax.grid(True, linestyle='--', alpha=0.7)
-    
+            ax.grid(True, linestyle="--", alpha=0.7)
+
     # Hide unused subplots
     for i in range(n_plots, len(axes)):
         axes[i].set_visible(False)
-    
+
     plt.tight_layout(rect=[0, 0, 1, 0.96])  # Adjust layout to make room for suptitle
-    
+
     return fig
+
 
 def print_average_std(dict):
     print_str = ""
@@ -296,13 +339,14 @@ def print_average_std(dict):
             print_str += f"{key}: {value:.4f}\n"
     print(print_str)
 
+
 def model_infer(
     model: str,
     img: torch.Tensor,
     lowres: torch.Tensor,
     align_scale: bool = True,
 ) -> None:
-    """ 
+    """
     Inference on a single image and depth map.
     Args:
         input_image_path: Path to input image.
@@ -327,12 +371,13 @@ def model_infer(
             lowres,
             msk,
         )
-    else: 
+    else:
         output_depth = pred
 
     return output_depth
-    
-def get_model(model_path: str, rank: int=0) -> torch.nn.Module:
+
+
+def get_model(model_path: str, rank: int = 0) -> torch.nn.Module:
     """
     Load the pre-trained model.
     Args:
@@ -349,16 +394,29 @@ def get_model(model_path: str, rank: int=0) -> torch.nn.Module:
         model = get_pda_model(model_path, rank=rank)
     elif model_type == "dav2":
         from depth_anything_v2.metric_depth.depth_anything_v2 import DepthAnythingV2
+
         # 加载模型
-        encoder = 'vitl'
-        dataset = 'hypersim'
+        encoder = "vitl"
+        dataset = "hypersim"
         max_depth = 10
         model_configs = {
-            'vits': {'encoder': 'vits', 'features': 64, 'out_channels': [48, 96, 192, 384]},
-            'vitb': {'encoder': 'vitb', 'features': 128, 'out_channels': [96, 192, 384, 768]},
-            'vitl': {'encoder': 'vitl', 'features': 256, 'out_channels': [256, 512, 1024, 1024]}
+            "vits": {
+                "encoder": "vits",
+                "features": 64,
+                "out_channels": [48, 96, 192, 384],
+            },
+            "vitb": {
+                "encoder": "vitb",
+                "features": 128,
+                "out_channels": [96, 192, 384, 768],
+            },
+            "vitl": {
+                "encoder": "vitl",
+                "features": 256,
+                "out_channels": [256, 512, 1024, 1024],
+            },
         }
-        model = DepthAnythingV2(**{**model_configs[encoder], 'max_depth': max_depth})
+        model = DepthAnythingV2(**{**model_configs[encoder], "max_depth": max_depth})
         ckpt_path = f'{os.environ["workspace"]}/cache_models/depth_anything_v2_metric_{dataset}_{encoder}.pth'
         model.load_state_dict(torch.load(ckpt_path, map_location=f"cuda:{rank}"))
 
@@ -367,15 +425,17 @@ def get_model(model_path: str, rank: int=0) -> torch.nn.Module:
 
     return model
 
+
 @torch.no_grad()
 def eval_traj(
-    rank, world_size,
+    rank,
+    world_size,
     model_type: str,
     hdf5_path: str = HDF5_PATH,
-    output_path: str = 'results/depth_results.png',
+    output_path: str = "results/depth_results.png",
     corrupted_depth: bool = False,
 ) -> None:
-    """ 
+    """
     Inference on a single image and depth map.
     Args:
         input_image_path: Path to input image.
@@ -389,13 +449,17 @@ def eval_traj(
 
     # 准备数据
     dataset = hdf5TrajDataset(hdf5_path)
-    sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=False)
+    sampler = DistributedSampler(
+        dataset, num_replicas=world_size, rank=rank, shuffle=False
+    )
     dataloader = DataLoader(dataset, batch_size=1, sampler=sampler)
 
     for traj_id, img, gt in tqdm(dataloader, position=rank):
 
         if corrupted_depth:
-            lowres = add_noise_to_depth(img, gt, gt, value_error_scale_max=0.6, value_error_scale_min=0.3)
+            lowres = add_noise_to_depth(
+                img, gt, gt, value_error_scale_max=0.6, value_error_scale_min=0.3
+            )
         else:
             lowres = gt.clone()
         img = img.to(f"cuda:{rank}")
@@ -405,7 +469,7 @@ def eval_traj(
         # 进行推理
         pred = batch_inference(model, img, lowres)
 
-        if len(img.shape) > 4: # traj data
+        if len(img.shape) > 4:  # traj data
             img = img.reshape(-1, *img.shape[2:])
             gt = gt.reshape(-1, *gt.shape[2:])
             lowres = lowres.reshape(-1, *lowres.shape[2:])
@@ -418,7 +482,8 @@ def eval_traj(
         metrics_dict, pred_depth_align_low = compute_metrics(img, lowres, gt, pred)
 
         os.makedirs(os.path.dirname(output_path), exist_ok=True)
-        plot_metrics_dict(metrics_dict, title="Metrics Comparison").savefig(os.path.join(os.path.dirname(output_path), f"metrics_dict_{traj_id}.png"))
+        plot_metrics_dict(metrics_dict, title="Metrics Comparison").savefig(
+            os.path.join(os.path.dirname(output_path), f"metrics_dict_{traj_id}.png")
+        )
         # plot_depth(image, depth, lowres_depth, output_path)
         write_to_videos(img, pred_depth_align_low, lowres, output_path)
-

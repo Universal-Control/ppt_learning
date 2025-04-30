@@ -77,7 +77,7 @@ class TrajDataset:
         use_lru_cache=True,
         rank=0,  # Add rank for DDP
         **kwargs,
-    ):  
+    ):
         self.rank = rank
         self.dataset_name = domain
         self.horizon = horizon
@@ -124,7 +124,11 @@ class TrajDataset:
             ]
         self.ignored_keys = ignored_keys
         if ignored_keys is None:
-            self.ignored_keys = ["initial_state", "states", "depths"] # , "images", "color"]
+            self.ignored_keys = [
+                "initial_state",
+                "states",
+                "depths",
+            ]  # , "images", "color"]
             # self.use_pcd = False
 
         self.voxelization = voxelization
@@ -138,7 +142,7 @@ class TrajDataset:
         )
         self.dataset_path = dataset_path
         self.replay_buffer = None
-        
+
         if use_disk:
             # self.replay_buffer = ReplayBuffer.create_empty_zarr(storage=zarr.DirectoryStore(path=dataset_path))
             if load_from_cache:
@@ -146,7 +150,9 @@ class TrajDataset:
                     store = zarr.DirectoryStore(dataset_path)
                     cache = zarr.LRUStoreCache(store=store, max_size=2**30)
                     group = zarr.open(cache, "r")
-                    self.replay_buffer = ReplayBuffer.create_from_group(group, env_names=self.env_names)
+                    self.replay_buffer = ReplayBuffer.create_from_group(
+                        group, env_names=self.env_names
+                    )
                     print("Using lru cache")
                 else:
                     self.replay_buffer = ReplayBuffer.create_from_path(
@@ -241,7 +247,11 @@ class TrajDataset:
         return self.replay_buffer.get_episode(idx)
 
     def _sample_to_data(self, sample):
-        data = {"action": sample["action"]} if "action" in sample else {"action": sample["actions"]}
+        data = (
+            {"action": sample["action"]}
+            if "action" in sample
+            else {"action": sample["actions"]}
+        )
         if self.normalize_state:
             if "state" in sample:
                 data["state"] = sample["state"]  # 1 x N
@@ -300,7 +310,7 @@ class TrajDataset:
         sample = self.sampler.sample_sequence(idx)
         # end_time = time.time()
         # print("Time used of sample:", end_time - start_time)
-        if "actions" in sample: # Align the name
+        if "actions" in sample:  # Align the name
             sample["action"] = sample["actions"]
             del sample["actions"]
 
@@ -334,15 +344,25 @@ class TrajDataset:
         if self.use_pcd:
             if "pointcloud" not in sample["obs"]:
                 sample["obs"]["pointcloud"] = {}
-                for cam_idx, (cam_name_depth, cam_name_rgb) in enumerate(zip(sample["obs"]["depths"], sample["obs"]["images"])):
+                for cam_idx, (cam_name_depth, cam_name_rgb) in enumerate(
+                    zip(sample["obs"]["depths"], sample["obs"]["images"])
+                ):
                     depth = sample["obs"]["depths"][cam_name_depth]
                     rgb = sample["obs"]["images"][cam_name_rgb]
-                    sample["obs"]["pointcloud"][f"camera_{cam_idx}"] = create_pointcloud_from_rgbd(
-                        depth=depth[..., 0],
-                        rgb=rgb,
-                        intrinsic_matrix=self.replay_buffer.meta["camera_info"][f"camera_{cam_idx}"]["intrinsics"][0],
-                        position=self.replay_buffer.meta["camera_info"][f"camera_{cam_idx}"]["extrinsics"][0,:3],
-                        orientation=self.replay_buffer.meta["camera_info"][f"camera_{cam_idx}"]["extrinsics"][0,3:],
+                    sample["obs"]["pointcloud"][f"camera_{cam_idx}"] = (
+                        create_pointcloud_from_rgbd(
+                            depth=depth[..., 0],
+                            rgb=rgb,
+                            intrinsic_matrix=self.replay_buffer.meta["camera_info"][
+                                f"camera_{cam_idx}"
+                            ]["intrinsics"][0],
+                            position=self.replay_buffer.meta["camera_info"][
+                                f"camera_{cam_idx}"
+                            ]["extrinsics"][0, :3],
+                            orientation=self.replay_buffer.meta["camera_info"][
+                                f"camera_{cam_idx}"
+                            ]["extrinsics"][0, 3:],
+                        )
                     )
                 camera_nums = len(sample["obs"]["pointcloud"])
                 sample["obs"]["pointcloud"]["pos"] = np.concatenate(
@@ -361,7 +381,7 @@ class TrajDataset:
                 )
                 for cam_idx in range(camera_nums):
                     del sample["obs"]["pointcloud"][f"camera_{cam_idx}"]
-                
+
             if self.data_augmentation:
                 sample["obs"]["pointcloud"]["pos"] = self.pcd_aug(
                     sample["obs"]["pointcloud"]["pos"]
@@ -445,7 +465,7 @@ class TrajDataset:
             for key, val in sample["obs"].items():
                 sample[key] = val
             del sample["obs"]
-        
+
         if "state" not in sample:
             sample = self.get_state(sample)
 
@@ -525,7 +545,7 @@ def delete_indices(
 def resize_image_sequence(images, target_size):
     """
     Resize an image sequence using OpenCV
-    
+
     Args:
         images: numpy array of shape (N, H, W, C) where:
                N = number of images
@@ -533,23 +553,25 @@ def resize_image_sequence(images, target_size):
                W = width
                C = channels
         target_size: tuple of (height, width)
-    
+
     Returns:
         resized images array of shape (N, new_H, new_W, C)
     """
     N, H, W, C = images.shape
     new_H, new_W = target_size
-    
+
     # Reshape to 2D array of images for faster processing
     reshaped = images.reshape(-1, H, W, C)
-    
+
     # Preallocate output array
     output = np.empty((N, new_H, new_W, C), dtype=images.dtype)
-    
+
     # Resize each image
     for i in range(N):
-        output[i] = cv2.resize(images[i], (new_W, new_H), interpolation=cv2.INTER_LINEAR)
-    
+        output[i] = cv2.resize(
+            images[i], (new_W, new_H), interpolation=cv2.INTER_LINEAR
+        )
+
     return output
 
 

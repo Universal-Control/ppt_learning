@@ -453,6 +453,7 @@ class RLBenchRolloutRunner:
 
         return total_success / episode_num, total_reward / episode_num, self.tr
 
+
 def _recursive_flat_env_dim(obs: dict):
     flatted_dict = {}
     for k, v in obs.items():
@@ -461,6 +462,7 @@ def _recursive_flat_env_dim(obs: dict):
         else:
             flatted_dict[k] = v[0]
     return flatted_dict
+
 
 class IsaacEnvRolloutRunner:
     def __init__(
@@ -506,20 +508,20 @@ class IsaacEnvRolloutRunner:
         self.pcd_aug = lambda x: randomly_drop_point(add_gaussian_noise(x))
 
         from isaaclab.app import AppLauncher
-        app_launcher_kwargs = {
-            "headless": self.headless,
-            "enable_cameras": True
-        }
+
+        app_launcher_kwargs = {"headless": self.headless, "enable_cameras": True}
         self.app_launcher = AppLauncher(None, **app_launcher_kwargs)
         self.app = self.app_launcher.app
 
-        import isaaclab_mimic.envs 
+        import isaaclab_mimic.envs
         import bytemini_sim.tasks
         from isaaclab_tasks.utils.parse_cfg import parse_env_cfg
         from isaaclab.envs import ManagerBasedRLEnv
         import gymnasium as gym
-        
-        env_cfg = parse_env_cfg(self.task_name, device=self.device, num_envs=self.num_envs)
+
+        env_cfg = parse_env_cfg(
+            self.task_name, device=self.device, num_envs=self.num_envs
+        )
         self.success_term = env_cfg.terminations.success
         env_cfg.terminations.success = None
         env_cfg.seed = seed
@@ -545,7 +547,7 @@ class IsaacEnvRolloutRunner:
         ppt_obs = {}
         ppt_obs["pointcloud"] = {
             "color": obs["policy_infer"]["pointcloud"][..., 1],
-            "pos": obs["policy_infer"]["pointcloud"][..., 0]
+            "pos": obs["policy_infer"]["pointcloud"][..., 0],
         }
         ppt_obs.update(obs["policy"])
         ppt_obs = _recursive_flat_env_dim(ppt_obs)
@@ -563,7 +565,7 @@ class IsaacEnvRolloutRunner:
         env = self.env
 
         pbar = tqdm(range(episode_num), position=1, leave=True)
-        
+
         for i in pbar:
             eps_reward = 0
             traj_length = 0
@@ -580,7 +582,10 @@ class IsaacEnvRolloutRunner:
                     if len(openloop_actions) > 0:
                         action = openloop_actions.popleft()
                     else:
-                        if "pointcloud" in obs.keys() or 'pointcloud' in obs["policy_infer"].keys():
+                        if (
+                            "pointcloud" in obs.keys()
+                            or "pointcloud" in obs["policy_infer"].keys()
+                        ):
                             action = policy.get_action(
                                 preprocess_obs(
                                     self._isaac_obs_warpper(obs),
@@ -596,7 +601,9 @@ class IsaacEnvRolloutRunner:
                             )
                         else:
                             action = policy.get_action(
-                                preprocess_obs(self._isaac_obs_warpper(obs), None, None, 3),
+                                preprocess_obs(
+                                    self._isaac_obs_warpper(obs), None, None, 3
+                                ),
                                 pcd_npoints=self.pcd_num_points,
                                 in_channels=3,
                                 task_description=task_description,
@@ -612,14 +619,14 @@ class IsaacEnvRolloutRunner:
                     action[-2] = 0.0 if action[-2] < 0.5 else 1.0
                     ignore_collisions = bool(action[-1])
                     action = action[:-1]
-                    next_obs, reward, terminations, timeouts, info = env.step(
-                        action
-                    )
+                    next_obs, reward, terminations, timeouts, info = env.step(action)
                     done = torch.logical_or(terminations, timeouts)
                 else:
                     if isinstance(action, np.ndarray):
                         action = torch.from_numpy(action)
-                    next_obs, reward, terminations, timeouts, info = env.step(action[None])
+                    next_obs, reward, terminations, timeouts, info = env.step(
+                        action[None]
+                    )
                     if self.success_term.func(env, **self.success_term.params):
                         success = True
                         terminations[0] = True
@@ -628,7 +635,9 @@ class IsaacEnvRolloutRunner:
                 eps_reward += reward
                 if self.save_video:
                     for key in obs["images"]:
-                        self.video_logger.extend(key, obs["images"][key][0].cpu().numpy(), category="color")
+                        self.video_logger.extend(
+                            key, obs["images"][key][0].cpu().numpy(), category="color"
+                        )
                 obs = next_obs
 
                 if done:
@@ -642,11 +651,9 @@ class IsaacEnvRolloutRunner:
 
             if self.save_video:
                 postfix = "success" if success else "fail"
-                self.video_logger.save(dir_name = f"{i}-th-{postfix}")
-                
-            pbar.set_description(
-                f"{self.task_name} total_success: {total_success}"
-            )
+                self.video_logger.save(dir_name=f"{i}-th-{postfix}")
+
+            pbar.set_description(f"{self.task_name} total_success: {total_success}")
 
         return total_success / episode_num, total_reward / episode_num, imgs
 

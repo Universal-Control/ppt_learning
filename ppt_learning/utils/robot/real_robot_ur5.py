@@ -28,6 +28,7 @@ from ppt_learning.paths import PPT_DIR
 import rtde_control
 import rtde_receive
 from typing import List
+
 # cuRobo
 from curobo.types.base import TensorDeviceType
 from curobo.types.math import Pose
@@ -42,12 +43,14 @@ cameras = {
     "camera_1": "233622074344",
 }  # wrist, left, right cam
 
+
 class UR5_IK:
-    def __init__(self,
-            urdf_path = f"{PPT_DIR}/third_party/ur5_isaac_simulation/robot.urdf",
-            init_q: np.ndarray = None,
-            ee_link_name: str = "",
-            base_link_name: str = ""
+    def __init__(
+        self,
+        urdf_path=f"{PPT_DIR}/third_party/ur5_isaac_simulation/robot.urdf",
+        init_q: np.ndarray = None,
+        ee_link_name: str = "",
+        base_link_name: str = "",
     ):
         """初始化 UR5 IK 求解器"""
         # Essential parameters
@@ -55,12 +58,12 @@ class UR5_IK:
         self.ee_link_name = ee_link_name if ee_link_name else "wrist_3_link"
         self.base_link_name = base_link_name if base_link_name else "base_link"
         self.filter_state = None
-        
+
         # Create robot config and IK solver
         self.robot_cfg = RobotConfig.from_basic(
             urdf_path, self.base_link_name, self.ee_link_name, self.tensor_args
         )
-        
+
         # Setup default configuration
         self.kin_model = CudaRobotModel(self.robot_cfg.kinematics)
 
@@ -69,12 +72,12 @@ class UR5_IK:
         if self.dof >= 6:  # Assuming standard UR5 joint layout
             self.full_q0[0] = -1.57
             self.full_q0[1] = -1.57
-        
+
         # Use provided initial configuration if available
         if init_q is not None:
             assert len(init_q) == len(self.full_q0), f"Initial position length mismatch"
             self.full_q0 = np.copy(init_q)
-            
+
         # Configure and initialize IK solver
         self.ik_config = IKSolverConfig.load_from_robot_config(
             self.robot_cfg,
@@ -89,11 +92,11 @@ class UR5_IK:
             grad_iters=None,
             regularization=False,
         )
-        
+
         self.ik_solver = IKSolver(self.ik_config)
         self.last_shape = None
         self.last_dtype = None
-    
+
     def solve_batch(
         self,
         target_pos,
@@ -105,7 +108,7 @@ class UR5_IK:
         max_try_times=20,
     ):
         """批量IK问题并行求解"""
-        if target_pos.shape != self.last_shape or target_pos.dtype!= self.last_dtype:
+        if target_pos.shape != self.last_shape or target_pos.dtype != self.last_dtype:
             self.last_shape = target_pos.shape
             self.last_dtype = target_pos.dtype
             infer_mode = False
@@ -113,23 +116,37 @@ class UR5_IK:
             infer_mode = True
         # with torch.inference_mode(infer_mode):
         pose = Pose(target_pos, target_quat)
-        result = self.ik_solver.solve_batch(pose, retract_config=joints_batch, seed_config=joints_batch[None], return_seeds=1)
+        result = self.ik_solver.solve_batch(
+            pose,
+            retract_config=joints_batch,
+            seed_config=joints_batch[None],
+            return_seeds=1,
+        )
         q_solution: torch.Tensor = result.solution
         return q_solution[:, 0, :]
 
 
 class RealRobot:
-    def __init__(self, ip="192.168.1.243", fps=30, init_q=None, 
-                control_space='joint', use_model_depth=False,
-                align_scale=True, device="cuda", tar_size=(476, 630)):
+    def __init__(
+        self,
+        ip="192.168.1.243",
+        fps=30,
+        init_q=None,
+        control_space="joint",
+        use_model_depth=False,
+        depth_model_path=None,
+        align_scale=True,
+        device="cuda",
+        tar_size=(644, 490),
+    ):
         print("Intializing robot ...")
 
         # Initialize robot connection and libraries
         self.robot_c = rtde_control.RTDEControlInterface(ip)
         self.robot_r = rtde_receive.RTDEReceiveInterface(ip)
-        self.gripper = None # Gripper TODO
+        self.gripper = None  # Gripper TODO
         self.control_space = control_space
-        self.dt = 1. / fps
+        self.dt = 1.0 / fps
         self.velocity = 0.5
         self.acceleration = 0.5
         self.lookahead_time = 0.1
@@ -144,17 +161,13 @@ class RealRobot:
                 -1.50796447,
                 -1.12242124,
                 1.59191481,
-                -0.055676
+                -0.055676,
             ]
 
-        self.ik_helper = UR5_IK(
-            init_q = self.init_q,
-            ee_link_name="wrist_3_link"
-        )
-        
+        self.ik_helper = UR5_IK(init_q=self.init_q, ee_link_name="wrist_3_link")
 
         self.init_robot()
-        self.init_cameras() # 
+        self.init_cameras()  #
 
         # other
         self.current_step = 0
@@ -164,11 +177,16 @@ class RealRobot:
             self.align_scale = align_scale
             from ranging_anything.model import get_model as get_pda_model
             from ranging_anything.compute_metric import (
-                interp_depth_rgb, add_noise_to_depth, save_vis_depth, compute_metrics,
-                recover_metric_depth_ransac, colorize_depth_maps
+                interp_depth_rgb,
+                add_noise_to_depth,
+                save_vis_depth,
+                compute_metrics,
+                recover_metric_depth_ransac,
+                colorize_depth_maps,
             )
             from ppt_learning.utils.ranging_depth_utils import get_model, model_infer
-            self.depth_model = get_model("/home/minghuan/ppt_learning/e049-s204800.ckpt").to(self.device)
+
+            self.depth_model = get_model(depth_model_path).to(self.device)
 
         self._buffer = {}
 
@@ -249,10 +267,15 @@ class RealRobot:
         joint = self.robot_r.getActualQ()
         joint_torch = torch.tensor(joint, device="cuda").reshape(1, 6)
         ee_torch = self.ik_helper.kin_model.get_state(joint_torch)
-        
-        pose = np.ascontiguousarray(np.concatenate([
-            ee_torch.ee_position.cpu().numpy()[0], ee_torch.ee_quaternion.cpu().numpy()[0]
-        ])).astype(np.float32)
+
+        pose = np.ascontiguousarray(
+            np.concatenate(
+                [
+                    ee_torch.ee_position.cpu().numpy()[0],
+                    ee_torch.ee_quaternion.cpu().numpy()[0],
+                ]
+            )
+        ).astype(np.float32)
         return pose
 
     def get_robot_state(self):
@@ -286,21 +309,30 @@ class RealRobot:
         if self.use_model_depth:
             from ranging_anything.model import get_model as get_pda_model
             from ranging_anything.compute_metric import (
-                interp_depth_rgb, add_noise_to_depth, save_vis_depth, compute_metrics,
-                recover_metric_depth_ransac, colorize_depth_maps
+                interp_depth_rgb,
+                add_noise_to_depth,
+                save_vis_depth,
+                compute_metrics,
+                recover_metric_depth_ransac,
+                colorize_depth_maps,
             )
             from ppt_learning.utils.ranging_depth_utils import get_model, model_infer
             from ppt_learning.utils.pcd_utils import create_pointcloud_from_rgbd
             import cv2
+
             depths = rs_data["depths"]
             colors = rs_data["colors"]
             depths_p = []
             colors_p = []
             for i, depth in enumerate(depths):
                 color = colors[i]
-                color = cv2.resize(color, self.tar_size[::-1], interpolation=cv2.INTER_AREA)
+                color = cv2.resize(
+                    color, self.tar_size[::-1], interpolation=cv2.INTER_AREA
+                )
                 color = torch.from_numpy(color).permute(2, 0, 1).float() / 255.0
-                depth = cv2.resize(depth, self.tar_size[::-1], interpolation=cv2.INTER_AREA)
+                depth = cv2.resize(
+                    depth, self.tar_size[::-1], interpolation=cv2.INTER_AREA
+                )
                 depth = interp_depth_rgb(depth, color)
                 depth = torch.from_numpy(depth).unsqueeze(0).float()
                 depths_p.append(depth)
@@ -308,7 +340,9 @@ class RealRobot:
             depths = torch.stack(depths_p)
             colors = torch.stack(colors_p)
             intrs = rs_data["intrs"]
-            model_depths = model_infer(self.depth_model, colors, depths, self.align_scale)
+            model_depths = model_infer(
+                self.depth_model, colors, depths, self.align_scale
+            )
             intrs = torch.from_numpy(intrs)
             intr_matries = torch.zeros((len(colors), 3, 3))
             intr_matries[:, 0, 0] = intrs[:, 0]
@@ -317,18 +351,22 @@ class RealRobot:
             intr_matries[:, 1, 2] = intrs[:, 3]
             intr_matries[:, 2, 2] = 1
             colors = colors.permute(0, 2, 3, 1)
-            res = create_pointcloud_from_rgbd(np.array(intr_matries), np.array(model_depths), np.array(colors))
+            res = create_pointcloud_from_rgbd(
+                np.array(intr_matries), np.array(model_depths), np.array(colors)
+            )
             pos = np.concatenate(list(res["pos"]), axis=0)
             color = np.concatenate(list(res["color"]), axis=0)
             pcd_dict = pcd_downsample_torch(
-                dict(pos=torch.from_numpy(pos)[None], color=torch.from_numpy(color)[None]),
+                dict(
+                    pos=torch.from_numpy(pos)[None], color=torch.from_numpy(color)[None]
+                ),
                 bound=BOUND,
                 bound_clip=True,
-                num=8192
+                num=8192,
             )
             pcd = {
                 "pos": pcd_dict["pos"][0].cpu().numpy(),
-                "color": pcd_dict["color"][0].cpu().numpy()
+                "color": pcd_dict["color"][0].cpu().numpy(),
             }
 
         if visualize:
@@ -345,21 +383,30 @@ class RealRobot:
         Step robot in the real.
         """
         import time
+
         start_time = time.time()
         current_joint_np = self.robot_r.getActualQ()
         current_joint = torch.tensor(current_joint_np, device="cuda").reshape(1, 6)
-        joint = self.ik_helper.solve_batch(
-            torch.tensor(action[:3], device="cuda").to(torch.float32),
-            torch.tensor(action[3:-1], device="cuda").to(torch.float32),
-            current_joint.to(torch.float32)
-        )[0].cpu().numpy()
+        joint = (
+            self.ik_helper.solve_batch(
+                torch.tensor(action[:3], device="cuda").to(torch.float32),
+                torch.tensor(action[3:-1], device="cuda").to(torch.float32),
+                current_joint.to(torch.float32),
+            )[0]
+            .cpu()
+            .numpy()
+        )
         end_time = time.time()
         print("time to solve ik {}".format(end_time - start_time))
         try:
             t_start = self.robot_c.initPeriod()
             self.robot_c.servoJ(
-                joint.tolist(), self.velocity, self.acceleration,
-                self.dt, self.lookahead_time, self.gain
+                joint.tolist(),
+                self.velocity,
+                self.acceleration,
+                self.dt,
+                self.lookahead_time,
+                self.gain,
             )
             self.robot_c.waitPeriod(t_start)
             # self.robot.movej(joint, vel=.4, acc=0.4)
@@ -386,12 +433,10 @@ class RealRobot:
                 -1.50796447,
                 -1.12242124,
                 1.59191481,
-                -0.055676 + i * 0.04
+                -0.055676 + i * 0.04,
             ]
 
-
             self.get_robot_state()
-
 
     def end(self):
         # self.robot.stop()
@@ -406,6 +451,5 @@ if __name__ == "__main__":
 
     # data.test_sequence()
     # t2.join()
-
 
     data.get_obs()

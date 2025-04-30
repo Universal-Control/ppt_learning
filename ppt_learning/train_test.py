@@ -103,7 +103,9 @@ def train(
     # combined_dataloader = train_loader  # WeightedDataLoader(train_loaders)
     epoch_size = len(train_loader)
     assert epoch_size > 0, "empty dataloader"
-    pbar = tqdm(train_loader, position=1, leave=True, disable=(rank != 0))  # Disable pbar for non-rank-0
+    pbar = tqdm(
+        train_loader, position=1, leave=True, disable=(rank != 0)
+    )  # Disable pbar for non-rank-0
 
     # randomly sample a dataloader with inverse probability square root to the number of data
     for batch_idx, batch in enumerate(pbar):
@@ -212,7 +214,7 @@ def test(
         target = batch["data"]["action"].to(device)
         if rank == 0 and target.shape[1] == 0:
             continue
-        
+
         if isinstance(output, (dict, OrderedDict)):
             loss = output["loss"]
             output = None

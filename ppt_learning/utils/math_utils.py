@@ -20,7 +20,9 @@ General
 
 
 @torch.jit.script
-def scale_transform(x: torch.Tensor, lower: torch.Tensor, upper: torch.Tensor) -> torch.Tensor:
+def scale_transform(
+    x: torch.Tensor, lower: torch.Tensor, upper: torch.Tensor
+) -> torch.Tensor:
     """Normalizes a given input tensor to a range of [-1, 1].
 
     .. note::
@@ -41,7 +43,9 @@ def scale_transform(x: torch.Tensor, lower: torch.Tensor, upper: torch.Tensor) -
 
 
 @torch.jit.script
-def unscale_transform(x: torch.Tensor, lower: torch.Tensor, upper: torch.Tensor) -> torch.Tensor:
+def unscale_transform(
+    x: torch.Tensor, lower: torch.Tensor, upper: torch.Tensor
+) -> torch.Tensor:
     """De-normalizes a given input tensor from range of [-1, 1] to (lower, upper).
 
     .. note::
@@ -114,7 +118,9 @@ def wrap_to_pi(angles: torch.Tensor) -> torch.Tensor:
     wrapped_angle = (angles + torch.pi) % (2 * torch.pi)
     # map to [-pi, pi]
     # we check for zero in wrapped angle to make it go to pi when input angle is odd multiple of pi
-    return torch.where((wrapped_angle == 0) & (angles > 0), torch.pi, wrapped_angle - torch.pi)
+    return torch.where(
+        (wrapped_angle == 0) & (angles > 0), torch.pi, wrapped_angle - torch.pi
+    )
 
 
 @torch.jit.script
@@ -131,7 +137,9 @@ def copysign(mag: float, other: torch.Tensor) -> torch.Tensor:
     Returns:
         The output tensor.
     """
-    mag_torch = torch.tensor(mag, device=other.device, dtype=torch.float).repeat(other.shape[0])
+    mag_torch = torch.tensor(mag, device=other.device, dtype=torch.float).repeat(
+        other.shape[0]
+    )
     return torch.abs(mag_torch) * torch.sign(other)
 
 
@@ -174,7 +182,9 @@ def matrix_from_quat(quaternions: torch.Tensor) -> torch.Tensor:
     return o.reshape(quaternions.shape[:-1] + (3, 3))
 
 
-def convert_quat(quat: torch.Tensor | np.ndarray, to: Literal["xyzw", "wxyz"] = "xyzw") -> torch.Tensor | np.ndarray:
+def convert_quat(
+    quat: torch.Tensor | np.ndarray, to: Literal["xyzw", "wxyz"] = "xyzw"
+) -> torch.Tensor | np.ndarray:
     """Converts quaternion from one convention to another.
 
     The convention to convert TO is specified as an optional argument. If to == 'xyzw',
@@ -249,7 +259,9 @@ def quat_inv(q: torch.Tensor) -> torch.Tensor:
 
 
 @torch.jit.script
-def quat_from_euler_xyz(roll: torch.Tensor, pitch: torch.Tensor, yaw: torch.Tensor) -> torch.Tensor:
+def quat_from_euler_xyz(
+    roll: torch.Tensor, pitch: torch.Tensor, yaw: torch.Tensor
+) -> torch.Tensor:
     """Convert rotations given as Euler angles in radians to Quaternions.
 
     Note:
@@ -308,7 +320,9 @@ def quat_from_matrix(matrix: torch.Tensor) -> torch.Tensor:
         raise ValueError(f"Invalid rotation matrix shape {matrix.shape}.")
 
     batch_dim = matrix.shape[:-2]
-    m00, m01, m02, m10, m11, m12, m20, m21, m22 = torch.unbind(matrix.reshape(batch_dim + (9,)), dim=-1)
+    m00, m01, m02, m10, m11, m12, m20, m21, m22 = torch.unbind(
+        matrix.reshape(batch_dim + (9,)), dim=-1
+    )
 
     q_abs = _sqrt_positive_part(
         torch.stack(
@@ -344,12 +358,14 @@ def quat_from_matrix(matrix: torch.Tensor) -> torch.Tensor:
 
     # if not for numerical problems, quat_candidates[i] should be same (up to a sign),
     # forall i; we pick the best-conditioned one (with the largest denominator)
-    return quat_candidates[torch.nn.functional.one_hot(q_abs.argmax(dim=-1), num_classes=4) > 0.5, :].reshape(
-        batch_dim + (4,)
-    )
+    return quat_candidates[
+        torch.nn.functional.one_hot(q_abs.argmax(dim=-1), num_classes=4) > 0.5, :
+    ].reshape(batch_dim + (4,))
 
 
-def _axis_angle_rotation(axis: Literal["X", "Y", "Z"], angle: torch.Tensor) -> torch.Tensor:
+def _axis_angle_rotation(
+    axis: Literal["X", "Y", "Z"], angle: torch.Tensor
+) -> torch.Tensor:
     """Return the rotation matrices for one of the rotations about an axis of which Euler angles describe,
     for each value of the angle given.
 
@@ -405,13 +421,18 @@ def matrix_from_euler(euler_angles: torch.Tensor, convention: str) -> torch.Tens
     for letter in convention:
         if letter not in ("X", "Y", "Z"):
             raise ValueError(f"Invalid letter {letter} in convention string.")
-    matrices = [_axis_angle_rotation(c, e) for c, e in zip(convention, torch.unbind(euler_angles, -1))]
+    matrices = [
+        _axis_angle_rotation(c, e)
+        for c, e in zip(convention, torch.unbind(euler_angles, -1))
+    ]
     # return functools.reduce(torch.matmul, matrices)
     return torch.matmul(torch.matmul(matrices[0], matrices[1]), matrices[2])
 
 
 @torch.jit.script
-def euler_xyz_from_quat(quat: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
+def euler_xyz_from_quat(
+    quat: torch.Tensor,
+) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
     """Convert rotations given as quaternions to Euler angles in radians.
 
     Note:
@@ -434,14 +455,22 @@ def euler_xyz_from_quat(quat: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor,
 
     # pitch (y-axis rotation)
     sin_pitch = 2.0 * (q_w * q_y - q_z * q_x)
-    pitch = torch.where(torch.abs(sin_pitch) >= 1, copysign(torch.pi / 2.0, sin_pitch), torch.asin(sin_pitch))
+    pitch = torch.where(
+        torch.abs(sin_pitch) >= 1,
+        copysign(torch.pi / 2.0, sin_pitch),
+        torch.asin(sin_pitch),
+    )
 
     # yaw (z-axis rotation)
     sin_yaw = 2.0 * (q_w * q_z + q_x * q_y)
     cos_yaw = 1 - 2 * (q_y * q_y + q_z * q_z)
     yaw = torch.atan2(sin_yaw, cos_yaw)
 
-    return roll % (2 * torch.pi), pitch % (2 * torch.pi), yaw % (2 * torch.pi)  # TODO: why not wrap_to_pi here ?
+    return (
+        roll % (2 * torch.pi),
+        pitch % (2 * torch.pi),
+        yaw % (2 * torch.pi),
+    )  # TODO: why not wrap_to_pi here ?
 
 
 @torch.jit.script
@@ -514,7 +543,9 @@ def quat_box_minus(q1: torch.Tensor, q2: torch.Tensor) -> torch.Tensor:
     re = quat_diff[:, 0]  # real part, q = [w, x, y, z] = [re, im]
     im = quat_diff[:, 1:]  # imaginary part
     norm_im = torch.norm(im, dim=1)
-    scale = 2.0 * torch.where(norm_im > 1.0e-7, torch.atan2(norm_im, re) / norm_im, torch.sign(re))
+    scale = 2.0 * torch.where(
+        norm_im > 1.0e-7, torch.atan2(norm_im, re) / norm_im, torch.sign(re)
+    )
     return scale.unsqueeze(-1) * im
 
 
@@ -596,7 +627,13 @@ def quat_rotate(q: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
     b = torch.cross(q_vec, v, dim=-1) * q_w.unsqueeze(-1) * 2.0
     # for two-dimensional tensors, bmm is faster than einsum
     if q_vec.dim() == 2:
-        c = q_vec * torch.bmm(q_vec.view(q.shape[0], 1, 3), v.view(q.shape[0], 3, 1)).squeeze(-1) * 2.0
+        c = (
+            q_vec
+            * torch.bmm(q_vec.view(q.shape[0], 1, 3), v.view(q.shape[0], 3, 1)).squeeze(
+                -1
+            )
+            * 2.0
+        )
     else:
         c = q_vec * torch.einsum("...i,...i->...", q_vec, v).unsqueeze(-1) * 2.0
     return a + b + c
@@ -619,7 +656,13 @@ def quat_rotate_inverse(q: torch.Tensor, v: torch.Tensor) -> torch.Tensor:
     b = torch.cross(q_vec, v, dim=-1) * q_w.unsqueeze(-1) * 2.0
     # for two-dimensional tensors, bmm is faster than einsum
     if q_vec.dim() == 2:
-        c = q_vec * torch.bmm(q_vec.view(q.shape[0], 1, 3), v.view(q.shape[0], 3, 1)).squeeze(-1) * 2.0
+        c = (
+            q_vec
+            * torch.bmm(q_vec.view(q.shape[0], 1, 3), v.view(q.shape[0], 3, 1)).squeeze(
+                -1
+            )
+            * 2.0
+        )
     else:
         c = q_vec * torch.einsum("...i,...i->...", q_vec, v).unsqueeze(-1) * 2.0
     return a - b + c
@@ -704,7 +747,9 @@ def skew_symmetric_matrix(vec: torch.Tensor) -> torch.Tensor:
     """
     # check input is correct
     if vec.shape[-1] != 3:
-        raise ValueError(f"Expected input vector shape mismatch: {vec.shape} != (..., 3).")
+        raise ValueError(
+            f"Expected input vector shape mismatch: {vec.shape} != (..., 3)."
+        )
     # unsqueeze the last dimension
     if vec.ndim == 1:
         vec = vec.unsqueeze(0)
@@ -748,7 +793,10 @@ def is_identity_pose(pos: torch.tensor, rot: torch.tensor) -> bool:
 
 @torch.jit.script
 def combine_frame_transforms(
-    t01: torch.Tensor, q01: torch.Tensor, t12: torch.Tensor | None = None, q12: torch.Tensor | None = None
+    t01: torch.Tensor,
+    q01: torch.Tensor,
+    t12: torch.Tensor | None = None,
+    q12: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     r"""Combine transformations between two reference frames into a stationary frame.
 
@@ -783,7 +831,10 @@ def combine_frame_transforms(
 
 # @torch.jit.script
 def subtract_frame_transforms(
-    t01: torch.Tensor, q01: torch.Tensor, t02: torch.Tensor | None = None, q02: torch.Tensor | None = None
+    t01: torch.Tensor,
+    q01: torch.Tensor,
+    t02: torch.Tensor | None = None,
+    q02: torch.Tensor | None = None,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     r"""Subtract transformations between two reference frames into a stationary frame.
 
@@ -866,12 +917,17 @@ def compute_pose_error(
         axis_angle_error = axis_angle_from_quat(quat_error)
         return pos_error, axis_angle_error
     else:
-        raise ValueError(f"Unsupported orientation error type: {rot_error_type}. Valid: 'quat', 'axis_angle'.")
+        raise ValueError(
+            f"Unsupported orientation error type: {rot_error_type}. Valid: 'quat', 'axis_angle'."
+        )
 
 
 @torch.jit.script
 def apply_delta_pose(
-    source_pos: torch.Tensor, source_rot: torch.Tensor, delta_pose: torch.Tensor, eps: float = 1.0e-6
+    source_pos: torch.Tensor,
+    source_rot: torch.Tensor,
+    delta_pose: torch.Tensor,
+    eps: float = 1.0e-6,
 ) -> tuple[torch.Tensor, torch.Tensor]:
     """Applies delta pose transformation on source pose.
 
@@ -900,9 +956,13 @@ def apply_delta_pose(
     angle = torch.linalg.vector_norm(rot_actions, dim=1)
     axis = rot_actions / angle.unsqueeze(-1)
     # change from axis-angle to quat convention
-    identity_quat = torch.tensor([1.0, 0.0, 0.0, 0.0], device=device).repeat(num_poses, 1)
+    identity_quat = torch.tensor([1.0, 0.0, 0.0, 0.0], device=device).repeat(
+        num_poses, 1
+    )
     rot_delta_quat = torch.where(
-        angle.unsqueeze(-1).repeat(1, 4) > eps, quat_from_angle_axis(angle, axis), identity_quat
+        angle.unsqueeze(-1).repeat(1, 4) > eps,
+        quat_from_angle_axis(angle, axis),
+        identity_quat,
     )
     # TODO: Check if this is the correct order for this multiplication.
     target_rot = quat_mul(rot_delta_quat, source_rot)
@@ -912,7 +972,9 @@ def apply_delta_pose(
 
 # @torch.jit.script
 def transform_points(
-    points: torch.Tensor, pos: torch.Tensor | None = None, quat: torch.Tensor | None = None
+    points: torch.Tensor,
+    pos: torch.Tensor | None = None,
+    quat: torch.Tensor | None = None,
 ) -> torch.Tensor:
     r"""Transform input points in a given frame to a target frame.
 
@@ -950,11 +1012,17 @@ def transform_points(
     if points_batch.dim() == 2:
         points_batch = points_batch[None]  # (P, 3) -> (1, P, 3)
     if points_batch.dim() != 3:
-        raise ValueError(f"Expected points to have dim = 2 or dim = 3: got shape {points.shape}")
+        raise ValueError(
+            f"Expected points to have dim = 2 or dim = 3: got shape {points.shape}"
+        )
     if not (pos is None or pos.dim() == 1 or pos.dim() == 2):
-        raise ValueError(f"Expected pos to have dim = 1 or dim = 2: got shape {pos.shape}")
+        raise ValueError(
+            f"Expected pos to have dim = 1 or dim = 2: got shape {pos.shape}"
+        )
     if not (quat is None or quat.dim() == 1 or quat.dim() == 2):
-        raise ValueError(f"Expected quat to have dim = 1 or dim = 2: got shape {quat.shape}")
+        raise ValueError(
+            f"Expected quat to have dim = 1 or dim = 2: got shape {quat.shape}"
+        )
     # -- rotation
     if quat is not None:
         # convert to batched rotation matrix
@@ -988,7 +1056,9 @@ Projection operations.
 
 
 @torch.jit.script
-def orthogonalize_perspective_depth(depth: torch.Tensor, intrinsics: torch.Tensor) -> torch.Tensor:
+def orthogonalize_perspective_depth(
+    depth: torch.Tensor, intrinsics: torch.Tensor
+) -> torch.Tensor:
     """Converts perspective depth image to orthogonal depth image.
 
     Perspective depth images contain distances measured from the camera's optical center.
@@ -1023,10 +1093,14 @@ def orthogonalize_perspective_depth(depth: torch.Tensor, intrinsics: torch.Tenso
     add_last_dim = False
     if perspective_depth_batch.dim() == 4 and perspective_depth_batch.shape[-1] == 1:
         add_last_dim = True
-        perspective_depth_batch = perspective_depth_batch.squeeze(dim=3)  # (N, H, W, 1) -> (N, H, W)
+        perspective_depth_batch = perspective_depth_batch.squeeze(
+            dim=3
+        )  # (N, H, W, 1) -> (N, H, W)
     if perspective_depth_batch.dim() == 3 and perspective_depth_batch.shape[-1] == 1:
         add_last_dim = True
-        perspective_depth_batch = perspective_depth_batch.squeeze(dim=2)  # (H, W, 1) -> (H, W)
+        perspective_depth_batch = perspective_depth_batch.squeeze(
+            dim=2
+        )  # (H, W, 1) -> (H, W)
 
     if perspective_depth_batch.dim() == 2:
         perspective_depth_batch = perspective_depth_batch[None]  # (H, W) -> (1, H, W)
@@ -1035,13 +1109,19 @@ def orthogonalize_perspective_depth(depth: torch.Tensor, intrinsics: torch.Tenso
         intrinsics_batch = intrinsics_batch[None]  # (3, 3) -> (1, 3, 3)
 
     if is_batched and intrinsics_batch.shape[0] == 1:
-        intrinsics_batch = intrinsics_batch.expand(perspective_depth_batch.shape[0], -1, -1)  # (1, 3, 3) -> (N, 3, 3)
+        intrinsics_batch = intrinsics_batch.expand(
+            perspective_depth_batch.shape[0], -1, -1
+        )  # (1, 3, 3) -> (N, 3, 3)
 
     # Validate input shapes
     if perspective_depth_batch.dim() != 3:
-        raise ValueError(f"Expected depth images to have 2, 3, or 4 dimensions; got {depth.shape}.")
+        raise ValueError(
+            f"Expected depth images to have 2, 3, or 4 dimensions; got {depth.shape}."
+        )
     if intrinsics_batch.dim() != 3:
-        raise ValueError(f"Expected intrinsics to have shape (3, 3) or (N, 3, 3); got {intrinsics.shape}.")
+        raise ValueError(
+            f"Expected intrinsics to have shape (3, 3) or (N, 3, 3); got {intrinsics.shape}."
+        )
 
     # Image dimensions
     im_height, im_width = perspective_depth_batch.shape[1:]
@@ -1080,7 +1160,9 @@ def orthogonalize_perspective_depth(depth: torch.Tensor, intrinsics: torch.Tenso
 
 
 @torch.jit.script
-def unproject_depth(depth: torch.Tensor, intrinsics: torch.Tensor, is_ortho: bool = True) -> torch.Tensor:
+def unproject_depth(
+    depth: torch.Tensor, intrinsics: torch.Tensor, is_ortho: bool = True
+) -> torch.Tensor:
     r"""Un-project depth image into a pointcloud.
 
     This function converts orthogonal or perspective depth images into points given the calibration matrix
@@ -1125,7 +1207,9 @@ def unproject_depth(depth: torch.Tensor, intrinsics: torch.Tensor, is_ortho: boo
         depth_batch = depth.clone()
 
     # check if inputs are batched
-    is_batched = depth_batch.dim() == 4 or (depth_batch.dim() == 3 and depth_batch.shape[-1] != 1)
+    is_batched = depth_batch.dim() == 4 or (
+        depth_batch.dim() == 3 and depth_batch.shape[-1] != 1
+    )
     # make sure inputs are batched
     if depth_batch.dim() == 3 and depth_batch.shape[-1] == 1:
         depth_batch = depth_batch.squeeze(dim=2)  # (H, W, 1) -> (H, W)
@@ -1137,24 +1221,34 @@ def unproject_depth(depth: torch.Tensor, intrinsics: torch.Tensor, is_ortho: boo
         intrinsics_batch = intrinsics_batch[None]  # (3, 3) -> (1, 3, 3)
     # check shape of inputs
     if depth_batch.dim() != 3:
-        raise ValueError(f"Expected depth images to have dim = 2 or 3 or 4: got shape {depth.shape}")
+        raise ValueError(
+            f"Expected depth images to have dim = 2 or 3 or 4: got shape {depth.shape}"
+        )
     if intrinsics_batch.dim() != 3:
-        raise ValueError(f"Expected intrinsics to have shape (3, 3) or (N, 3, 3): got shape {intrinsics.shape}")
+        raise ValueError(
+            f"Expected intrinsics to have shape (3, 3) or (N, 3, 3): got shape {intrinsics.shape}"
+        )
 
     # get image height and width
     im_height, im_width = depth_batch.shape[1:]
     # create image points in homogeneous coordinates (3, H x W)
     indices_u = torch.arange(im_width, device=depth.device, dtype=depth.dtype)
     indices_v = torch.arange(im_height, device=depth.device, dtype=depth.dtype)
-    img_indices = torch.stack(torch.meshgrid([indices_u, indices_v], indexing="ij"), dim=0).reshape(2, -1)
-    pixels = torch.nn.functional.pad(img_indices, (0, 0, 0, 1), mode="constant", value=1.0)
+    img_indices = torch.stack(
+        torch.meshgrid([indices_u, indices_v], indexing="ij"), dim=0
+    ).reshape(2, -1)
+    pixels = torch.nn.functional.pad(
+        img_indices, (0, 0, 0, 1), mode="constant", value=1.0
+    )
     pixels = pixels.unsqueeze(0)  # (3, H x W) -> (1, 3, H x W)
 
     # unproject points into 3D space
     points = torch.matmul(torch.inverse(intrinsics_batch), pixels)  # (N, 3, H x W)
     points = points / points[:, -1, :].unsqueeze(1)  # normalize by last coordinate
     # flatten depth image (N, H, W) -> (N, H x W)
-    depth_batch = depth_batch.transpose_(1, 2).reshape(depth_batch.shape[0], -1).unsqueeze(2)
+    depth_batch = (
+        depth_batch.transpose_(1, 2).reshape(depth_batch.shape[0], -1).unsqueeze(2)
+    )
     depth_batch = depth_batch.expand(-1, -1, 3)
     # scale points by depth
     points_xyz = points.transpose_(1, 2) * depth_batch  # (N, H x W, 3)
@@ -1209,11 +1303,15 @@ def project_points(points: torch.Tensor, intrinsics: torch.Tensor) -> torch.Tens
     if points_batch.dim() != 3:
         raise ValueError(f"Expected points to have dim = 3: got shape {points.shape}.")
     if intrinsics_batch.dim() != 3:
-        raise ValueError(f"Expected intrinsics to have shape (3, 3) or (N, 3, 3): got shape {intrinsics.shape}.")
+        raise ValueError(
+            f"Expected intrinsics to have shape (3, 3) or (N, 3, 3): got shape {intrinsics.shape}."
+        )
 
     # project points into 2D image plane
     points_2d = torch.matmul(intrinsics_batch, points_batch.transpose(1, 2))
-    points_2d = points_2d / points_2d[:, -1, :].unsqueeze(1)  # normalize by last coordinate
+    points_2d = points_2d / points_2d[:, -1, :].unsqueeze(
+        1
+    )  # normalize by last coordinate
     points_2d = points_2d.transpose_(1, 2)  # (N, 3, P) -> (N, P, 3)
     # replace last coordinate with depth
     points_2d[:, :, -1] = points_batch[:, :, -1]
@@ -1285,7 +1383,9 @@ def random_yaw_orientation(num: int, device: str) -> torch.Tensor:
     return quat_from_euler_xyz(roll, pitch, yaw)
 
 
-def sample_triangle(lower: float, upper: float, size: int | tuple[int, ...], device: str) -> torch.Tensor:
+def sample_triangle(
+    lower: float, upper: float, size: int | tuple[int, ...], device: str
+) -> torch.Tensor:
     """Randomly samples tensor from a triangular distribution.
 
     Args:
@@ -1311,7 +1411,10 @@ def sample_triangle(lower: float, upper: float, size: int | tuple[int, ...], dev
 
 
 def sample_uniform(
-    lower: torch.Tensor | float, upper: torch.Tensor | float, size: int | tuple[int, ...], device: str
+    lower: torch.Tensor | float,
+    upper: torch.Tensor | float,
+    size: int | tuple[int, ...],
+    device: str,
 ) -> torch.Tensor:
     """Sample uniformly within a range.
 
@@ -1332,7 +1435,10 @@ def sample_uniform(
 
 
 def sample_log_uniform(
-    lower: torch.Tensor | float, upper: torch.Tensor | float, size: int | tuple[int, ...], device: str
+    lower: torch.Tensor | float,
+    upper: torch.Tensor | float,
+    size: int | tuple[int, ...],
+    device: str,
 ) -> torch.Tensor:
     r"""Sample using log-uniform distribution within a range.
 
@@ -1363,7 +1469,10 @@ def sample_log_uniform(
 
 
 def sample_gaussian(
-    mean: torch.Tensor | float, std: torch.Tensor | float, size: int | tuple[int, ...], device: str
+    mean: torch.Tensor | float,
+    std: torch.Tensor | float,
+    size: int | tuple[int, ...],
+    device: str,
 ) -> torch.Tensor:
     """Sample using gaussian distribution.
 
@@ -1385,7 +1494,10 @@ def sample_gaussian(
 
 
 def sample_cylinder(
-    radius: float, h_range: tuple[float, float], size: int | tuple[int, ...], device: str
+    radius: float,
+    h_range: tuple[float, float],
+    size: int | tuple[int, ...],
+    device: str,
 ) -> torch.Tensor:
     """Sample 3D points uniformly on a cylinder's surface.
 
@@ -1483,7 +1595,10 @@ def convert_camera_frame_orientation_convention(
         rotm = matrix_from_quat(orientation)
         rotm = torch.matmul(
             rotm,
-            matrix_from_euler(torch.tensor([math.pi / 2, -math.pi / 2, 0], device=orientation.device), "XYZ"),
+            matrix_from_euler(
+                torch.tensor([math.pi / 2, -math.pi / 2, 0], device=orientation.device),
+                "XYZ",
+            ),
         )
         # convert to isaac-sim convention
         quat_gl = quat_from_matrix(rotm)
@@ -1502,7 +1617,10 @@ def convert_camera_frame_orientation_convention(
         rotm = matrix_from_quat(quat_gl)
         rotm = torch.matmul(
             rotm,
-            matrix_from_euler(torch.tensor([math.pi / 2, -math.pi / 2, 0], device=orientation.device), "XYZ").T,
+            matrix_from_euler(
+                torch.tensor([math.pi / 2, -math.pi / 2, 0], device=orientation.device),
+                "XYZ",
+            ).T,
         )
         return quat_from_matrix(rotm)
     else:
@@ -1543,19 +1661,29 @@ def create_rotation_matrix_from_view(
     Based on PyTorch3D (https://github.com/facebookresearch/pytorch3d/blob/eaf0709d6af0025fe94d1ee7cec454bc3054826a/pytorch3d/renderer/cameras.py#L1635-L1685)
     """
     if up_axis == "Y":
-        up_axis_vec = torch.tensor((0, 1, 0), device=device, dtype=torch.float32).repeat(eyes.shape[0], 1)
+        up_axis_vec = torch.tensor(
+            (0, 1, 0), device=device, dtype=torch.float32
+        ).repeat(eyes.shape[0], 1)
     elif up_axis == "Z":
-        up_axis_vec = torch.tensor((0, 0, 1), device=device, dtype=torch.float32).repeat(eyes.shape[0], 1)
+        up_axis_vec = torch.tensor(
+            (0, 0, 1), device=device, dtype=torch.float32
+        ).repeat(eyes.shape[0], 1)
     else:
         raise ValueError(f"Invalid up axis: {up_axis}. Valid options are 'Y' and 'Z'.")
 
     # get rotation matrix in opengl format (-Z forward, +Y up)
     z_axis = -torch.nn.functional.normalize(targets - eyes, eps=1e-5)
-    x_axis = torch.nn.functional.normalize(torch.cross(up_axis_vec, z_axis, dim=1), eps=1e-5)
+    x_axis = torch.nn.functional.normalize(
+        torch.cross(up_axis_vec, z_axis, dim=1), eps=1e-5
+    )
     y_axis = torch.nn.functional.normalize(torch.cross(z_axis, x_axis, dim=1), eps=1e-5)
-    is_close = torch.isclose(x_axis, torch.tensor(0.0), atol=5e-3).all(dim=1, keepdim=True)
+    is_close = torch.isclose(x_axis, torch.tensor(0.0), atol=5e-3).all(
+        dim=1, keepdim=True
+    )
     if is_close.any():
-        replacement = torch.nn.functional.normalize(torch.cross(y_axis, z_axis, dim=1), eps=1e-5)
+        replacement = torch.nn.functional.normalize(
+            torch.cross(y_axis, z_axis, dim=1), eps=1e-5
+        )
         x_axis = torch.where(is_close, replacement, x_axis)
     R = torch.cat((x_axis[:, None, :], y_axis[:, None, :], z_axis[:, None, :]), dim=1)
     return R.transpose(1, 2)
@@ -1621,7 +1749,9 @@ def pose_inv(pose):
     inv_pose[..., :3, :3] = pose[..., :3, :3].transpose(-1, -2)
 
     # note: PyTorch matmul wants shapes [..., 3, 3] x [..., 3, 1] -> [..., 3, 1] so we add a dimension and take it away after
-    inv_pose[..., :3, 3] = torch.matmul(-inv_pose[..., :3, :3], pose[..., :3, 3:4])[..., 0]
+    inv_pose[..., :3, 3] = torch.matmul(-inv_pose[..., :3, :3], pose[..., :3, 3:4])[
+        ..., 0
+    ]
     inv_pose[..., 3, 3] = 1.0
     return inv_pose
 
@@ -1715,14 +1845,20 @@ def interpolate_rotations(R1, R2, num_steps, axis_angle=True):
             # make sure that axis is a unit vector
             delta_axis = delta_axis_angle / delta_angle
             delta_rot_steps = [
-                matrix_from_quat(quat_from_angle_axis(i * rot_step_size, delta_axis)) for i in range(num_steps)
+                matrix_from_quat(quat_from_angle_axis(i * rot_step_size, delta_axis))
+                for i in range(num_steps)
             ]
-            rot_steps = torch.stack([torch.matmul(delta_rot_steps[i], R1) for i in range(num_steps)])
+            rot_steps = torch.stack(
+                [torch.matmul(delta_rot_steps[i], R1) for i in range(num_steps)]
+            )
     else:
         q1 = quat_from_matrix(R1)
         q2 = quat_from_matrix(R2)
         rot_steps = torch.stack(
-            [matrix_from_quat(quat_slerp(q1, q2, tau=float(i) / num_steps)) for i in range(num_steps)]
+            [
+                matrix_from_quat(quat_slerp(q1, q2, tau=float(i) / num_steps))
+                for i in range(num_steps)
+            ]
         )
 
     # add in endpoint
@@ -1785,7 +1921,9 @@ def interpolate_poses(pose_1, pose_2, num_steps=None, step_size=None, perturb=Fa
     pos_steps = torch.cat([pos_steps, pos2[None]], dim=0)
 
     # interpolate the rotations too
-    rot_steps = interpolate_rotations(R1=rot1, R2=rot2, num_steps=num_steps, axis_angle=True)
+    rot_steps = interpolate_rotations(
+        R1=rot1, R2=rot2, num_steps=num_steps, axis_angle=True
+    )
 
     pose_steps = make_pose(pos_steps, rot_steps)
     return pose_steps, num_steps - 1
@@ -1833,15 +1971,27 @@ def generate_random_rotation(rot_boundary=(2 * math.pi)):
     """
     angles = torch.rand(3) * rot_boundary
     Rx = torch.tensor(
-        [[1, 0, 0], [0, torch.cos(angles[0]), -torch.sin(angles[0])], [0, torch.sin(angles[0]), torch.cos(angles[0])]]
+        [
+            [1, 0, 0],
+            [0, torch.cos(angles[0]), -torch.sin(angles[0])],
+            [0, torch.sin(angles[0]), torch.cos(angles[0])],
+        ]
     )
 
     Ry = torch.tensor(
-        [[torch.cos(angles[1]), 0, torch.sin(angles[1])], [0, 1, 0], [-torch.sin(angles[1]), 0, torch.cos(angles[1])]]
+        [
+            [torch.cos(angles[1]), 0, torch.sin(angles[1])],
+            [0, 1, 0],
+            [-torch.sin(angles[1]), 0, torch.cos(angles[1])],
+        ]
     )
 
     Rz = torch.tensor(
-        [[torch.cos(angles[2]), -torch.sin(angles[2]), 0], [torch.sin(angles[2]), torch.cos(angles[2]), 0], [0, 0, 1]]
+        [
+            [torch.cos(angles[2]), -torch.sin(angles[2]), 0],
+            [torch.sin(angles[2]), torch.cos(angles[2]), 0],
+            [0, 0, 1],
+        ]
     )
 
     # Combined rotation matrix
@@ -1859,7 +2009,9 @@ def generate_random_translation(pos_boundary=1):
     Returns:
         torch.tensor: A 3-element translation vector.
     """
-    return torch.rand(3) * 2 * pos_boundary - pos_boundary  # Random translation in 3D space
+    return (
+        torch.rand(3) * 2 * pos_boundary - pos_boundary
+    )  # Random translation in 3D space
 
 
 def generate_random_transformation_matrix(pos_boundary=1, rot_boundary=(2 * math.pi)):

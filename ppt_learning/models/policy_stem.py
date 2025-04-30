@@ -27,6 +27,7 @@ IMGNET_TFM = transforms.Compose(
 
 from ppt_learning.paths import *
 
+
 class MLP(nn.Module):
     def __init__(
         self,
@@ -119,9 +120,9 @@ class ResNet(nn.Module):
         # flatten first
         B, N, D, H, W = x.shape
         x = x.reshape(len(x), -1, 3, H, W)
-        
+
         # normalize
-        x = (x/255. - self._mean) / self._std
+        x = (x / 255.0 - self._mean) / self._std
 
         if self.num_of_copy > 1:
             # separate encoding for each view

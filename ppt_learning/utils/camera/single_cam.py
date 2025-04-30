@@ -66,7 +66,9 @@ class SingleRealsense(mp.Process):
         examples["timestamp"] = 0.0
         examples["step_idx"] = 0
         examples["intr"] = np.array([608.43, 608.2, 310.77, 248.97])
-        examples["depth"] = np.empty(shape=(resolution[1], resolution[0]), dtype=np.float32)
+        examples["depth"] = np.empty(
+            shape=(resolution[1], resolution[0]), dtype=np.float32
+        )
 
         ring_buffer = SharedMemoryRingBuffer.create_from_examples(
             shm_manager=shm_manager,
@@ -149,7 +151,7 @@ class SingleRealsense(mp.Process):
 
         align_to = rs.stream.color
         rs.align(align_to)
-        
+
         try:
             rs_config.enable_device(self.serial_number)
 
@@ -157,7 +159,11 @@ class SingleRealsense(mp.Process):
             pipeline = rs.pipeline()
             pipeline_profile = pipeline.start(rs_config)
 
-            intr = pipeline_profile.get_stream(rs.stream.color).as_video_stream_profile().get_intrinsics()
+            intr = (
+                pipeline_profile.get_stream(rs.stream.color)
+                .as_video_stream_profile()
+                .get_intrinsics()
+            )
             intr = np.array([intr.fx, intr.fy, intr.ppx, intr.ppy])
             # report global time
             d = pipeline_profile.get_device().first_color_sensor()

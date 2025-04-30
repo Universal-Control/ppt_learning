@@ -26,7 +26,7 @@ def create_indices(
     pad_after = min(max(pad_after, 0), sequence_length - 1)
 
     indices = list()
-    eps_description = episode_descriptions[0] # only one description
+    eps_description = episode_descriptions[0]  # only one description
     for i in range(len(episode_ends)):
         if not episode_mask[i]:
             # skip episode

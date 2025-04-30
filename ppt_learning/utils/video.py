@@ -7,6 +7,7 @@ from pathlib import Path
 
 import imageio.v3 as imageio
 
+
 def save_video(images, name, path, fps=10):
     """save video to path"""
     if isinstance(name, tuple):
@@ -28,15 +29,11 @@ def save_video(images, name, path, fps=10):
 
 class videoLogger:
     def __init__(self, video_save_dir=None):
-        self._snaps = {
-            "color": {},
-            "depth": {},
-            "pointcloud": {}
-        }
+        self._snaps = {"color": {}, "depth": {}, "pointcloud": {}}
 
         date_time = time.strftime("%m%d-%H%M%S")
         if video_save_dir is None:
-            self.video_save_dir = Path(f'./outputs/video_eval/{date_time}')
+            self.video_save_dir = Path(f"./outputs/video_eval/{date_time}")
 
     def extend(self, key, snaps, category):
         if key not in self._snaps:
@@ -52,7 +49,7 @@ class videoLogger:
                     # visualize pointcloud and save the video
                     for key in self._snaps[category]:
                         pcds = self._snaps[category][key]
-                        
+
                         for pcd in pcds:
                             vis = o3d.visualization.Visualizer()
                             vis.create_window(visible=False)
@@ -62,14 +59,22 @@ class videoLogger:
                             frame = vis.capture_screen_float_buffer(False)
                             frames.append(np.asarray(frame) * 255)
                             vis.destroy_window()
-                        
-                        # Save as video
-                        os.makedirs(self.video_save_dir / category / dir_name, exist_ok=True)
-                        imageio.imwrite(self.video_save_dir / category / dir_name / f"{key}.mp4", frames, fps=30)
 
-                else: 
+                        # Save as video
+                        os.makedirs(
+                            self.video_save_dir / category / dir_name, exist_ok=True
+                        )
+                        imageio.imwrite(
+                            self.video_save_dir / category / dir_name / f"{key}.mp4",
+                            frames,
+                            fps=30,
+                        )
+
+                else:
                     frames = self._snaps[key]
-                    
+
                 os.makedirs(self.video_save_dir / category / dir_name, exist_ok=True)
                 for key in self._snaps[category]:
-                    imageio.imwrite(self.video_save_dir / category / dir_name / f"{key}.mp4", frames)
+                    imageio.imwrite(
+                        self.video_save_dir / category / dir_name / f"{key}.mp4", frames
+                    )

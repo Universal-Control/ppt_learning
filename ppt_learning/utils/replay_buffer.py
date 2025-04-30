@@ -114,7 +114,9 @@ class ReplayBuffer:
                     recursive_check(value)
                 else:
                     if value.shape[0] != root["meta"]["episode_ends"][-1]:
-                        import ipdb; ipdb.set_trace()
+                        import ipdb
+
+                        ipdb.set_trace()
                     assert value.shape[0] == root["meta"]["episode_ends"][-1]
 
         recursive_check(root["data"])
