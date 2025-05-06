@@ -4,6 +4,7 @@ import numpy as np
 import time
 import rtde_control
 import rtde_receive
+from ppt_learning.utils.icp_align import perform_icp_align
 
 ip = "192.168.1.243"
 
@@ -11,20 +12,21 @@ def main():
     rb = RealRobot(depth_model_path="/home/minghuan/ppt_learning/models/depth/720p-e049-s204800.ckpt", use_model_depth=True)
 
     print(rb.get_robot_state())
-    rb.get_obs(visualize=True)
+    rb.get_obs(visualize=True, post_icp=True)
 
     default_action = np.array(
         [0.6534, -0.0329,  0.2565,  0.0346, -0.7644, 0.6436, -0.0181, 0.0]
     )
-    x = input("continue move?(y/n)")
-    if x == "y":
-        for i in range(20):
-            rb.step(default_action + [0, i * 0.01, 0, 0, 0, 0, 0, 0])
-            time.sleep(0.03)
-        a = rb.get_obs(visualize=True)
-        for i in range(10):
-            rb.step(default_action + [0, 19 * 0.01, i * 0.01, 0, 0, 0, 0, 0])
-            time.sleep(0.03)
+    # x = input("continue move?(y/n)")
+    # if x == "y":
+        # for i in range(20):
+        #     rb.step(default_action + [0, i * 0.01, 0, 0, 0, 0, 0, 0])
+        #     time.sleep(0.03)
+        # a = rb.get_obs(visualize=True)
+        # for i in range(10):
+        #     rb.step(default_action + [0, 19 * 0.01, i * 0.01, 0, 0, 0, 0, 0])
+        #     time.sleep(0.03)
+    while True:
         a = rb.get_obs(visualize=True)
         
 # def main2():

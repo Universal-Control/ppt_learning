@@ -22,6 +22,8 @@ from ppt_learning.utils.pcd_utils import (
     uniform_sampling,
     fps_sampling,
     pcd_filter_bound,
+    pcd_downsample,
+    BOUND,
 )
 from ppt_learning.utils.pcd_utils import (
     open3d_pcd_outlier_removal,
@@ -64,9 +66,7 @@ class MultiRealsense(mp.Process):
         capture_fps=30,
         put_fps=None,
         pose_buffer=None,
-        npoints_per_camera=8192,
-        model_depth=False,
-        align_scale=True,
+        npoints=8192,
     ):
         super().__init__()
         if shm_manager is None:
@@ -74,8 +74,7 @@ class MultiRealsense(mp.Process):
             shm_manager.start()
 
         n_cameras = len(serial_numbers.keys())
-        self.npoints_per_camera = npoints_per_camera
-        self.model_depth = model_depth
+        self.npoints = npoints
 
         cameras = dict()
         for cam_name in serial_numbers.keys():
@@ -94,7 +93,7 @@ class MultiRealsense(mp.Process):
         pcd_ring_buffer = SharedMemoryRingBuffer.create_from_examples(
             shm_manager=shm_manager,
             examples={
-                "pcds": np.empty((self.npoints_per_camera, 6), dtype=np.float32),
+                "pcds": np.empty((self.npoints, 6), dtype=np.float32),
                 "depths": np.empty(
                     ((len(cameras)), resolution[1], resolution[0]), dtype=np.float32
                 ),
@@ -102,6 +101,9 @@ class MultiRealsense(mp.Process):
                     ((len(cameras)), resolution[1], resolution[0], 3), dtype=np.uint8
                 ),
                 "intrs": np.empty(((len(cameras)), 4), dtype=np.float32),
+                "transforms": np.empty(
+                    ((len(cameras)), 4, 4), dtype=np.float32
+                ),
             },
             get_time_budget=0.3,
             get_max_k=10,
@@ -208,6 +210,7 @@ class MultiRealsense(mp.Process):
             depth_lst = []
             color_lst = []
             intr_lst = []
+            transforms = []
             for i, camera in enumerate(self.cameras.values()):
                 v = out[i]["vertices"]
                 tex_coords = out[i]["tex"]
@@ -217,6 +220,7 @@ class MultiRealsense(mp.Process):
                 color_lst.append(color)
                 intr_lst.append(intr)
                 depth_lst.append(depth)
+                transforms.append(camera.transform)
 
                 colors = get_color_from_tex_coords(tex_coords, color)
                 colors = np.ascontiguousarray(colors)
@@ -246,17 +250,15 @@ class MultiRealsense(mp.Process):
                 )
 
             pcds = np.concatenate(pcd_lst, axis=0)  # merge pcds
-            mask = pcd_filter_bound(pcds[..., :3])
+            
+            mask = pcd_filter_bound(pcds[..., :3], bound=BOUND)
             pcds = pcds[mask]
-
-            pcds = pcds[uniform_sampling(pcds, npoints=8192)]
+            pcds = pcds[uniform_sampling(pcds, npoints=self.npoints)]
 
             # commented out for data collection. Uncomment for testing
 
             # fps_sampling_idx = fpsample.fps_sampling(pcds[..., :3], 5000)
-
             # pcds = pcds[fps_sampling_idx]
-
             # pcds = pcds[
             #     dbscan_outlier_removal_idx(pcds[..., :3], eps=0.3, min_samples=300)
             # ]
@@ -264,10 +266,12 @@ class MultiRealsense(mp.Process):
             #     dbscan_outlier_removal_idx(pcds[..., :3], eps=0.02, min_samples=5)
             # ]
             # pcds = pcds[uniform_sampling(pcds, npoints=8192)]
+
             colors = np.stack(color_lst)
             depths = np.stack(depth_lst)
+            transforms = np.stack(transforms)
             intrs = np.stack(intr_lst)
-            pcds = {"pcds": pcds, "depths": depths, "intrs": intrs, "colors": colors}
+            pcds = {"pcds": pcds, "depths": depths, "intrs": intrs, "colors": colors, "transforms": transforms}
 
             self.pcd_ring_buffer.put(pcds)
 

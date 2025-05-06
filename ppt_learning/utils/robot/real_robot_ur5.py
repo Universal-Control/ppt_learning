@@ -6,7 +6,6 @@ from scipy.spatial.transform import Rotation as R
 import cv2
 
 import multiprocessing as mp
-
 from multiprocessing import Process, Queue, Event
 from multiprocessing.managers import SharedMemoryManager
 
@@ -25,6 +24,10 @@ from ppt_learning.utils.shared_memory.shared_memory_ring_buffer import (
 )
 from ppt_learning.utils.pcd_utils import *
 from ppt_learning.utils.calibration import *
+from ppt_learning.utils.icp_align import *
+
+from ppt_learning.utils.pcd_utils import create_pointcloud_from_rgbd
+
 from ppt_learning.paths import PPT_DIR
 import rtde_control
 import rtde_receive
@@ -141,13 +144,17 @@ class RealRobot:
         align_scale=True,
         device="cuda",
         tar_size=(644, 490),
+        camera_only=False,
+        npoints=8192,
         **kwargs
     ):
         print("Intializing robot ...")
 
         # Initialize robot connection and libraries
-        self.robot_c = rtde_control.RTDEControlInterface(ip)
-        self.robot_r = rtde_receive.RTDEReceiveInterface(ip)
+        self.camera_only = camera_only
+        if not camera_only:
+            self.robot_c = rtde_control.RTDEControlInterface(ip)
+            self.robot_r = rtde_receive.RTDEReceiveInterface(ip)
         self.gripper = None  # Gripper TODO
         self.control_space = control_space
         self.dt = 1.0 / fps
@@ -157,7 +164,9 @@ class RealRobot:
         self.gain = 300
         self.init_q = init_q
         self.device = torch.device(device=device)
+        self.npoints = npoints
         self.tar_size = tar_size
+        self.icp_transform = None
         if self.init_q is None:
             self.init_q = [
                 -3.02692452,
@@ -170,8 +179,9 @@ class RealRobot:
 
         self.ik_helper = UR5_IK(init_q=self.init_q, ee_link_name="wrist_3_link")
 
-        self.init_robot()
-        self.init_cameras()  #
+        if not camera_only:
+            self.init_robot()
+        self.init_cameras()
 
         # other
         self.current_step = 0
@@ -196,34 +206,47 @@ class RealRobot:
         print("Finished initializing robot.")
         self._last_command_j = None
 
+    @property
+    def default_icp_transform(self):
+        return np.array([[ 0.99908516, -0.03849889, -0.01861942, -0.01913835],
+                        [ 0.03932992,  0.99814176,  0.04654228,  0.02147317],
+                        [ 0.01679299, -0.047232,    0.99874278,  0.00482022],
+                        [ 0.,          0.,          0.,          1.        ]])
+
+    def update_icp_transform(self, transform):
+        self.icp_transform = transform
+
     def init_cameras(self):
         self.shm_manager = SharedMemoryManager()
         self.shm_manager.start()
 
-        # get initial pose
-        init_pose = self.tcp_pose
+        if not self.camera_only:
+            # get initial pose
+            init_pose = self.tcp_pose
 
-        # same for time
-        init_time = time.time()
+            # same for time
+            init_time = time.time()
 
-        self.pose_buffer = SharedMemoryRingBuffer.create_from_examples(
-            self.shm_manager,
-            examples={
-                "pose": init_pose,
-                "timestamp": init_time,
-            },
-            get_time_budget=0.002,
-            get_max_k=100,
-        )
-
-        for i in range(100):
-            self.pose_buffer.put(
-                {
+            self.pose_buffer = SharedMemoryRingBuffer.create_from_examples(
+                self.shm_manager,
+                examples={
                     "pose": init_pose,
                     "timestamp": init_time,
                 },
-                wait=True,
+                get_time_budget=0.002,
+                get_max_k=100,
             )
+
+            for i in range(100):
+                self.pose_buffer.put(
+                    {
+                        "pose": init_pose,
+                        "timestamp": init_time,
+                    },
+                    wait=True,
+                )
+        else:
+            self.pose_buffer = None
 
         self.realsense = MultiRealsense(
             serial_numbers=cameras,
@@ -232,6 +255,7 @@ class RealRobot:
             capture_fps=30,
             put_fps=None,
             pose_buffer=self.pose_buffer,
+            npoints=self.npoints,
         )
         self.realsense.daemon = True
 
@@ -239,6 +263,10 @@ class RealRobot:
 
         while not self.realsense.is_ready:
             time.sleep(0.1)
+        time.sleep(1.5)
+
+    def stop(self):
+        self.realsense.stop()
 
     def init_robot(self):
         joint_pose = self.init_q
@@ -299,7 +327,7 @@ class RealRobot:
         }
         return obs
 
-    def get_obs(self, visualize=False):
+    def get_obs(self, visualize=False, num_points=None, post_icp=False, online_icp=False):
         """
         Get the real robot observation.
 
@@ -308,7 +336,37 @@ class RealRobot:
         # TODO Mix pcds
         rs_data = self.realsense.get()
         pcds = rs_data["pcds"]
-        pcd = {"pos": pcds[..., :3], "color": pcds[..., 3:]}
+        pcd_dict = {"pos": pcds[..., :3], "color": pcds[..., 3:]}
+
+        depths = rs_data["depths"]
+        colors = rs_data["colors"]
+        transforms = rs_data["transforms"]
+        intrs = rs_data["intrs"]
+
+        intr_matries = np.zeros((len(colors), 3, 3))
+        intr_matries[:, 0, 0] = intrs[:, 0]
+        intr_matries[:, 1, 1] = intrs[:, 1]
+        intr_matries[:, 0, 2] = intrs[:, 2]
+        intr_matries[:, 1, 2] = intrs[:, 3]
+        intr_matries[:, 2, 2] = 1
+
+        colors_tmp, depths_tmp = [], []
+        for i, depth in enumerate(depths):
+            color = colors[i]
+            # cv2.imwrite(f"color_{i}.png", cv2.cvtColor(color, cv2.COLOR_BGR2RGB))
+            # cv2.imwrite(f"depth_{i}.png", (depth*1000).astype(np.uint16))
+            color = cv2.resize(
+                color, self.tar_size, interpolation=cv2.INTER_AREA
+            )
+            depth = cv2.resize(
+                depth, self.tar_size, interpolation=cv2.INTER_NEAREST
+            )
+            color = np.asarray(color / 255.0).astype(np.float32)
+
+            colors_tmp.append(color)
+            depths_tmp.append(depth)
+        colors = np.ascontiguousarray(np.stack(colors_tmp, axis=0))
+        depths = np.ascontiguousarray(np.stack(depths_tmp, axis=0))
 
         if self.use_model_depth:
             from ranging_anything.model import get_model as get_pda_model
@@ -321,70 +379,66 @@ class RealRobot:
                 colorize_depth_maps,
             )
             from ppt_learning.utils.ranging_depth_utils import get_model, model_infer
-            from ppt_learning.utils.pcd_utils import create_pointcloud_from_rgbd
-            import cv2
 
-            depths = rs_data["depths"]
-            colors = rs_data["colors"]
-            depths_p = []
-            colors_p = []
-            for i, depth in enumerate(depths):
-                color = colors[i]
-                # cv2.imwrite(f"color_{i}.png", cv2.cvtColor(color, cv2.COLOR_BGR2RGB))
-                # cv2.imwrite(f"depth_{i}.png", (depth*1000).astype(np.uint16))
-                color = cv2.resize(
-                    color, self.tar_size, interpolation=cv2.INTER_AREA
-                )
-                depth = cv2.resize(
-                    depth, self.tar_size, interpolation=cv2.INTER_NEAREST
-                )
-                color = np.asarray(color / 255.0).astype(np.float32)
-                depth = interp_depth_rgb(depth, cv2.cvtColor(color, cv2.COLOR_RGB2GRAY))
-                depth = torch.from_numpy(depth).unsqueeze(0).float()
-                color = torch.from_numpy(color).permute(2, 0, 1).float()
-                depths_p.append(depth)
-                colors_p.append(color)
-            depths = torch.stack(depths_p)
-            colors = torch.stack(colors_p)
-            intrs = rs_data["intrs"]
-            model_depths = model_infer(
+            for i in range(len(depths)):
+                depths[i] = interp_depth_rgb(depths[i], cv2.cvtColor(color, cv2.COLOR_RGB2GRAY))
+
+            depths = torch.from_numpy(depths).float().unsqueeze(1)
+            colors = torch.from_numpy(colors).permute(0, 3, 1, 2).float()
+            depths = model_infer(
                 self.depth_model, colors, depths, self.align_scale
-            )
-            intrs = torch.from_numpy(intrs)
-            intr_matries = torch.zeros((len(colors), 3, 3))
-            intr_matries[:, 0, 0] = intrs[:, 0]
-            intr_matries[:, 1, 1] = intrs[:, 1]
-            intr_matries[:, 0, 2] = intrs[:, 2]
-            intr_matries[:, 1, 2] = intrs[:, 3]
-            intr_matries[:, 2, 2] = 1
-            res = create_pointcloud_from_rgbd(
-                np.array(intr_matries), np.array(model_depths), np.array(colors.permute(0, 2, 3, 1))
-            )
-            pos = np.concatenate(list(res["pos"]), axis=0)
-            pos_color = np.concatenate(list(res["color"]), axis=0)
-            pcd_dict = {
-                "pos": torch.from_numpy(pos)[None],
-                "color": torch.from_numpy(pos_color)[None],
-            }
-            # pcd_dict = pcd_downsample_torch(
-            #     dict(
-            #         pos=torch.from_numpy(pos)[None], color=torch.from_numpy(color)[None]
-            #     ),
-            #     bound=BOUND,
-            #     bound_clip=True,
-            #     num=8192,
-            # )
-            pcd = {
-                "pos": pcd_dict["pos"][0].cpu().numpy(),
-                "color": pcd_dict["color"][0].cpu().numpy(),
-            }
+            ).squeeze()
+            colors = colors.permute(0, 2, 3, 1).cpu().numpy()
+
+        res = create_pointcloud_from_rgbd(
+            intr_matries, depths, 
+            colors, position=transforms[:, :3, 3],
+            orientation=R.from_matrix(transforms[:, :3, :3]).as_quat(scalar_first=True),
+        )
+        if post_icp:
+            if online_icp:
+                transform, res["pos"], res["color"] = perform_icp_align(
+                    res["pos"],
+                    res["color"],
+                    np.eye(4),
+                    visualize=visualize,
+                )
+                self.update_icp_transform(transform)
+            else:
+                _, res["pos"], res["color"] = perform_icp_align(
+                    res["pos"],
+                    res["color"],
+                    self.default_icp_transform,
+                    visualize=visualize,
+                    max_iteration=1,
+                )
+        pos = np.concatenate(list(res["pos"]), axis=0)
+        pos_color = np.concatenate(list(res["color"]), axis=0)
+        pcd_dict = dict(
+            pos=pos, color=pos_color
+        )
+
+        pcd_dict = pcd_downsample(
+            pcd_dict,
+            bound=BOUND,
+            bound_clip=True,
+            num=num_points if num_points is not None else self.npoints,
+            method="uniform",
+        )
+        pcd = {
+            "pos": pcd_dict["pos"],
+            "color": pcd_dict["color"],
+        }
 
         if visualize:
             vis_pcd(pcd)
-            if self.use_model_depth:
-                vis_depths(colors.cpu().numpy(), np.concatenate([model_depths[:,None,...], depths.cpu().numpy()], axis=0))
+            # if self.use_model_depth:
+            #     vis_depths(colors.cpu().numpy(), np.concatenate([model_depths[:,None,...], depths.cpu().numpy()], axis=0))
 
-        state = self.get_robot_state()
+        if not self.camera_only:
+            state = self.get_robot_state()
+        else:
+            state = None
 
         obs = {"state": state, "pointcloud": pcd}
 
@@ -394,7 +448,6 @@ class RealRobot:
         """
         Step robot in the real.
         """
-        import time
 
         start_time = time.time()
         current_joint_np = self.robot_r.getActualQ()

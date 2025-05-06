@@ -600,7 +600,8 @@ def vis_pcd(pcd):
         pcd_o3d.points = o3d.utility.Vector3dVector(pcd[..., :3])
         if len(pcd.shape[-1] > 3):
             pcd_o3d.colors = o3d.utility.Vector3dVector(pcd[..., 3:])
-    o3d.visualization.draw_geometries([pcd_o3d])
+    frame_base = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1, origin=[0, 0, 0]) # create a coordinate frame
+    o3d.visualization.draw_geometries([pcd_o3d, frame_base])
 
 def vis_depths(colors, depths, near_depth=-1.0, far_depth=-1.0):
     imgs = []
@@ -960,7 +961,6 @@ def create_pointcloud_from_rgbd(
     # check valid inputs
     if rgb is not None and not isinstance(rgb, tuple):
         if len(rgb.shape) == 3:
-            rgb = rgb[None]
             if rgb.shape[2] not in [3, 4]:
                 raise ValueError(
                     f"Input rgb image of invalid shape: {rgb.shape} != (H, W, 3) or (H, W, 4)."

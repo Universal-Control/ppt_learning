@@ -52,24 +52,26 @@ calib = {
 
 camera_0_pos = (1.14694946, -0.47459371, 0.48398427)
 camera_0_quat = (-0.4298767, 0.60639758, 0.66690606, 0.05219497)
+camera_0_pos = (1.14324971, -0.46333842,  0.48575002)
+camera_0_quat = (-0.42605169,  0.61044048,  0.66577936,  0.05079589)
 camera_0_transform = np.eye(4)
 camera_0_transform[:3, 3] = camera_0_pos
-camera_0_transform[:3, :3] = R.from_quat(camera_0_quat, scalar_first=True).as_matrix().T
+camera_0_transform[:3, :3] = R.from_quat(camera_0_quat, scalar_first=True).as_matrix()
 
 
 camera_1_pos = (1.11234529, 0.15538119, 0.91406151)
 camera_1_quat = (-0.19794745, 0.68791335, 0.68906353, -0.11306406)
 camera_1_transform = np.eye(4)
 camera_1_transform[:3, 3] = camera_1_pos
-camera_1_transform[:3, :3] = R.from_quat(camera_1_quat, scalar_first=True).as_matrix().T
+camera_1_transform[:3, :3] = R.from_quat(camera_1_quat, scalar_first=True).as_matrix()
 
 calib_ur = {
     "camera_0": {
         "transform": camera_0_transform,
-        "rotation": np.ascontiguousarray(camera_0_transform[:3, :3]),
+        "rotation": np.ascontiguousarray(camera_0_transform[:3, :3].T),
     },
     "camera_1": {
         "transform": camera_1_transform,
-        "rotation": np.ascontiguousarray(camera_1_transform[:3, :3]),
+        "rotation": np.ascontiguousarray(camera_1_transform[:3, :3].T),
     },
 }

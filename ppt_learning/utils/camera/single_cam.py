@@ -155,10 +155,10 @@ class SingleRealsense(mp.Process):
         try:
             rs_config.enable_device(self.serial_number)
 
-            # start pipeline
+            #  pipeline
             pipeline = rs.pipeline()
             pipeline_profile = pipeline.start(rs_config)
-
+            depth_scale = pipeline_profile.get_device().first_depth_sensor().get_depth_scale()
             intr = (
                 pipeline_profile.get_stream(rs.stream.color)
                 .as_video_stream_profile()
@@ -207,7 +207,7 @@ class SingleRealsense(mp.Process):
                 pc = rs.pointcloud()
                 pc.map_to(color_frame)
                 points = pc.calculate(depth_frame)
-                data["depth"] = np.array(depth_frame.get_data()) / 1000
+                data["depth"] = np.array(depth_frame.get_data()) * depth_scale
                 data["intr"] = intr
                 data["vertices"] = (
                     np.ascontiguousarray(points.get_vertices())

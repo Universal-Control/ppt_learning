@@ -125,6 +125,9 @@ class RealRobot:
         while not self.realsense.is_ready:
             time.sleep(0.1)
 
+    def stop(self):
+        self.realsense.stop()
+
     def init_robot(self):
         joint_pose = [
             0.00000000e00,
