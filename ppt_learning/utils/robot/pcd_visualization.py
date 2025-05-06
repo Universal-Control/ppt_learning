@@ -92,7 +92,7 @@ def capture_no_model_dense(
 def capture_model_dense(
     view_point="/home/minghuan/ppt_learning/ppt_learning/utils/test/view_point.json",
     output_image_dir="/home/minghuan/ppt_learning/ppt_learning/utils/test/",
-    tag="model dense",
+    tag="dense_model",
     visualize=True,
 ):
     robot = RealRobot(camera_only=True, depth_model_path="/home/minghuan/ppt_learning/models/depth/720p-e049-s204800.ckpt", use_model_depth=True)
@@ -133,6 +133,17 @@ def capture_no_model_sparse(
 
     robot.stop()
 
+def capture_all(
+    view_point="/home/minghuan/ppt_learning/ppt_learning/utils/test/view_point.json",
+    output_image_dir="/home/minghuan/ppt_learning/ppt_learning/utils/test/",
+    visualize=False,
+):
+    capture_no_model_dense(view_point, output_image_dir, visualize)
+    capture_model_dense(view_point, output_image_dir, visualize)
+    capture_model_sparse(view_point, output_image_dir, visualize)
+    capture_no_model_sparse(view_point, output_image_dir, visualize)
+
+
 if __name__ == "__main__":
     tyro.extras.subcommand_cli_from_dict(
         {   
@@ -141,5 +152,7 @@ if __name__ == "__main__":
             "capture_model_sparse": capture_model_sparse,
             "capture_no_model_sparse": capture_no_model_sparse,
             "hand_save_view_point": hand_save_view_point,
+            "general_capture": general_capture,
+            "capture_all": capture_all,
         }
     )
