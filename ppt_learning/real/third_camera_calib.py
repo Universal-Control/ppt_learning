@@ -13,7 +13,7 @@ from ppt_learning.utils.icp_align import *
 
 os.environ["DISPLAY"] = ":0"
 VIS = False
-ROOT = f"{PPT_DIR}/../logs/photos/2025-05-07_11-34-20"
+ROOT = f"{PPT_DIR}/../logs/photos/2025-05-08_00-37-25"
 
 def init_aruco_marker(main_image_with_aruco_marker, main_camera_intr, charuco_dict=None, board=None):
     if charuco_dict is None:
@@ -137,9 +137,9 @@ if __name__ == '__main__':
 
     for main_to_table_npy, slave_to_camera_npy in zip(main_to_table_npys, slave_to_camera_npys):
         main_to_table_translations.append(main_to_table_npy[:3, 3])
-        main_to_table_rotations.append(R.from_matrix(main_to_table_npy[:3, :3]).as_euler())
+        main_to_table_rotations.append(R.from_matrix(main_to_table_npy[:3, :3]).as_euler("xyz"))
         slave_to_camera_translations.append(slave_to_camera_npy[:3, 3])
-        slave_to_camera_rotations.append(R.from_matrix(slave_to_camera_npy[:3, :3]).as_euler())
+        slave_to_camera_rotations.append(R.from_matrix(slave_to_camera_npy[:3, :3]).as_euler("xyz"))
 
     np.save(Path(ROOT)/ "main_camera_2_table_all.npy", main_to_table_npys)
     np.save(Path(ROOT) / "slave_camera_2_main_all.npy", slave_to_camera_npys)

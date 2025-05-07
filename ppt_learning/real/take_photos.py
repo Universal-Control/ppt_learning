@@ -198,19 +198,20 @@ if __name__ == "__main__":
     # 初始化RealSense摄像头
     multi_camera = MultiRealSenseCamera(fps=30, image_width=1280, image_height=720)
 
-    i = 0
+    i = 1
     # 主循环
     while True:
         # 获取并保存图像
         images = multi_camera.undistorted_rgbd()
         # print intrinsics
         print(multi_camera.get_intrinsic_color())
-        if i == 120:
+        if i % 120 == 0:
             save_images(images, data_dir, intrinsics=multi_camera.get_intrinsic_color(), headless=False, save=True)
-            break
         # 控制帧率
         time.sleep(1/60.0)
         i += 1
+        if i > 1300:
+            break
 
     # 清理资源
     cv2.destroyAllWindows()
