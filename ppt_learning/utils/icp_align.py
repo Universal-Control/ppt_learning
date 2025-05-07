@@ -15,18 +15,16 @@ def draw_registration_result(source, target, transformation):
 def draw_registration_result_original_color(source, target, transformation):
     source_temp = copy.deepcopy(source)
     source_temp.transform(transformation)
-    o3d.visualization.draw_geometries([source_temp, target],
-                                      zoom=0.5,
-                                      front=[-0.2458, -0.8088, 0.5342],
-                                      lookat=[1.7745, 2.2305, 0.9787],
-                                      up=[0.3109, -0.5878, -0.7468])
+    o3d.visualization.draw_geometries([source_temp, target],)
 
-def perform_icp_align(points, colors, initial_transform_src_to_tgt, visualize=False,
+def perform_icp_align(pcds, initial_transform_src_to_tgt, visualize=False,
                     max_iteration=10000, threshold=0.01, evaluate=True):
     """
     Args:
-    points: list[np.ndarray] (N, 3) list of points, expect 2 pcds
-    colors: list[np.ndarray] (N, 3) list of colors, expect 2 pcds
+    pcds: list[np.ndarray(N, 3)] | list[o3d.PointCloud], expect 2 pcds
+          if using np.ndarray, the pcds should be in the format of (N, 3)
+            points: list[np.ndarray] (N, 3) list of points, expect 2 pcds
+            colors: list[np.ndarray] (N, 3) list of colors, expect 2 pcds
     initial_transform_src_to_tgt: np.ndarray (4, 4) from src_pcd to tgt_pcd
     visualize: bool while to use open3d to visualize the pcds before and after icp
     max_iteration: int, max iteration for icp, increase this number to get better result but slower
@@ -35,13 +33,22 @@ def perform_icp_align(points, colors, initial_transform_src_to_tgt, visualize=Fa
     Return
     transform_src_to_tgt: np.ndarray (4, 4) from src_pcd to tgt_pcd after icp align
     """
-    assert len(points) == len(colors) == 2, "expect 2 pcds!"
-    src_pcd = o3d.geometry.PointCloud()
-    src_pcd.points = o3d.utility.Vector3dVector(points[0])
-    src_pcd.colors = o3d.utility.Vector3dVector(colors[0])
-    tgt_pcd = o3d.geometry.PointCloud()
-    tgt_pcd.points = o3d.utility.Vector3dVector(points[1])
-    tgt_pcd.colors = o3d.utility.Vector3dVector(colors[1])
+    if isinstance(pcds[0], np.ndarray):
+        assert len(pcds) == 2, "expect points and color!"
+        points, colors = pcds
+        assert len(points) == len(colors) == 2, "expect 2 pcds!"
+        src_pcd = o3d.geometry.PointCloud()
+        src_pcd.points = o3d.utility.Vector3dVector(points[0])
+        src_pcd.colors = o3d.utility.Vector3dVector(colors[0])
+        tgt_pcd = o3d.geometry.PointCloud()
+        tgt_pcd.points = o3d.utility.Vector3dVector(points[1])
+        tgt_pcd.colors = o3d.utility.Vector3dVector(colors[1])
+    elif isinstance(pcds[0], o3d.geometry.PointCloud):
+        assert len(pcds) == 2, "expect 2 pcds!"
+        src_pcd = pcds[0]
+        tgt_pcd = pcds[1]
+    else:
+        raise TypeError("pcds expect list[np.ndarray] or list[o3d.geometry.PointCloud]!")
     
     if visualize:
         draw_registration_result(src_pcd, tgt_pcd, initial_transform_src_to_tgt)
@@ -74,12 +81,14 @@ def perform_icp_align(points, colors, initial_transform_src_to_tgt, visualize=Fa
 
     return transform_src_to_tgt, points, colors
 
-def perform_colored_icp_align(points, colors, initial_transform_src_to_tgt, visualize=False,
+def perform_colored_icp_align(pcds, initial_transform_src_to_tgt, visualize=False,
                     max_iteration=[3000, 3000, 3000], voxel_radius=[0.01, 0.01, 0.01], evaluate=True):
     """
     Args:
-    points: list[np.ndarray] (N, 3) list of points, expect 2 pcds
-    colors: list[np.ndarray] (N, 3) list of colors, expect 2 pcds
+    pcds: list[np.ndarray(N, 3)] | list[o3d.PointCloud], expect 2 pcds
+          if using np.ndarray, the pcds should be in the format of (N, 3)
+            points: list[np.ndarray] (N, 3) list of points, expect 2 pcds
+            colors: list[np.ndarray] (N, 3) list of colors, expect 2 pcds
     initial_transform_src_to_tgt: np.ndarray (4, 4) from src_pcd to tgt_pcd
     visualize: bool while to use open3d to visualize the pcds before and after icp
     max_iteration: list[int] (3,), max iteration for icp, increase this number to get better result but slower
@@ -88,20 +97,29 @@ def perform_colored_icp_align(points, colors, initial_transform_src_to_tgt, visu
     Return
     transform_src_to_tgt: np.ndarray (4, 4) from src_pcd to tgt_pcd after icp align
     """
-    assert len(points) == len(colors) == 2, "expect 2 pcds!"
-    src_pcd = o3d.geometry.PointCloud()
-    src_pcd.points = o3d.utility.Vector3dVector(points[0])
-    src_pcd.colors = o3d.utility.Vector3dVector(colors[0])
-    tgt_pcd = o3d.geometry.PointCloud()
-    tgt_pcd.points = o3d.utility.Vector3dVector(points[1])
-    tgt_pcd.colors = o3d.utility.Vector3dVector(colors[1])
+    if isinstance(pcds[0], np.ndarray):
+        assert len(pcds) == 2, "expect points and color!"
+        points, colors = pcds
+        assert len(points) == len(colors) == 2, "expect 2 pcds!"
+        src_pcd = o3d.geometry.PointCloud()
+        src_pcd.points = o3d.utility.Vector3dVector(points[0])
+        src_pcd.colors = o3d.utility.Vector3dVector(colors[0])
+        tgt_pcd = o3d.geometry.PointCloud()
+        tgt_pcd.points = o3d.utility.Vector3dVector(points[1])
+        tgt_pcd.colors = o3d.utility.Vector3dVector(colors[1])
+    elif isinstance(pcds[0], o3d.geometry.PointCloud):
+        assert len(pcds) == 2, "expect 2 pcds!"
+        src_pcd = pcds[0]
+        tgt_pcd = pcds[1]
+    else:
+        raise TypeError("pcds expect list[np.ndarray] or list[o3d.geometry.PointCloud]!")
     
     if visualize:
         draw_registration_result_original_color(src_pcd, tgt_pcd, initial_transform_src_to_tgt)
     print("Initial alignment")
     print(initial_transform_src_to_tgt)
     transform_src_to_tgt = initial_transform_src_to_tgt
-
+    current_transformation = initial_transform_src_to_tgt
     if max_iteration.max() > 1:
         if evaluate:
             cam_2_marker_evaluation = o3d.pipelines.registration.evaluate_registration(

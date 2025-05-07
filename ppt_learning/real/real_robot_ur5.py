@@ -11,7 +11,7 @@ from multiprocessing.managers import SharedMemoryManager
 
 from ppt_learning.utils.camera.multi_cam import MultiRealsense
 from ppt_learning.utils.shared_memory.shared_memory_queue import SharedMemoryQueue
-from ppt_learning.utils.calibration import *
+from ppt_learning.real.calib_params import *
 
 from ppt_learning.utils.pcd_utils import (
     uniform_sampling,
@@ -23,7 +23,7 @@ from ppt_learning.utils.shared_memory.shared_memory_ring_buffer import (
     SharedMemoryRingBuffer,
 )
 from ppt_learning.utils.pcd_utils import *
-from ppt_learning.utils.calibration import *
+from ppt_learning.real.calib_params import *
 from ppt_learning.utils.icp_align import *
 
 from ppt_learning.utils.pcd_utils import create_pointcloud_from_rgbd
@@ -398,16 +398,14 @@ class RealRobot:
         if post_icp:
             if online_icp:
                 transform, res["pos"], res["color"] = perform_icp_align(
-                    res["pos"],
-                    res["color"],
+                    [res["pos"],res["color"]],
                     np.eye(4),
                     visualize=visualize,
                 )
                 self.update_icp_transform(transform)
             else:
                 _, res["pos"], res["color"] = perform_icp_align(
-                    res["pos"],
-                    res["color"],
+                    [res["pos"],res["color"]],
                     self.default_icp_transform,
                     visualize=visualize,
                     max_iteration=1,

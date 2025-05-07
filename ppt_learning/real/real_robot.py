@@ -14,7 +14,7 @@ from multiprocessing.managers import SharedMemoryManager
 
 from ppt_learning.utils.camera.multi_cam import MultiRealsense
 from ppt_learning.utils.shared_memory.shared_memory_queue import SharedMemoryQueue
-from ppt_learning.utils.calibration import *
+from ppt_learning.real.calib_params import *
 
 
 from ppt_learning.utils.pcd_utils import (
@@ -27,7 +27,7 @@ from ppt_learning.utils.shared_memory.shared_memory_ring_buffer import (
     SharedMemoryRingBuffer,
 )
 from ppt_learning.utils.pcd_utils import *
-from ppt_learning.utils.calibration import *
+from ppt_learning.real.calib_params import *
 from gensim2.env.task.origin_tasks import *
 from gensim2.env.task.primitive_tasks import *
 from gensim2.env.create_task import create_gensim

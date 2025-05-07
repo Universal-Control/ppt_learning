@@ -30,7 +30,7 @@ from ppt_learning.utils.pcd_utils import (
     dbscan_outlier_removal_idx,
     create_pointcloud_from_depth,
 )
-from ppt_learning.utils.calibration import *
+from ppt_learning.real.calib_params import *
 
 from numba import njit
 import fpsample

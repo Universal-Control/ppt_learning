@@ -4,7 +4,7 @@ import pyrealsense2 as rs
 
 from ppt_learning.utils.camera.single_cam import SingleRealsense
 from multiprocessing.managers import SharedMemoryManager
-from ppt_learning.utils.calibration import *
+from ppt_learning.real.calib_params import *
 
 
 if __name__ == "__main__":

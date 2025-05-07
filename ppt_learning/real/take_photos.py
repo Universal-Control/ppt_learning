@@ -190,25 +190,27 @@ def save_images(images, images_dir, intrinsics=None, headless=False, save=True):
             cv2.imshow(f"Depth {i}", depth)
     return now_time
 
-# 设置数据保存目录
-data_dir = get_log_folder("/home/minghuan/ppt_learning/logs/photos")
+if __name__ == "__main__":
 
-# 初始化RealSense摄像头
-multi_camera = MultiRealSenseCamera(fps=30, image_width=1280, image_height=720)
+    # 设置数据保存目录
+    data_dir = get_log_folder("/home/minghuan/ppt_learning/logs/photos")
 
-i = 0
-# 主循环
-while True:
-    # 获取并保存图像
-    images = multi_camera.undistorted_rgbd()
-    # print intrinsics
-    print(multi_camera.get_intrinsic_color())
-    if i == 120:
-        save_images(images, data_dir, intrinsics=multi_camera.get_intrinsic_color(), headless=False, save=True)
-        break
-    # 控制帧率
-    time.sleep(1/60.0)
-    i += 1
+    # 初始化RealSense摄像头
+    multi_camera = MultiRealSenseCamera(fps=30, image_width=1280, image_height=720)
 
-# 清理资源
-cv2.destroyAllWindows()
+    i = 0
+    # 主循环
+    while True:
+        # 获取并保存图像
+        images = multi_camera.undistorted_rgbd()
+        # print intrinsics
+        print(multi_camera.get_intrinsic_color())
+        if i == 120:
+            save_images(images, data_dir, intrinsics=multi_camera.get_intrinsic_color(), headless=False, save=True)
+            break
+        # 控制帧率
+        time.sleep(1/60.0)
+        i += 1
+
+    # 清理资源
+    cv2.destroyAllWindows()
