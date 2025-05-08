@@ -1,4 +1,4 @@
-from ppt_learning.utils.robot.utils import vis_pcd
+from ppt_learning.real.utils import vis_pcd
 
 import pickle
 

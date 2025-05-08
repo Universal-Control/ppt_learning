@@ -22,6 +22,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 from ppt_learning import train_test
 
+
 @hydra.main(
     config_path=f"{PPT_DIR}/experiments/configs",
     config_name="config",
@@ -78,7 +79,11 @@ def run(cfg):
     # action_dim = 7  # 8 for rlbench, 7 for gensim2
     # state_dim = 15  # 15 # 24 for rlbench, 15 for gensim2
     if not is_eval:
-        cfg.dataset.dataset_path = cfg.dataset.get('dataset_path', '')+'/'+domain+'.zarr' if len(domain_list) == 1 else domain_list
+        cfg.dataset.dataset_path = (
+            cfg.dataset.get("dataset_path", "") + "/" + domain + ".zarr"
+            if len(domain_list) == 1
+            else domain_list
+        )
         dataset = hydra.utils.instantiate(
             cfg.dataset,
             **cfg.dataset,
