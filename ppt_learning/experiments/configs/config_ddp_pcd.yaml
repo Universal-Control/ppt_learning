@@ -1,6 +1,5 @@
 seed: 42
-output_dir: outputs/${now:%Y-%m-%d_%H-%M-%S}
-wb_tag: ${suffix}
+output_dir: outputs/pcd/${now:%Y-%m-%d_%H-%M-%S}
 log_interval: 10
 script_name: ''
 pretrained_dir: ''
@@ -8,10 +7,11 @@ parallel_eval: false
 env_names: ${dataset.env_names}
 debug: False # Turn off to allow wandb logging
 suffix: "" # suffix for the experiment
+wb_tag: ${suffix}
 
 defaults:
   - _self_
-  - env: isaacsim_rgb # rlbench # gensim2
+  - env: isaacsim_pcd # rlbench # gensim2
   - datasetsize: all
 
 # self-explanatory torch config
@@ -31,7 +31,7 @@ val_dataloader:
   drop_last: true
 optimizer:
   _target_: torch.optim.AdamW
-  lr: 0.0001
+  lr: 0.01
   eps: 1.0e-08
   weight_decay: 1.0e-06
   betas:
@@ -42,12 +42,13 @@ warmup_lr:
   step: 500
 lr_scheduler:
   _target_: torch.optim.lr_scheduler.CosineAnnealingLR
-  T_max: ${train.total_iters}
+  T_0: 4
+  T_mult: 9
   eta_min: 1.0e-08
 train:
-  total_epochs: 250 # maximum training epochs before termination. usually set as maximum
-  total_iters: 100000000 # maximum training steps before termination
-  epoch_iters: 1000  # training steps in each epoch
+  total_epochs: 320 # maximum training epochs before termination. usually set as maximum
+  total_iters: 1000000000 # maximum training steps before termination
+  epoch_iters: 1850  # training steps in each epoch
   validation_iters: 100 # maximum iterations for validation
   pretrained_dir: "" # pretrained model path for testing
   freeze_trunk: False # whether to freeze the trunk during finetuning

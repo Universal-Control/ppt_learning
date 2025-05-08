@@ -237,7 +237,7 @@ def run(rank: int, world_size: int, cfg: DictConfig):
 
     print("saved results to:", cfg.output_dir)
     # save the results
-    utils.log_results(cfg, total_success)
+    # utils.log_results(cfg, total_success)
 
     dist.destroy_process_group()
 
@@ -245,17 +245,18 @@ def filter_ddp_args():
     """Filter out DDP-specific arguments to avoid Hydra conflicts."""
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--local_rank", type=int, default=0)
+    parser.add_argument("--model", type=str, default="pcd") # , choice=["pcd", "rgb"])
     args, remaining = parser.parse_known_args()
     sys.argv = [sys.argv[0]] + remaining
-    return args.local_rank
+    return args.local_rank, args.model
 
 def main():
     # Filter DDP arguments
-    local_rank = filter_ddp_args()
+    local_rank, model_type = filter_ddp_args()
 
     # Initialize Hydra
     with initialize(config_path=f"ppt_learning/experiments/configs", version_base="1.2"):
-        cfg = compose(config_name="config_ddp")
+        cfg = compose(config_name=f"config_ddp_{model_type}")
 
     # Resolve any remaining interpolations
     cfg = OmegaConf.to_container(cfg, resolve=True)
@@ -263,7 +264,7 @@ def main():
 
     # Ensure output_dir has a default value if not set
     if not cfg.get("output_dir"):
-        cfg.output_dir = os.path.join("outputs", datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+        cfg.output_dir = os.path.join("outputs", model_type, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
     cfg.wb_tag = cfg.suffix if len(cfg.suffix) else "default"
 
     # Determine world size (number of GPUs)
