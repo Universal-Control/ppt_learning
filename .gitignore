@@ -1,7 +1,10 @@
 **.pt
 **.pth
 **.ckpt
+**.pkl
 **.png
+**.ipynb
+**.ipynb_checkpoints
 
 **.pyc
 
