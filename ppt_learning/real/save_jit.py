@@ -59,7 +59,7 @@ if __name__ == "__main__":
     # export_model_as_jit(depth_model, save_path, example_color, example_depth)
 
     model = torch.jit.load(save_path).to(device)
-    import ipdb; ipdb.set_trace()
+
     # Warm-up runs
     for _ in range(10):
         _ = model(example_color, example_depth)
