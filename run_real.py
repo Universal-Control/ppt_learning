@@ -7,7 +7,7 @@ from torchvision import transforms
 from torch.utils.data import DataLoader, RandomSampler
 
 from ppt_learning.utils.rollout_runner import preprocess_obs, update_pcd_transform
-from ppt_learning.utils.robot.real_robot_ur5 import RealRobot
+from ppt_learning.real.real_robot_ur5 import RealRobot
 from ppt_learning.utils import utils, model_utils
 from ppt_learning.utils.warmup_lr_wrapper import WarmupLR
 from ppt_learning.utils.video import videoLogger
@@ -28,27 +28,27 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 hostname = ""  # TODO fill in the hostname
 deploy_on_real = True
 MAX_EP_STEPS = 600
-FPS = 15
-USE_DEPTH_MODEL = True
+
 state_keys = [
-                "eef_pos",
-                "eef_quat",
-                "joint_pos",
-                "joint_vel",
-            ]
+    "eef_pos",
+    "eef_quat",
+    "joint_pos",
+    "joint_vel",
+]
+
 
 # TODO use +prompt "task description" to run specific task
 # TODO fill in config_name with config from training
 @hydra.main(
     config_path=f"{PPT_DIR}/experiments/configs",
-    config_name="config_eval",
+    config_name="config_real",
     version_base="1.2",
 )
 def run(cfg):
     """
     This script runs through the train / test / eval loop. Assumes single task for now.
     """
-    robot = RealRobot(fps=FPS, use_model_depth=USE_DEPTH_MODEL)
+    robot = RealRobot(**cfg.real)
     assert hasattr(
         cfg, "prompt"
     ), "Prompt not found in config, use +prompt 'task description' to run"
@@ -97,14 +97,13 @@ def run(cfg):
 
     # optimizer and scheduler
     policy.finalize_modules()
-    print("cfg.train.pretrained_dir:", cfg.train.pretrained_dir)
+    print("cfg.real.trained_policy:", cfg.real.trained_policy)
 
-    model_name = cfg.train.model_name  # TODO fill in the model name
     assert os.path.exists(
-        os.path.join(cfg.train.pretrained_dir, model_name)
+        cfg.real.trained_policy
     ), "Pretrained model not found"
     policy.load_state_dict(
-        torch.load(os.path.join(cfg.train.pretrained_dir, model_name))
+        torch.load(cfg.real.trained_policy)
     )
 
     policy.to(device)
@@ -119,6 +118,7 @@ def run(cfg):
     # t1.start()
     run_in_real(policy, cfg, robot)
 
+
 def get_state(sample):
     res = []
     for key in state_keys:
@@ -127,6 +127,7 @@ def get_state(sample):
 
     return res
 
+
 def run_in_real(policy, cfg, robot=None):
     print("Running in real")
     pcdnet_pretrain_domain = cfg.dataset.pcdnet_pretrain_domain
@@ -134,7 +135,7 @@ def run_in_real(policy, cfg, robot=None):
     pcd_transform, pcd_num_points = update_pcd_transform(pcdnet_pretrain_domain)
 
     if robot is None:
-        robot = RealRobot()
+        robot = RealRobot(**cfg.real)
     save_video = cfg.get("save_video", False)
     if save_video:
         video_logger = videoLogger()
@@ -178,15 +179,23 @@ def run_in_real(policy, cfg, robot=None):
 
         if save_video:
             for key in obs["images"]:
-                video_logger.extend(key, obs["images"][key].cpu().numpy(), category="color")
+                video_logger.extend(
+                    key, obs["images"][key].cpu().numpy(), category="color"
+                )
             for key in obs["depths"]:
-                video_logger.extend(key, obs["depths"][key].cpu().numpy(), category="depth")
-            video_logger.extend(key, obs["pcds"][key].cpu().numpy(), category="pointcloud")
+                video_logger.extend(
+                    key, obs["depths"][key].cpu().numpy(), category="depth"
+                )
+            video_logger.extend(
+                key, obs["pcds"][key].cpu().numpy(), category="pointcloud"
+            )
 
         obs = next_obs
         this_time = time.time()
         time.sleep(max(1 / FPS - (this_time - last_time), 0))
-        logger.info(f"At step {t}: FPS this step: {1 / (this_time - last_time)}, FPS average step: {t / (this_time - init_time)}")
+        logger.info(
+            f"At step {t}: FPS this step: {1 / (this_time - last_time)}, FPS average step: {t / (this_time - init_time)}"
+        )
         last_time = this_time
 
 

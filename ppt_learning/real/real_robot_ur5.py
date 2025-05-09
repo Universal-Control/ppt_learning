@@ -11,7 +11,7 @@ from multiprocessing.managers import SharedMemoryManager
 
 from ppt_learning.utils.camera.multi_cam import MultiRealsense
 from ppt_learning.utils.shared_memory.shared_memory_queue import SharedMemoryQueue
-from ppt_learning.utils.calibration import *
+from ppt_learning.real.calib_params import *
 
 from ppt_learning.utils.pcd_utils import (
     uniform_sampling,
@@ -23,7 +23,7 @@ from ppt_learning.utils.shared_memory.shared_memory_ring_buffer import (
     SharedMemoryRingBuffer,
 )
 from ppt_learning.utils.pcd_utils import *
-from ppt_learning.utils.calibration import *
+from ppt_learning.real.calib_params import *
 from ppt_learning.utils.icp_align import *
 
 from ppt_learning.utils.pcd_utils import create_pointcloud_from_rgbd
@@ -189,16 +189,9 @@ class RealRobot:
         self.use_model_depth = use_model_depth
         if self.use_model_depth:
             self.align_scale = align_scale
-            from ranging_anything.model import get_model as get_pda_model
-            from ranging_anything.compute_metric import (
-                interp_depth_rgb,
-                add_noise_to_depth,
-                save_vis_depth,
-                compute_metrics,
-                recover_metric_depth_ransac,
-                colorize_depth_maps,
-            )
-            from ppt_learning.utils.ranging_depth_utils import get_model, model_infer
+            if 'WORKSPACE' not in os.environ:
+                os.environ['WORKSPACE'] = f'{PPT_DIR}/third_party/ranging_depth'
+            from ppt_learning.utils.ranging_depth_utils import get_model
             self.depth_model = get_model(depth_model_path).to(self.device)
 
         self._buffer = {}
@@ -340,6 +333,7 @@ class RealRobot:
 
         depths = rs_data["depths"]
         colors = rs_data["colors"]
+        import ipdb; ipdb.set_trace()
         transforms = rs_data["transforms"]
         intrs = rs_data["intrs"]
 
@@ -369,16 +363,12 @@ class RealRobot:
         depths = np.ascontiguousarray(np.stack(depths_tmp, axis=0))
 
         if self.use_model_depth:
-            from ranging_anything.model import get_model as get_pda_model
             from ranging_anything.compute_metric import (
                 interp_depth_rgb,
-                add_noise_to_depth,
-                save_vis_depth,
-                compute_metrics,
                 recover_metric_depth_ransac,
                 colorize_depth_maps,
             )
-            from ppt_learning.utils.ranging_depth_utils import get_model, model_infer
+            from ppt_learning.utils.ranging_depth_utils import model_infer
 
             for i in range(len(depths)):
                 depths[i] = interp_depth_rgb(depths[i], cv2.cvtColor(color, cv2.COLOR_RGB2GRAY))
@@ -398,16 +388,14 @@ class RealRobot:
         if post_icp:
             if online_icp:
                 transform, res["pos"], res["color"] = perform_icp_align(
-                    res["pos"],
-                    res["color"],
+                    [res["pos"],res["color"]],
                     np.eye(4),
                     visualize=visualize,
                 )
                 self.update_icp_transform(transform)
             else:
                 _, res["pos"], res["color"] = perform_icp_align(
-                    res["pos"],
-                    res["color"],
+                    [res["pos"],res["color"]],
                     self.default_icp_transform,
                     visualize=visualize,
                     max_iteration=1,

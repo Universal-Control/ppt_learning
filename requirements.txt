@@ -22,3 +22,5 @@ easydict
 timm
 ftfy
 chamferdist
+flatdict
+opencv-python

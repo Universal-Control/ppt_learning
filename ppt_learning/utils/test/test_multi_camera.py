@@ -16,7 +16,7 @@ import logging
 
 from ppt_learning.utils.camera.multi_cam import MultiRealsense
 from ppt_learning.utils.shared_memory.shared_memory_queue import SharedMemoryQueue
-from ppt_learning.utils.calibration import *
+from ppt_learning.real.calib_params import *
 
 import open3d as o3d
 

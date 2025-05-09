@@ -1,6 +1,6 @@
 import time
 import cv2
-import os
+import os, sys
 import numpy as np
 from pathlib import Path
 import pyrealsense2 as rs
@@ -11,8 +11,16 @@ from pathlib import Path
 import random
 import re
 
-def get_log_folder(log_root: str):
-    log_folder = Path(log_root) / time.strftime("%Y-%m-%d_%H-%M-%S")
+from ppt_learning.paths import *
+
+sys.path.append(f"{PPT_DIR}/third_party/")
+
+MODEL_PATH = f'{PPT_DIR}/../models/depth/480pnoise-e096-s397312.ckpt'
+WIDTH, HEIGHT = 672, 504
+
+def get_log_folder(log_root: str, use_model: bool = False):
+    tag = "model" if use_model else "raw"
+    log_folder = Path(log_root) / f'{time.strftime("%Y-%m-%d_%H-%M-%S")}-{tag}'
     os.makedirs(log_folder, exist_ok=True)
     return log_folder
 
@@ -160,14 +168,33 @@ class MultiRealSenseCamera:
                 "ppy": intr.ppy
             }
         return intrinsic
-    
-def get_log_folder(log_root: str):
-    log_folder = Path(log_root) / time.strftime("%Y-%m-%d_%H-%M-%S")
-    os.makedirs(log_folder, exist_ok=True)
-    return log_folder
 
-def save_images(images, images_dir, intrinsics=None, headless=False, save=True):
+def save_images(images, images_dir, use_model=False, intrinsics=None, headless=False, save=True):
     tmp_colors, tmp_depths = images
+    if use_model:
+        if 'WORKSPACE' not in os.environ:
+            os.environ['WORKSPACE'] = f'{PPT_DIR}/third_party/ranging_depth'
+        import torch
+        from ranging_anything.compute_metric import (
+            interp_depth_rgb,
+            recover_metric_depth_ransac,
+            colorize_depth_maps,
+        )
+        from ppt_learning.utils.ranging_depth_utils import get_model, model_infer
+        depth_model = get_model(MODEL_PATH).to("cuda" if torch.cuda.is_available() else "cpu")
+        depth_model.eval()
+
+        for i in range(len(tmp_depths)):
+            tmp_depths[i] = interp_depth_rgb(tmp_depths[i], cv2.cvtColor(tmp_colors[i], cv2.COLOR_RGB2GRAY))
+            tmp_depths[i] = cv2.resize(tmp_depths[i], (WIDTH, HEIGHT), interpolation=cv2.INTER_NEAREST)
+            tmp_colors[i] = cv2.resize(tmp_colors[i], (WIDTH, HEIGHT), interpolation=cv2.INTER_AREA)
+
+        depths = torch.from_numpy(np.stack(tmp_depths, axis=0)).float().unsqueeze(1)
+        colors = torch.from_numpy(np.stack(tmp_colors, axis=0)).permute(0, 3, 1, 2).float()
+        tmp_depths = model_infer(
+            depth_model, colors, depths, True
+        ).squeeze()
+
     now_time = int(time.time() * 1000)
     assert len(tmp_colors) == len(tmp_depths)
     if save:
@@ -180,7 +207,6 @@ def save_images(images, images_dir, intrinsics=None, headless=False, save=True):
             cv2.imwrite(str(images_dir / f"color_{i}" / f"{now_time}.png"), cv2.cvtColor(tmp_colors[i], cv2.COLOR_RGB2BGR))
             np.save(str(images_dir / f"depth_{i}" / f"{now_time}.npy"), tmp_depths[i])
 
-
     if not headless:
         for i in range(len(tmp_colors)):
             depth = tmp_depths[i]
@@ -190,25 +216,33 @@ def save_images(images, images_dir, intrinsics=None, headless=False, save=True):
             cv2.imshow(f"Depth {i}", depth)
     return now_time
 
-# 设置数据保存目录
-data_dir = get_log_folder("/home/minghuan/ppt_learning/logs/photos")
+if __name__ == "__main__":
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--model", action="store_true")
 
-# 初始化RealSense摄像头
-multi_camera = MultiRealSenseCamera(fps=30, image_width=1280, image_height=720)
+    args = parser.parse_args()
 
-i = 0
-# 主循环
-while True:
-    # 获取并保存图像
-    images = multi_camera.undistorted_rgbd()
-    # print intrinsics
-    print(multi_camera.get_intrinsic_color())
-    if i == 120:
-        save_images(images, data_dir, intrinsics=multi_camera.get_intrinsic_color(), headless=False, save=True)
-        break
-    # 控制帧率
-    time.sleep(1/60.0)
-    i += 1
+    # 设置数据保存目录
+    data_dir = get_log_folder("/home/minghuan/ppt_learning/logs/photos", args.model)
 
-# 清理资源
-cv2.destroyAllWindows()
+    # 初始化RealSense摄像头
+    multi_camera = MultiRealSenseCamera(fps=30, image_width=640, image_height=480)
+
+    i = 1
+    # 主循环
+    while True:
+        # 获取并保存图像
+        images = multi_camera.undistorted_rgbd()
+        # print intrinsics
+        print(multi_camera.get_intrinsic_color())
+        if i % 120 == 0:
+            save_images(images, data_dir, intrinsics=multi_camera.get_intrinsic_color(), use_model=args.model, headless=True, save=True)
+        # 控制帧率
+        time.sleep(1/60.0)
+        i += 1
+        if i > 1300:
+            break
+
+    # 清理资源
+    cv2.destroyAllWindows()
