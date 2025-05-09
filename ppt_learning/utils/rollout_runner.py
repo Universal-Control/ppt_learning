@@ -481,10 +481,12 @@ class IsaacEnvRolloutRunner:
         seed=0,
         state_keys=None,
         video_save_dir=None,
+        world_size=1,
+        rank=0,
         **kwargs,
     ):
         assert obs_mode == "pointcloud"
-
+        import os
         self.task_name = task_name
         self.save_video = save_video
         self.headless = headless
@@ -509,7 +511,15 @@ class IsaacEnvRolloutRunner:
 
         from isaaclab.app import AppLauncher
 
-        app_launcher_kwargs = {"headless": self.headless, "enable_cameras": True}
+        distributed = (world_size != 1)
+
+        app_launcher_kwargs = {
+            "headless": self.headless, "enable_cameras": True,
+            "distributed": True, "n_procs": world_size, "livestream": -1,
+            "xr": False, device:'cuda:0', "cpu": False,
+            "verbose": False, "info": False, "experience": '', "rendering_mode": None,
+            "kit_args":''
+        }
         self.app_launcher = AppLauncher(None, **app_launcher_kwargs)
         self.app = self.app_launcher.app
 
@@ -519,12 +529,23 @@ class IsaacEnvRolloutRunner:
         from isaaclab.envs import ManagerBasedRLEnv
         import gymnasium as gym
 
+        if world_size > 1:
+            self.device = f"cuda:{rank}"
+
         env_cfg = parse_env_cfg(
             self.task_name, device=self.device, num_envs=self.num_envs
         )
+        
         self.success_term = env_cfg.terminations.success
         env_cfg.terminations.success = None
+        
         env_cfg.seed = seed
+
+        if world_size > 1:
+            env_cfg.sim.device = f'cuda:{rank}'
+            env_cfg.seed += self.app_launcher.global_rank
+            print("self.app_launcher.global_rank:", self.app_launcher.global_rank)
+
         self.gym_env = gym.make(self.task_name, cfg=env_cfg)
         self.env = self.gym_env.unwrapped
         print("Env created")
@@ -532,6 +553,7 @@ class IsaacEnvRolloutRunner:
         self.video_save_dir = Path(video_save_dir)
         if self.save_video:
             self.video_logger = videoLogger(self.video_save_dir)
+        self.rank = rank
 
     def get_state(self, sample):
         sample["state"] = []
@@ -556,7 +578,7 @@ class IsaacEnvRolloutRunner:
         return ppt_obs
 
     @torch.inference_mode()
-    def run(self, policy):
+    def run(self, policy, policy_name="model"):
         episode_num = self.episode_num  # upper bound for number of trajectories
         imgs = OrderedDict()
 
@@ -571,6 +593,11 @@ class IsaacEnvRolloutRunner:
             traj_length = 0
             done = False
             policy.reset()
+            obs, _ = env.reset()
+            
+            # warm up
+            for _ in range(50):
+                obs, reward, terminations, timeouts, info = env.step(env.cfg.mimic_config.default_actions[None])
             obs, _ = env.reset()
             openloop_actions = deque()
             task_description = ""
@@ -651,9 +678,9 @@ class IsaacEnvRolloutRunner:
 
             if self.save_video:
                 postfix = "success" if success else "fail"
-                self.video_logger.save(dir_name=f"{i}-th-{postfix}")
-
-            pbar.set_description(f"{self.task_name} total_success: {total_success}")
+                self.video_logger.save(dir_name=f"{i}-th-{postfix}", model_name=policy_name)
+                self.video_logger.reset()
+            pbar.set_description(f"{self.task_name} total_success: {total_success} at rank: {self.rank}")
 
         return total_success / episode_num, total_reward / episode_num, imgs
 

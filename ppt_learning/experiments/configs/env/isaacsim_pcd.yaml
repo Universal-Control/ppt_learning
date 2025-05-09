@@ -37,14 +37,13 @@ dataset:
 # test
 rollout_runner:
   _target_: ppt_learning.utils.rollout_runner.IsaacEnvRolloutRunner
-  task_name: "Isaac-UR5-CloseMicroWave-Mimic-v0"
   headless: true
-  episode_num: 20
+  episode_num: 100
   # save_video: True
   obs_mode: "pointcloud"
   pcdnet_pretrain_domain : "" # To be replaced
   pcd_channels: ${dataset.pcd_channels}
-  video_save_dir: "${output_dir}/eval_video"
+  video_save_dir: "${train.pretrained_dir}/eval_video"
 
 # train:
 #   total_epochs: 5000  # maximum training epochs before termination

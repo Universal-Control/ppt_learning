@@ -1,0 +1,71 @@
+seed: 42
+output_dir: ${hydra:runtime.output_dir}
+wb_tag: ${suffix}
+log_interval: 10
+script_name: ''
+pretrained_dir: ${train.pretrained_dir}
+parallel_eval: false
+env_names: ${dataset.env_names}
+debug: False # Turn off to allow wandb logging
+suffix: "" # suffix for the experiment
+
+defaults:
+  - _self_
+  - env: isaacsim_pcd # rlbench # gensim2
+  - datasetsize: all
+
+# self-explanatory torch config
+dataloader:
+  batch_size: ${batch_size}
+  num_workers: 8
+  pin_memory: true
+  persistent_workers: true
+  shuffle: true
+  drop_last: true
+val_dataloader:
+  batch_size: ${batch_size}
+  num_workers: 8
+  shuffle: false
+  pin_memory: true
+  persistent_workers: true
+  drop_last: true
+optimizer:
+  _target_: torch.optim.AdamW
+  lr: 0.0001
+  eps: 1.0e-08
+  weight_decay: 1.0e-06
+  betas:
+  - 0.95
+  - 0.999
+warmup_lr:
+  lr: 1.0e-06
+  step: 500
+lr_scheduler:
+  _target_: torch.optim.lr_scheduler.CosineAnnealingLR
+  T_max: ${train.total_iters}
+  eta_min: 1.0e-08
+train:
+  total_epochs: 250  # maximum training epochs before termination. usually set as maximum
+  total_iters: 100000000 # maximum training steps before termination
+  epoch_iters: 1000  # training steps in each epoch
+  validation_iters: 100 # maximum iterations for validation
+  pretrained_dir: "/home/ubuntu/xiaoshen/code/IsaacLab-new/GR-Isaaclab/outputs/ppt_learning/outputs/2025-05-07_11-01-32/ur5_close_microwave_version5_generated2" # pretrained model path for testing
+  model_names: 
+    - model.pth
+    - model_320.pth
+    - model_300.pth
+    - model_275.pth
+    - model_250.pth 
+    - model_225.pth 
+    - model_125.pth
+    - model_150.pth
+    - model_175.pth
+    - model_200.pth
+  freeze_trunk: False # whether to freeze the trunk during finetuning
+prompt: ""
+rollout_runner:
+  save_video: true
+  # task_name: "Isaac-UR5-CloseMicroWave-Mimic-Joint-v0"
+  task_name: "Isaac-UR5-CloseMicroWave-Mimic-v0"
+eval_log_name: "eval_log_l40_8_100_ddp_new"
+n_procs: 8
