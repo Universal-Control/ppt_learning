@@ -1,5 +1,5 @@
 # @package _global_
-domains: "ur5_close_microwave_version5_generated2" # dataset name to be loaded
+domains: "ur5_close_microwave_version6_generated_2" # dataset name to be loaded
 batch_size: 24 # batch size
 save_interval: 25
 
