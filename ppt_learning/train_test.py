@@ -105,12 +105,18 @@ def train(
     epoch_size = epoch_size or len(train_loader)
     assert epoch_size > 0, "empty dataloader"
     
+    # Create progress bar for rank 0 only
     pbar = tqdm(
-        range(epoch_size), position=1, leave=True, disable=(rank != 0)
-    )  # Disable pbar for non-rank-0
+        total=epoch_size,
+        position=1,
+        leave=True,
+        disable=(rank != 0),
+        desc=f"Epoch {epoch}"
+    )
 
-    # randomly sample a dataloader with inverse probability square root to the number of data
-    for batch_idx, batch in enumerate(pbar):
+    # Iterate through batches
+    for batch_idx, batch in enumerate(train_loader):
+        pbar.update(1)
         batch["data"] = dict_apply(
             batch["data"], lambda x: x.to(device, non_blocking=True).float()
         )

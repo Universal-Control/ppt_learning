@@ -255,40 +255,29 @@ def filter_ddp_args():
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--local_rank", type=int, default=0)
     parser.add_argument("--model", type=str, default="pcd") # , choice=["pcd", "rgb"])
+    parser.add_argument("--suffix", type=str, default="")
     args, remaining = parser.parse_known_args()
     sys.argv = [sys.argv[0]] + remaining
-    return args.local_rank, args.model
+    return args.local_rank, args.model, args.suffix
 
 
 def main():
     # Filter DDP arguments
-    local_rank, model_type = filter_ddp_args()
+    local_rank, model_type, suffix = filter_ddp_args()
 
     # Initialize Hydra
-<<<<<<< Updated upstream
     with initialize(config_path=f"ppt_learning/experiments/configs", version_base="1.2"):
         cfg = compose(config_name=f"config_ddp_{model_type}")
-=======
-    with initialize(
-        config_path=f"ppt_learning/experiments/configs", version_base="1.2"
-    ):
-        cfg = compose(config_name="config_ddp")
->>>>>>> Stashed changes
 
     # Resolve any remaining interpolations
     cfg = OmegaConf.to_container(cfg, resolve=True)
     cfg = OmegaConf.create(cfg)  # Convert back to DictConfig
 
+    cfg.suffix = cfg.suffix if len(cfg.suffix) else suffix
+    cfg.wb_tag = cfg.suffix if len(cfg.suffix) else "default"
     # Ensure output_dir has a default value if not set
     if not cfg.get("output_dir"):
-<<<<<<< Updated upstream
         cfg.output_dir = os.path.join("outputs", model_type, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
-=======
-        cfg.output_dir = os.path.join(
-            "outputs", datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        )
->>>>>>> Stashed changes
-    cfg.wb_tag = cfg.suffix if len(cfg.suffix) else "default"
 
     # Determine world size (number of GPUs)
     world_size = torch.cuda.device_count()
