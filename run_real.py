@@ -28,6 +28,7 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 hostname = ""  # TODO fill in the hostname
 deploy_on_real = True
 MAX_EP_STEPS = 600
+FPS = 15
 
 state_keys = [
     "eef_pos",
@@ -159,7 +160,7 @@ def run_in_real(policy, cfg, robot=None):
                 obs = preprocess_obs(
                     obs, pcd_transform=pcd_transform, pcd_channels=pcd_channels
                 )
-
+                start_time = time.time()
                 action = policy.get_action(
                     obs,
                     pcd_npoints=pcd_num_points,
@@ -167,6 +168,7 @@ def run_in_real(policy, cfg, robot=None):
                     task_description=cfg.prompt,
                     t=t,
                 )
+                print(f"Time to get action: {time.time() - start_time:.4f}")
 
                 if len(action.shape) > 1:
                     for a in action[1:]:

@@ -193,6 +193,8 @@ class RealRobot:
             from ppt_learning.utils.ranging_depth_utils import get_model
             self.depth_model = get_model(depth_model_path).to(self.device)
 
+            
+
         self._buffer = {}
 
         print("Finished initializing robot.")
@@ -332,7 +334,6 @@ class RealRobot:
 
         depths = rs_data["depths"]
         colors = rs_data["colors"]
-        import ipdb; ipdb.set_trace()
         transforms = rs_data["transforms"]
         intrs = rs_data["intrs"]
 

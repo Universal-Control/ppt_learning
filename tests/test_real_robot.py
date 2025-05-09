@@ -1,4 +1,4 @@
-from ppt_learning.utils.robot.real_robot_ur5 import RealRobot
+from ppt_learning.real.real_robot_ur5 import RealRobot
 import pickle
 import numpy as np
 import time
@@ -9,10 +9,12 @@ from ppt_learning.utils.icp_align import perform_icp_align
 ip = "192.168.1.243"
 
 def main():
-    rb = RealRobot(depth_model_path="/home/minghuan/ppt_learning/models/depth/720p-e049-s204800.ckpt", use_model_depth=True)
+    rb = RealRobot(depth_model_path="/home/minghuan/ppt_learning/models/depth/480pnoise-e096-s397312.ckpt.jit", use_model_depth=True)
 
-    print(rb.get_robot_state())
-    rb.get_obs(visualize=True, post_icp=True)
+    # print(rb.get_robot_state())
+    # rb.get_obs(visualize=True, post_icp=True)
+    for i in range(10):
+        rb.get_obs()
 
     default_action = np.array(
         [0.6534, -0.0329,  0.2565,  0.0346, -0.7644, 0.6436, -0.0181, 0.0]

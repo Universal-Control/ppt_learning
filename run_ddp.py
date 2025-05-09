@@ -7,6 +7,7 @@ import argparse
 from tqdm import trange
 import csv
 import wandb
+import datetime
 from omegaconf import DictConfig, OmegaConf
 
 import torch
@@ -278,6 +279,7 @@ def main():
     # Ensure output_dir has a default value if not set
     if not cfg.get("output_dir"):
         cfg.output_dir = os.path.join("outputs", model_type, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+    cfg.wb_tag = cfg.suffix if len(cfg.suffix) else "default"
 
     # Determine world size (number of GPUs)
     world_size = torch.cuda.device_count()

@@ -8,9 +8,9 @@ model=resnet18(pretrained=False)
 optimizer = torch.optim.SGD(model.parameters(), lr=0.0001)
 mode='cosineAnnWarm'
 if mode=='cosineAnn':
-    scheduler = CosineAnnealingLR(optimizer, T_max=5, eta_min=1.0e-08)
+    scheduler = CosineAnnealingLR(optimizer, T_max=5, eta_min=1e-8)
 elif mode=='cosineAnnWarm':
-    scheduler = CosineAnnealingWarmRestarts(optimizer,T_0=4, T_mult=9, eta_min=1.0e-08)
+    scheduler = CosineAnnealingWarmRestarts(optimizer,T_0=4,T_mult=9)
     '''
     以T_0=5, T_mult=1为例:
     T_0:学习率第一次回到初始值的epoch位置.
@@ -23,8 +23,8 @@ elif mode=='cosineAnnWarm':
         T_0=5, T_mult=1
     '''
 plt.figure()
-max_epoch=300
-iters=int(118456/64)
+max_epoch=350
+iters=1000
 cur_lr_list = []
 for epoch in range(max_epoch):
     print('epoch_{}'.format(epoch))

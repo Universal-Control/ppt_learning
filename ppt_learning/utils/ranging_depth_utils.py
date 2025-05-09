@@ -14,6 +14,7 @@ import matplotlib.pyplot as plt
 import imageio.v3 as imageio
 import h5py
 import torch.multiprocessing as mp
+import time
 
 from ranging_anything.model import get_model as get_pda_model
 from ranging_anything.compute_metric import (
@@ -360,8 +361,12 @@ def model_infer(
     lowres = lowres.to(f"cuda:{rank}")
 
     # 进行推理
-    pred = batch_inference(model, img, lowres)
+    # pred = batch_inference(model, img, lowres)
+    time1 = time.time()
+    pred = model(img, lowres)
+    print("inference time", time.time() - time1)
 
+    time2 = time.time()
     pred = pred.detach().cpu().numpy()
     lowres = lowres.detach().cpu().numpy()
     msk = np.logical_and(lowres > 1e-3, ~np.isnan(lowres)) & (~np.isinf(lowres))
@@ -373,6 +378,7 @@ def model_infer(
         )
     else:
         output_depth = pred
+    print("align time", time.time() - time1)
 
     return output_depth
 
