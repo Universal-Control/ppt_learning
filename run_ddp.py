@@ -25,27 +25,22 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 from ppt_learning import train_test
 
+
 def get_dataloader(dataset, seed, rank, world_size, **kwargs):
 
     shuffle = kwargs.pop("shuffle", False)
 
     sampler = DistributedSampler(
-        dataset,
-        num_replicas=world_size,
-        rank=rank,
-        shuffle=shuffle,
-        seed=seed+rank            
+        dataset, num_replicas=world_size, rank=rank, shuffle=shuffle, seed=seed + rank
     )
-    
+
     # Create DataLoader with the sampler
     dataloader = DataLoader(
-        dataset,
-        **kwargs,
-        sampler=sampler,
-        multiprocessing_context="fork"
+        dataset, **kwargs, sampler=sampler, multiprocessing_context="fork"
     )
-    
+
     return dataloader
+
 
 def run(rank: int, world_size: int, cfg: DictConfig):
     """
@@ -80,7 +75,7 @@ def run(rank: int, world_size: int, cfg: DictConfig):
     if is_eval:
         output_dir += "-eval"
     cfg.output_dir = output_dir
-    
+
     # Ensure only rank 0 creates output directory
     if rank == 0:
         os.makedirs(cfg.output_dir, exist_ok=True)
@@ -112,10 +107,14 @@ def run(rank: int, world_size: int, cfg: DictConfig):
     # action_dim = 7  # 8 for rlbench, 7 for gensim2
     # state_dim = 15  # 15 # 24 for rlbench, 15 for gensim2
     if not is_eval:
-        cfg.dataset.dataset_path = cfg.dataset.get('dataset_path', '')+'/'+domain+'.zarr' if len(domain_list) == 1 else domain_list
+        cfg.dataset.dataset_path = (
+            cfg.dataset.get("dataset_path", "") + "/" + domain + ".zarr"
+            if len(domain_list) == 1
+            else domain_list
+        )
         dataset = hydra.utils.instantiate(
             cfg.dataset,
-            seed=cfg.seed+rank,
+            seed=cfg.seed + rank,
             **cfg.dataset,
         )
         normalizer = dataset.get_normalizer()
@@ -125,8 +124,16 @@ def run(rank: int, world_size: int, cfg: DictConfig):
         if use_pcd:
             pcd_num_points = dataset.pcd_num_points
             assert pcd_num_points is not None
-        train_loader = get_dataloader(dataset, cfg.seed, rank=rank, world_size=world_size, **cfg.dataloader)
-        test_loader = get_dataloader(val_dataset, cfg.seed, rank=rank, world_size=world_size, **cfg.val_dataloader)
+        train_loader = get_dataloader(
+            dataset, cfg.seed, rank=rank, world_size=world_size, **cfg.dataloader
+        )
+        test_loader = get_dataloader(
+            val_dataset,
+            cfg.seed,
+            rank=rank,
+            world_size=world_size,
+            **cfg.val_dataloader,
+        )
         if rank == 0:
             print(f"Train size: {len(dataset)}. Test size: {len(val_dataset)}.")
 
@@ -233,7 +240,7 @@ def run(rank: int, world_size: int, cfg: DictConfig):
 
         if rank == 0:
             policy.module.save(policy_path)
-            
+
         pbar.close()
 
     print("saved results to:", cfg.output_dir)
@@ -241,6 +248,7 @@ def run(rank: int, world_size: int, cfg: DictConfig):
     # utils.log_results(cfg, total_success)
 
     dist.destroy_process_group()
+
 
 def filter_ddp_args():
     """Filter out DDP-specific arguments to avoid Hydra conflicts."""
@@ -251,13 +259,21 @@ def filter_ddp_args():
     sys.argv = [sys.argv[0]] + remaining
     return args.local_rank, args.model
 
+
 def main():
     # Filter DDP arguments
     local_rank, model_type = filter_ddp_args()
 
     # Initialize Hydra
+<<<<<<< Updated upstream
     with initialize(config_path=f"ppt_learning/experiments/configs", version_base="1.2"):
         cfg = compose(config_name=f"config_ddp_{model_type}")
+=======
+    with initialize(
+        config_path=f"ppt_learning/experiments/configs", version_base="1.2"
+    ):
+        cfg = compose(config_name="config_ddp")
+>>>>>>> Stashed changes
 
     # Resolve any remaining interpolations
     cfg = OmegaConf.to_container(cfg, resolve=True)
@@ -265,7 +281,13 @@ def main():
 
     # Ensure output_dir has a default value if not set
     if not cfg.get("output_dir"):
+<<<<<<< Updated upstream
         cfg.output_dir = os.path.join("outputs", model_type, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+=======
+        cfg.output_dir = os.path.join(
+            "outputs", datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        )
+>>>>>>> Stashed changes
     cfg.wb_tag = cfg.suffix if len(cfg.suffix) else "default"
 
     # Determine world size (number of GPUs)
@@ -274,20 +296,18 @@ def main():
         raise RuntimeError("No GPUs available for DDP training.")
 
     # Spawn DDP processes
-    mp.spawn(
-        run,
-        args=(world_size, cfg),
-        nprocs=world_size,
-        join=True
-    )
+    mp.spawn(run, args=(world_size, cfg), nprocs=world_size, join=True)
+
 
 if __name__ == "__main__":
     if "ARNOLD_WORKER_0_HOST" in os.environ:
         os.environ["MASTER_IP"] = os.environ["ARNOLD_WORKER_0_HOST"]
         os.environ["MASTER_ADDR"] = os.environ["ARNOLD_WORKER_0_HOST"]
         Port = os.environ["ARNOLD_WORKER_0_PORT"].split(",")
-        os.environ["WORLD_SIZE"] = os.environ["NODE_SIZE"] = os.environ["ARNOLD_WORKER_NUM"]
-        if True: # int(os.environ["WORLD_SIZE"]) > 1:
+        os.environ["WORLD_SIZE"] = os.environ["NODE_SIZE"] = os.environ[
+            "ARNOLD_WORKER_NUM"
+        ]
+        if True:  # int(os.environ["WORLD_SIZE"]) > 1:
             os.environ["MASTER_PORT"] = Port[0]
         else:
             for p in Port:
@@ -300,8 +320,10 @@ if __name__ == "__main__":
         os.environ["MASTER_IP"] = os.environ["ARNOLD_EXECUTOR_0_HOST"]
         os.environ["MASTER_ADDR"] = os.environ["ARNOLD_EXECUTOR_0_HOST"]
         Port = os.environ["ARNOLD_EXECUTOR_0_PORT"].split(",")
-        os.environ["WORLD_SIZE"] = os.environ["NODE_SIZE"] = os.environ["ARNOLD_EXECUTOR_NUM"]
-        if True: # int(os.environ["WORLD_SIZE"]) > 1:
+        os.environ["WORLD_SIZE"] = os.environ["NODE_SIZE"] = os.environ[
+            "ARNOLD_EXECUTOR_NUM"
+        ]
+        if True:  # int(os.environ["WORLD_SIZE"]) > 1:
             os.environ["MASTER_PORT"] = Port[0]
         else:
             for p in Port:
@@ -311,7 +333,9 @@ if __name__ == "__main__":
         os.environ["RANK"] = os.environ["NODE_SIZE"] = os.environ["ARNOLD_ID"]
         print(f"ARNOLD_EXECUTOR_0_PORT: {os.environ['ARNOLD_EXECUTOR_0_PORT']}")
     try:
-        print(f"MASTER_ADDR: {os.environ['MASTER_ADDR']}, MASTER_PORT: {os.environ['MASTER_PORT']}")
+        print(
+            f"MASTER_ADDR: {os.environ['MASTER_ADDR']}, MASTER_PORT: {os.environ['MASTER_PORT']}"
+        )
         print(f"WORLD_SIZE: {os.environ['WORLD_SIZE']}, RANK: {os.environ['RANK']}")
     except:
         pass

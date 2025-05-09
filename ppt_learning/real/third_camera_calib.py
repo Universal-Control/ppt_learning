@@ -12,14 +12,14 @@ from ppt_learning.utils.calibration import *
 from ppt_learning.utils.icp_align import *
 
 os.environ["DISPLAY"] = ":0"
-VIS = False
-ROOT = f"{PPT_DIR}/../logs/photos/2025-05-08_00-37-25"
+# ROOT = f"{PPT_DIR}/../logs/photos/2025-05-08_00-37-25" # No model
+ROOT = f"{PPT_DIR}/../logs/photos/2025-05-08_17-00-08-model" # model
 
 def init_aruco_marker(main_image_with_aruco_marker, main_camera_intr, charuco_dict=None, board=None):
     if charuco_dict is None:
         charuco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
     if board is None:
-        board = cv2.aruco.CharucoBoard((12, 10), 0.028, 0.021, charuco_dict)
+        board = cv2.aruco.CharucoBoard((8, 5), 0.048, 0.038, charuco_dict)
     image = cv2.imread(main_image_with_aruco_marker)
     cam_2_marker_init = estimate_pose(image, charuco_dict, main_camera_intr, np.zeros(5), board)
 
@@ -38,7 +38,7 @@ def visualize_marker(main_image_with_aruco_marker, charuco_dict, main_camera_int
             break
     cv2.destroyAllWindows()
 
-def calibration(root_path, time_stamp, main_camera_id, slave_camera_id, visualize=False, save_calib=False):
+def calibration(root_path, time_stamp, main_camera_id, slave_camera_id, load_slave=False, slave_only=False, visualize=False, save_calib=False, slave_path=""):
     """
     1. Load data
     2. Init aruco marker
@@ -52,7 +52,7 @@ def calibration(root_path, time_stamp, main_camera_id, slave_camera_id, visualiz
     main_camera_to_table_npy_path = f"{PPT_DIR}/../logs/photos/2025-05-07_11-34-20/camera_2_table.npy"
     main_image_with_aruco_marker = f"{root_path}/color_{main_camera_id}/{time_stamp}.png"
     slave_image_with_aruco_marker = f"{root_path}/color_{slave_camera_id}/{time_stamp}.png"
-    slave_to_camera_npy_path = f"{PPT_DIR}/../logs/photos/2025-05-07_11-38-40/camera_0_to_camera_1.npy"
+    slave_to_camera_npy_path = f"{slave_path}/camera_0_to_camera_1.npy"
     slave_rgb_only_table_path = f"{root_path}/color_{slave_camera_id}/{time_stamp}.png"
     slave_depth_only_table_path = f"{root_path}/depth_{slave_camera_id}/{time_stamp}.npy"
     gt_obj_file_path = f"{PPT_DIR}/../logs/photos/2025-05-07_11-34-20/gt/combine-5-7.stl"
@@ -60,23 +60,29 @@ def calibration(root_path, time_stamp, main_camera_id, slave_camera_id, visualiz
     # Load data
     main_camera_rgb, main_camera_depth, main_camera_pcd, main_camera_pcd_np, main_camera_intr = load_data(root_path, main_rgb_only_table_path, main_depth_only_table_path, main_camera_id, visualize=visualize)
     slave_camera_rgb, slave_camera_depth, slave_camera_pcd, slave_camera_pcd_np, slave_camera_intr = load_data(root_path, slave_rgb_only_table_path, slave_depth_only_table_path, slave_camera_id, visualize=visualize)
-    # slave_to_camera_npy = np.load(slave_to_camera_npy_path)
+    if load_slave:
+        slave_to_camera_npy = np.load(slave_to_camera_npy_path)
 
     # Init aruco
     main_cam_2_marker_init, charuco_dict, board = init_aruco_marker(main_image_with_aruco_marker, main_camera_intr)
     slave_cam_2_marker_init, _, __ = init_aruco_marker(slave_image_with_aruco_marker, slave_camera_intr, charuco_dict, board)
+    
+    if not load_slave:
+        # Align slave to main
+        slave_to_main_init = np.linalg.inv(main_cam_2_marker_init) @ slave_cam_2_marker_init
+        slave_to_camera_npy, _, __ = perform_icp_align( # perform_color_icp_align
+            [slave_camera_pcd, main_camera_pcd],
+            slave_to_main_init,
+            visualize=visualize,
+            max_iteration=20000,
+            threshold=0.001,
+        )
+    if save_calib:
+        np.save(Path(slave_rgb_only_table_path).parent.parent / f"camera_{slave_camera_id}_to_camera_{main_camera_id}.npy", slave_to_camera_npy)
 
-    # Align slave to main
-    slave_to_main_init = np.linalg.inv(main_cam_2_marker_init) @ slave_cam_2_marker_init
-    slave_to_camera_npy, _, __ = perform_icp_align( # perform_color_icp_align
-        [slave_camera_pcd, main_camera_pcd],
-        slave_to_main_init,
-        visualize=visualize,
-        max_iteration=20000,
-        threshold=0.001,
-    )
-    np.save(Path(slave_rgb_only_table_path).parent.parent / f"camera_{slave_camera_id}_to_camera_{main_camera_id}.npy", slave_to_camera_npy)
-
+    if slave_only:
+        return slave_to_camera_npy, slave_to_camera_npy
+    
     # Get gt
     gt_pcd = load_obj_as_pointcloud(gt_obj_file_path, sample_points=50000)
     # translation = np.array([(0.3395, 0, 0.529)]) 
@@ -113,7 +119,27 @@ def calibration(root_path, time_stamp, main_camera_id, slave_camera_id, visualiz
     return main_to_table_npy, slave_to_camera_npy
 
 if __name__ == '__main__':
-    color_files = os.listdir(f"{ROOT}/color_0")
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--slave_only", action="store_true", help="only calibrate slave camera")
+    parser.add_argument("--load_slave", action="store_true", help="load slave camera calibration")
+    parser.add_argument("--slave_path", type=str, default=ROOT, help="path of the slave camera calibration")
+    parser.add_argument("--visualize", action="store_true", help="visualize the calibration process")
+    parser.add_argument("--save_calib", action="store_true", help="save the calibration result")
+    parser.add_argument("--save_board", action="store_true", help="save the aruco board")
+
+    parser.add_argument("--photo", type=str, default=ROOT, help="root path of the data")
+
+    args = parser.parse_args()
+
+    if args.save_board:
+        charuco_dict = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_6X6_250)
+        board = cv2.aruco.CharucoBoard((8, 5), 0.028, 0.021, charuco_dict)
+        bd_img = board.generateImage((3840, 2160))
+        cv2.imwrite("charuco_board.png", bd_img)
+        exit(0)
+
+    color_files = os.listdir(f"{args.photo}/color_0")
     color_files.sort()
     time_stamps = [int(color_file.split(".")[0]) for color_file in color_files]
     
@@ -121,12 +147,15 @@ if __name__ == '__main__':
 
     for time_stamp in time_stamps:
         main_to_table_npy, slave_to_camera_npy = calibration(
-            ROOT,
+            args.photo,
             time_stamp,
-            main_camera_id=0,
-            slave_camera_id=1,
-            visualize=VIS,
-            save_calib=False
+            main_camera_id=1,
+            slave_camera_id=0,
+            visualize=args.visualize,
+            save_calib=args.save_calib,
+            slave_only=args.slave_only,
+            load_slave=args.load_slave,
+            slave_path=args.slave_path
         )
         main_to_table_npys.append(main_to_table_npy)
         slave_to_camera_npys.append(slave_to_camera_npy)
@@ -141,8 +170,9 @@ if __name__ == '__main__':
         slave_to_camera_translations.append(slave_to_camera_npy[:3, 3])
         slave_to_camera_rotations.append(R.from_matrix(slave_to_camera_npy[:3, :3]).as_euler("xyz"))
 
-    np.save(Path(ROOT)/ "main_camera_2_table_all.npy", main_to_table_npys)
-    np.save(Path(ROOT) / "slave_camera_2_main_all.npy", slave_to_camera_npys)
+    if args.save_calib:
+        np.save(Path(args.photo)/ "main_camera_2_table_all.npy", main_to_table_npys)
+        np.save(Path(args.photo) / "slave_camera_2_main_all.npy", slave_to_camera_npys)
 
     main_to_table_translations = np.array(main_to_table_translations)
     main_to_table_rotations = np.array(main_to_table_rotations)
@@ -174,9 +204,11 @@ if __name__ == '__main__':
     main_to_table_mean = np.eye(4)
     main_to_table_mean[:3, 3] = main_to_table_translation_mean
     main_to_table_mean[:3, :3] = R.from_euler('xyz', main_to_table_rotation_mean, degrees=True).as_matrix()
-    np.save(Path(ROOT) / "main_camera_2_table_mean.npy", main_to_table_mean)
 
     slave_to_camera_mean = np.eye(4)
     slave_to_camera_mean[:3, 3] = slave_to_camera_translation_mean
     slave_to_camera_mean[:3, :3] = R.from_euler('xyz', slave_to_camera_rotation_mean, degrees=True).as_matrix()
-    np.save(Path(ROOT) / "slave_camera_2_main_mean.npy", slave_to_camera_mean)
+
+    if args.save_calib:
+        np.save(Path(args.photo) / "main_camera_2_table_mean.npy", main_to_table_mean)
+        np.save(Path(args.photo) / "slave_camera_2_main_mean.npy", slave_to_camera_mean)

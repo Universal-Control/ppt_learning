@@ -34,19 +34,24 @@ class videoLogger:
         date_time = time.strftime("%m%d-%H%M%S")
         if video_save_dir is None:
             self.video_save_dir = Path(f"./outputs/video_eval/{date_time}")
+        else:
+            self.video_save_dir = video_save_dir
 
     def extend(self, key, snaps, category):
-        if key not in self._snaps:
+        if key not in self._snaps[category]:
             self._snaps[category][key] = []
-        self._snaps[category][key].extend(snaps)
+        self._snaps[category][key].append(snaps)
 
-    def save(self, dir_name):
+    def reset(self):
+        self._snaps = {"color": {}, "depth": {}, "pointcloud": {}}
+
+    def save(self, dir_name, model_name):
         for category in self._snaps:
-            frames = []
             if len(self._snaps[category]):
                 print(f"Saving videos of {category}")
                 if category == "pointcloud":
                     # visualize pointcloud and save the video
+                    frames = []
                     for key in self._snaps[category]:
                         pcds = self._snaps[category][key]
 
@@ -71,10 +76,9 @@ class videoLogger:
                         )
 
                 else:
-                    frames = self._snaps[key]
 
-                os.makedirs(self.video_save_dir / category / dir_name, exist_ok=True)
-                for key in self._snaps[category]:
-                    imageio.imwrite(
-                        self.video_save_dir / category / dir_name / f"{key}.mp4", frames
-                    )
+                    os.makedirs(self.video_save_dir / category / model_name / dir_name, exist_ok=True)
+                    for key in self._snaps[category]:
+                        imageio.imwrite(
+                            self.video_save_dir / category / model_name / dir_name / f"{key}.mp4", self._snaps[category][key]
+                        )

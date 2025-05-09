@@ -1,4 +1,4 @@
-from ppt_learning.utils.robot.real_robot_ur5 import RealRobot
+from ppt_learning.real.real_robot_ur5 import RealRobot
 import open3d as o3d
 import numpy as np
 import time
