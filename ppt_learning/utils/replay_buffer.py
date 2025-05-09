@@ -125,7 +125,7 @@ class ReplayBuffer:
 
     # ============= create constructors ===============
     @classmethod
-    def create_empty_zarr(cls, storage=None, root=None):
+    def create_empty_zarr(cls, storage=None, root=None, **kwargs):
         if root is None:
             if storage is None:
                 storage = zarr.MemoryStore()

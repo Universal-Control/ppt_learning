@@ -171,6 +171,7 @@ def run(cfg):
                 pcd_npoints=pcd_num_points,
                 in_channels=dataset.pcd_channels,
                 debug=cfg.debug,
+                epoch_size=cfg.train.epoch_iters
             )
             test_loss = train_test.test(
                 policy,

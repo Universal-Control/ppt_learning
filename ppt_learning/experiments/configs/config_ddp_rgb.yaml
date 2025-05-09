@@ -46,9 +46,9 @@ lr_scheduler:
   T_mult: 9
   eta_min: 1.0e-08
 train:
-  total_epochs: 320 # maximum training epochs before termination. usually set as maximum
+  total_epochs: 350 # maximum training epochs before termination. usually set as maximum
   total_iters: 1000000000 # maximum training steps before termination
-  epoch_iters: 1850  # training steps in each epoch
+  epoch_iters: 1000  # training steps in each epoch
   validation_iters: 100 # maximum iterations for validation
   pretrained_dir: "" # pretrained model path for testing
   freeze_trunk: False # whether to freeze the trunk during finetuning

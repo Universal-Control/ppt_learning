@@ -211,6 +211,7 @@ def run(rank: int, world_size: int, cfg: DictConfig):
                 pcd_npoints=pcd_num_points,
                 in_channels=dataset.pcd_channels,
                 debug=cfg.debug,
+                epoch_size=cfg.train.epoch_iters
             )
             train_steps = (epoch + 1) * len(train_loader)
 
