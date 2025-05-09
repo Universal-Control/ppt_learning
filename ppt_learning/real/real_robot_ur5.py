@@ -142,7 +142,7 @@ class RealRobot:
         depth_model_path=None,
         align_scale=True,
         device="cuda",
-        tar_size=(644, 490),
+        tar_size=(672, 504),
         camera_only=False,
         npoints=8192,
         **kwargs
@@ -193,7 +193,12 @@ class RealRobot:
             from ppt_learning.utils.ranging_depth_utils import get_model
             self.depth_model = get_model(depth_model_path).to(self.device)
 
-            
+            example_depth = torch.randn(1, 1, self.tar_size[0], self.tar_size[1], dtype=torch.float32).to(device)
+            example_color = torch.ones(1, 3, self.tar_size[0], self.tar_size[1], dtype=torch.uint8).to(device)
+            # Warm-up runs
+            for _ in range(5):
+                _ = self.depth_model(example_color, example_depth)
+
 
         self._buffer = {}
 
