@@ -57,8 +57,9 @@ if __name__ == "__main__":
     depth_model = get_model(args.model_path).to(device)
     
     # export_model_as_jit(depth_model, save_path, example_color, example_depth)
-        
+
     model = torch.jit.load(save_path).to(device)
+
     # Warm-up runs
     for _ in range(10):
         _ = model(example_color, example_depth)
@@ -66,9 +67,8 @@ if __name__ == "__main__":
 
     jit_total_time = 0
     raw_total_time = 0
-    num_runs = 100
 
-    for _ in range(num_runs):
+    for _ in range(args.num_runs):
         example_depth = torch.randn(1, 1, WIDTH, HEIGHT, dtype=torch.float32).to(device)
         example_color = torch.ones(1, 3, WIDTH, HEIGHT, dtype=torch.uint8).to(device)
         

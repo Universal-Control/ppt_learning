@@ -5,7 +5,7 @@ import torch.distributed as dist
 from torch.nn.parallel import DistributedDataParallel as DDP
 from torch.utils.data import Dataset, DataLoader, DistributedSampler
 import tyro
-import os
+import os,sys
 from os.path import join
 from tqdm.auto import tqdm
 import numpy as np
@@ -29,7 +29,6 @@ from ranging_anything.compute_metric import (
 import argparse
 
 HDF5_PATH = "/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/code/GR-Isaaclab/datasets/ur5_close_microwave_version_2_generated_37.hdf5"
-
 
 def load_image(
     image_path: str,
@@ -382,56 +381,6 @@ def model_infer(
 
     return output_depth
 
-
-def get_model(model_path: str, rank: int = 0, model_type = "promptda-robot") -> torch.nn.Module:
-    """
-    Load the pre-trained model.
-    Args:
-        model_path: Path to the pre-trained model.
-        rank: Rank of the current process.
-    Returns:
-        model: Pre-trained model.
-    """
-    
-    if model_type == "promptda-robot":
-        model = get_pda_model(model_path, rank=rank)
-    elif model_type == "promptda":
-        model_path = f"{os.environ['workspace']}/cache_models/pda_vitl.ckpt"
-        model = get_pda_model(model_path, rank=rank)
-    elif model_type == "dav2":
-        from depth_anything_v2.metric_depth.depth_anything_v2 import DepthAnythingV2
-
-        # 加载模型
-        encoder = "vitl"
-        dataset = "hypersim"
-        max_depth = 10
-        model_configs = {
-            "vits": {
-                "encoder": "vits",
-                "features": 64,
-                "out_channels": [48, 96, 192, 384],
-            },
-            "vitb": {
-                "encoder": "vitb",
-                "features": 128,
-                "out_channels": [96, 192, 384, 768],
-            },
-            "vitl": {
-                "encoder": "vitl",
-                "features": 256,
-                "out_channels": [256, 512, 1024, 1024],
-            },
-        }
-        model = DepthAnythingV2(**{**model_configs[encoder], "max_depth": max_depth})
-        ckpt_path = f'{os.environ["workspace"]}/cache_models/depth_anything_v2_metric_{dataset}_{encoder}.pth'
-        model.load_state_dict(torch.load(ckpt_path, map_location=f"cuda:{rank}"))
-
-    model.eval()
-    # model = DDP(model, device_ids=[rank])
-
-    return model
-
-
 @torch.no_grad()
 def eval_traj(
     rank,
@@ -493,3 +442,53 @@ def eval_traj(
         )
         # plot_depth(image, depth, lowres_depth, output_path)
         write_to_videos(img, pred_depth_align_low, lowres, output_path)
+
+def get_model(model_path: str, rank: int = 0, model_type = "promptda-robot") -> torch.nn.Module:
+    """
+    Load the pre-trained model.
+    Args:
+        model_path: Path to the pre-trained model.
+        rank: Rank of the current process.
+    Returns:
+        model: Pre-trained model.
+    """
+    if "jit" in model_path:
+        model = torch.jit.load(model_path)
+    else:
+        if model_type == "promptda-robot":
+            model = get_pda_model(model_path, rank=rank)
+        elif model_type == "promptda":
+            model_path = f"{os.environ['workspace']}/cache_models/pda_vitl.ckpt"
+            model = get_pda_model(model_path, rank=rank)
+        elif model_type == "dav2":
+            from depth_anything_v2.metric_depth.depth_anything_v2 import DepthAnythingV2
+
+            # 加载模型
+            encoder = "vitl"
+            dataset = "hypersim"
+            max_depth = 10
+            model_configs = {
+                "vits": {
+                    "encoder": "vits",
+                    "features": 64,
+                    "out_channels": [48, 96, 192, 384],
+                },
+                "vitb": {
+                    "encoder": "vitb",
+                    "features": 128,
+                    "out_channels": [96, 192, 384, 768],
+                },
+                "vitl": {
+                    "encoder": "vitl",
+                    "features": 256,
+                    "out_channels": [256, 512, 1024, 1024],
+                },
+            }
+            model = DepthAnythingV2(**{**model_configs[encoder], "max_depth": max_depth})
+            ckpt_path = f'{os.environ["workspace"]}/cache_models/depth_anything_v2_metric_{dataset}_{encoder}.pth'
+            model.load_state_dict(torch.load(ckpt_path, map_location=f"cuda:{rank}"))
+
+        model.eval()
+        # model = DDP(model, device_ids=[rank])
+
+    return model
