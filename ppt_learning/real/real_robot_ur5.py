@@ -142,7 +142,7 @@ class RealRobot:
         depth_model_path=None,
         align_scale=True,
         device="cuda",
-        tar_size=(644, 490),
+        tar_size=(672, 504),
         camera_only=False,
         npoints=8192,
         **kwargs
