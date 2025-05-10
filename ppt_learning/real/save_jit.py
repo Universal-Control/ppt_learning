@@ -34,6 +34,10 @@ class JitModelExporter(torch.nn.Module):
         depth = self.depth_model((x - self.depth_model._mean) / self.depth_model._std, lowres_depth=self.warp_func.warp(lowres_depth, reference=lowres_depth)).unsqueeze(1)
         return self.warp_func.unwarp(depth, reference=lowres_depth) 
 
+    # def forward(self, x, lowres_depth):
+    #     depth = self.depth_model((x - self.depth_model._mean) / self.depth_model._std, lowres_depth=lowres_depth).unsqueeze(1)
+    #     return depth
+
 def export_model_as_jit(model, path, example_color, example_depth):
     traced_module = torch.jit.trace(JitModelExporter(model), [example_color, example_depth])
     traced_module.save(path)
@@ -56,13 +60,13 @@ if __name__ == "__main__":
         os.environ['RA_WORKSPACE'] = f'{PPT_DIR}/third_party/ranging_depth'
     depth_model = get_model(args.model_path).to(device)
     
-    # export_model_as_jit(depth_model, save_path, example_color, example_depth)
+    export_model_as_jit(depth_model, save_path, example_color, example_depth)
 
-    model = torch.jit.load(save_path).to(device)
+    jit_model = torch.jit.load(save_path).to(device)
 
     # Warm-up runs
-    for _ in range(10):
-        _ = model(example_color, example_depth)
+    for _ in range(5):
+        _ = jit_model(example_color, example_depth)
         _ = depth_model.inference(example_color, example_depth)
 
     jit_total_time = 0
@@ -74,15 +78,20 @@ if __name__ == "__main__":
         
         torch.cuda.synchronize() if device == "cuda" else None
         time1 = time.time()
-        res1 = model(example_color, example_depth)
+        res1 = jit_model(example_color, example_depth)
         torch.cuda.synchronize() if device == "cuda" else None
         jit_total_time += time.time() - time1
+        print("jit:", time.time() - time1)
 
+        example_depth = torch.randn(1, 1, WIDTH, HEIGHT, dtype=torch.float32).to(device)
+        example_color = torch.ones(1, 3, WIDTH, HEIGHT, dtype=torch.uint8).to(device)
+        
         torch.cuda.synchronize() if device == "cuda" else None
         time2 = time.time()
         res2 = depth_model.inference(example_color, example_depth)
         torch.cuda.synchronize() if device == "cuda" else None
         raw_total_time += time.time() - time2
+        print("raw:", time.time() - time2)
 
-    print(f"JIT model average time: {jit_total_time / num_runs}")
-    print(f"Raw model average time: {raw_total_time / num_runs}")
+    print(f"JIT model average time: {jit_total_time / args.num_runs}")
+    print(f"Raw model average time: {raw_total_time / args.num_runs}")
