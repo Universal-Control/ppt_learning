@@ -52,8 +52,6 @@ except Exception as e:
 
 MAX_EP_STEPS = 100
 MAX_RLBENCH_EP_STEPS = 100
-MAX_ISAAC_EP_STEPS = 350
-
 
 def normalize_quaternion(q):
     norm = np.linalg.norm(q)
@@ -483,12 +481,14 @@ class IsaacEnvRolloutRunner:
         video_save_dir=None,
         world_size=1,
         rank=0,
+        max_timestep=1200,
         **kwargs,
     ):
         assert obs_mode == "pointcloud"
         import os
         self.task_name = task_name
         self.save_video = save_video
+        self.max_timestep = max_timestep
         self.headless = headless
         self.episode_num = episode_num
         self.pcd_channels = pcd_channels
@@ -515,7 +515,7 @@ class IsaacEnvRolloutRunner:
 
         app_launcher_kwargs = {
             "headless": self.headless, "enable_cameras": True,
-            "distributed": True, "n_procs": world_size, "livestream": -1,
+            "distributed": distributed, "n_procs": world_size, "livestream": -1,
             "xr": False, device:'cuda:0', "cpu": False,
             "verbose": False, "info": False, "experience": '', "rendering_mode": None,
             "kit_args":''
@@ -551,6 +551,7 @@ class IsaacEnvRolloutRunner:
         print("Env created")
 
         self.video_save_dir = Path(video_save_dir)
+        print(f"Video will be saved to {self.video_save_dir}")
         if self.save_video:
             self.video_logger = videoLogger(self.video_save_dir)
         self.rank = rank
@@ -579,110 +580,125 @@ class IsaacEnvRolloutRunner:
 
     @torch.inference_mode()
     def run(self, policy, policy_name="model"):
-        episode_num = self.episode_num  # upper bound for number of trajectories
-        imgs = OrderedDict()
+        policy.to(self.device)
+        try:
+            print(f"Begin eval model:{policy_name}")
+            episode_num = self.episode_num  # upper bound for number of trajectories
+            imgs = OrderedDict()
 
-        total_success = 0
-        total_reward = 0
-        env = self.env
+            total_success = 0
+            total_reward = 0
+            env = self.env
+            subtask_success_nums = {}
 
-        pbar = tqdm(range(episode_num), position=1, leave=True)
+            pbar = tqdm(range(episode_num), position=1, leave=True)
 
-        for i in pbar:
-            eps_reward = 0
-            traj_length = 0
-            done = False
-            policy.reset()
-            obs, _ = env.reset()
-            
-            # warm up
-            for _ in range(50):
-                obs, reward, terminations, timeouts, info = env.step(env.cfg.mimic_config.default_actions[None])
-            obs, _ = env.reset()
-            openloop_actions = deque()
-            task_description = ""
-            success = False
-            for t in range(MAX_ISAAC_EP_STEPS):
-                traj_length += 1
+            for i in pbar:
+                eps_reward = 0
+                traj_length = 0
+                done = False
+                policy.reset()
+                obs, _ = env.reset()
+                
+                # warm up
+                for _ in range(50):
+                    obs, reward, terminations, timeouts, info = env.step(env.cfg.mimic_config.default_actions[None])
+                obs, _ = env.reset()
+                openloop_actions = deque()
+                task_description = ""
+                success = False
+                subtask_successes = {key: False for key in obs["subtask_terms"]}
+                for t in range(self.max_timestep):
+                    traj_length += 1
 
-                with torch.no_grad():
-                    if len(openloop_actions) > 0:
-                        action = openloop_actions.popleft()
-                    else:
-                        if (
-                            "pointcloud" in obs.keys()
-                            or "pointcloud" in obs["policy_infer"].keys()
-                        ):
-                            action = policy.get_action(
-                                preprocess_obs(
-                                    self._isaac_obs_warpper(obs),
-                                    # self.pcd_aug,
-                                    None,
-                                    self.pcd_transform,
-                                    self.pcd_channels,
-                                ),
-                                pcd_npoints=self.pcd_num_points,
-                                in_channels=self.pcd_channels,
-                                task_description=task_description,
-                                t=t,
-                            )
+                    with torch.no_grad():
+                        if len(openloop_actions) > 0:
+                            action = openloop_actions.popleft()
                         else:
-                            action = policy.get_action(
-                                preprocess_obs(
-                                    self._isaac_obs_warpper(obs), None, None, 3
-                                ),
-                                pcd_npoints=self.pcd_num_points,
-                                in_channels=3,
-                                task_description=task_description,
-                                t=t,
-                            )
-                        if len(action.shape) > 1:
-                            for a in action[1:]:
-                                openloop_actions.append(a)
-                            action = action[0]
-                action[-1] = 0.0 if action[-1] < 0.5 else 1.0
-                if self.collision_pred:
-                    assert False, "Temporarily not support collision pred"
-                    action[-2] = 0.0 if action[-2] < 0.5 else 1.0
-                    ignore_collisions = bool(action[-1])
-                    action = action[:-1]
-                    next_obs, reward, terminations, timeouts, info = env.step(action)
-                    done = torch.logical_or(terminations, timeouts)
-                else:
-                    if isinstance(action, np.ndarray):
-                        action = torch.from_numpy(action)
-                    next_obs, reward, terminations, timeouts, info = env.step(
-                        action[None]
-                    )
-                    if self.success_term.func(env, **self.success_term.params):
-                        success = True
-                        terminations[0] = True
-                    done = torch.logical_or(terminations, timeouts)
-
-                eps_reward += reward
-                if self.save_video:
-                    for key in obs["images"]:
-                        self.video_logger.extend(
-                            key, obs["images"][key][0].cpu().numpy(), category="color"
+                            if (
+                                "pointcloud" in obs.keys()
+                                or "pointcloud" in obs["policy_infer"].keys()
+                            ):
+                                action = policy.get_action(
+                                    preprocess_obs(
+                                        self._isaac_obs_warpper(obs),
+                                        # self.pcd_aug,
+                                        None,
+                                        self.pcd_transform,
+                                        self.pcd_channels,
+                                    ),
+                                    pcd_npoints=self.pcd_num_points,
+                                    in_channels=self.pcd_channels,
+                                    task_description=task_description,
+                                    t=t,
+                                )
+                            else:
+                                action = policy.get_action(
+                                    preprocess_obs(
+                                        self._isaac_obs_warpper(obs), None, None, 3
+                                    ),
+                                    pcd_npoints=self.pcd_num_points,
+                                    in_channels=3,
+                                    task_description=task_description,
+                                    t=t,
+                                )
+                            if len(action.shape) > 1:
+                                for a in action[1:]:
+                                    openloop_actions.append(a)
+                                action = action[0]
+                    action[-1] = 0.0 if action[-1] < 0.5 else 1.0
+                    if self.collision_pred:
+                        assert False, "Temporarily not support collision pred"
+                        action[-2] = 0.0 if action[-2] < 0.5 else 1.0
+                        ignore_collisions = bool(action[-1])
+                        action = action[:-1]
+                        next_obs, reward, terminations, timeouts, info = env.step(action)
+                        done = torch.logical_or(terminations, timeouts)
+                    else:
+                        if isinstance(action, np.ndarray):
+                            action = torch.from_numpy(action)
+                        next_obs, reward, terminations, timeouts, info = env.step(
+                            action[None]
                         )
-                obs = next_obs
+                        for key in subtask_successes:
+                            subtask_successes[key] = subtask_successes[key] or next_obs["subtask_terms"][key]
+                        if self.success_term.func(env, **self.success_term.params):
+                            success = True
+                            terminations[0] = True
+                        done = torch.logical_or(terminations, timeouts)
 
-                if done:
-                    break
+                    eps_reward += reward
+                    if self.save_video:
+                        for key in obs["images"]:
+                            self.video_logger.extend(
+                                key, obs["images"][key][0].cpu().numpy(), category="color"
+                            )
+                    obs = next_obs
 
-            # if not info["sub_task_success"]:
-            #     break
+                    if done:
+                        break
 
-            total_reward += eps_reward
-            total_success += success
+                # if not info["sub_task_success"]:
+                #     break
 
-            if self.save_video:
-                postfix = "success" if success else "fail"
-                self.video_logger.save(dir_name=f"{i}-th-{postfix}", model_name=policy_name)
-                self.video_logger.reset()
-            pbar.set_description(f"{self.task_name} total_success: {total_success} at rank: {self.rank}")
+                total_reward += eps_reward
+                total_success += success
+                for key in subtask_successes:
+                    subtask_success_nums[key] = subtask_successes[key] + subtask_success_nums.get(key, 0)
 
-        return total_success / episode_num, total_reward / episode_num, imgs
+                if self.save_video:
+                    postfix = "success" if success else "fail"
+                    self.video_logger.save(dir_name=f"{i}-th-{postfix}", model_name=policy_name)
+                    self.video_logger.reset()
+                print(subtask_success_nums)
+                pbar.set_description(f"{self.task_name} total_success: {total_success} at rank: {self.rank}")
+
+        except Exception as e:
+            print(e)
+            import traceback
+            traceback.print_exc()
+
+        return total_success / episode_num, total_reward / episode_num, (imgs, subtask_success_nums, episode_num)
 
 
 if __name__ == "__main__":

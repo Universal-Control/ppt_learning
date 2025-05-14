@@ -67,7 +67,7 @@ class Policy(nn.Module):
         openloop_steps=1,
         no_trunk=False,
         temporal_agg=False,
-        max_timesteps=500,
+        max_timesteps=1300,
         action_dim=7,
         **kwargs,
     ):

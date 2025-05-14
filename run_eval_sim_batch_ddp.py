@@ -32,7 +32,7 @@ def eval_in_one_process(rank, world_size, cfg, domain, queue:JoinableQueue):
     os.environ["WORLD_SIZE"] = str(world_size)
     device = f"cuda:{rank}"
     # initialize policy
-    policy = hydra.utils.instantiate(cfg.network).to(device)
+    policy = hydra.utils.instantiate(cfg.network, max_timestep=cfg.rollout_runner.max_timestep).to(device)
     policy.init_domain_stem(domain, cfg.stem)
     policy.init_domain_head(domain, cfg.head)
 
@@ -63,11 +63,15 @@ def eval_in_one_process(rank, world_size, cfg, domain, queue:JoinableQueue):
 
         print("Model initialize successfully")
         start_time = time.time()
-        success_rate, _, _ = runner.run(policy, model_name)
+        success_rate, _, (_, subtask_success_nums, episode_num) = runner.run(policy, model_name)
         end_time = time.time()
         print(f"Evaluation takes {end_time - start_time} second to finish.")
         print("\n\nThe success rate is {}\n".format(success_rate))
-        queue.put((model_name, success_rate))
+        subtask_success_sr = {}
+        for key in range(subtask_success_nums):
+            print(f"Subtask success rate for {key} is: {float(subtask_success_nums) / episode_num}") 
+            subtask_success_sr[key] = float(subtask_success_nums) / episode_num
+        queue.put((model_name, success_rate, subtask_success_sr))
     
     queue.join()
 
@@ -103,7 +107,7 @@ def run(cfg):
     print("cfg: ", cfg)
     print("output dir", cfg.output_dir)
 
-    action_dim = 8
+    action_dim = 7
     state_dim = 21
 
     cfg.head["output_dim"] = cfg.network["action_dim"] = action_dim
@@ -123,12 +127,15 @@ def run(cfg):
     srs = {}
     try:
         while idx < len(cfg.train.model_names):
-            model_name, success_rate = shared_queue.get()
+            model_name, success_rate, subtask_sr = shared_queue.get()
             with open(os.path.join(model_dir, f"{cfg.eval_log_name}.txt"), "at") as t:
                 t.write(f"success rate of {model_name} is: {success_rate}\n")
+                for key in subtask_sr:
+                    t.write(f"Subtask success rate for {key} is: {subtask_sr[key]}\n")
             srs[model_name] = success_rate
             shared_queue.task_done()
             idx += 1
+            srs[model_name]["subtask_sr"] = subtask_sr
         with open(os.path.join(model_dir, f"{cfg.eval_log_name}.json"), "wt") as j:
             json.dump(srs, j)
     except KeyboardInterrupt:
