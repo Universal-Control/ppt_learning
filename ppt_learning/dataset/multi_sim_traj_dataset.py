@@ -68,7 +68,7 @@ class MultiTrajDataset:
         rank=0,  # Add rank for DDP
         **kwargs,
     ):
-        assert isinstance(dataset_path, list), "dataset_paths must be a list"
+        assert not isinstance(dataset_path, list), f"dataset_path must be a list, but got {type(dataset_path)}: {dataset_path}"
 
         self.rank = rank
         self.horizon = horizon
@@ -108,15 +108,11 @@ class MultiTrajDataset:
 
         self.update_pcd_transform()
 
-        self.dataset_path = [None]
-        self.replay_buffer = [None]
-        self.sample_ratio = [0.5, 0.5]
-
-        
+        self.dataset_path = dataset_path
         self.replay_buffer = [None] * len(dataset_path)
+        # self.sample_ratio = [1.0] * len(dataset_path) # Not used for now 
 
         for idx, single_dpath in enumerate(dataset_path):
-            self.dataset_path[idx] = single_dpath
             load_from_cache = os.path.exists(single_dpath) and load_from_cache
             print(
                 f"\n\n >>>dataset_path: {single_dpath} load_from_cache: {load_from_cache} \n\n"
@@ -226,9 +222,16 @@ class MultiTrajDataset:
         return self.replay_buffer.get_episode(idx)
 
     def _sample_to_data(self, sample):
-        data = {"action": sample["action"]}
-        if "state" in sample and self.normalize_state:
-            data["state"] = sample["state"]  # 1 x N
+        data = (
+            {"action": sample["action"]}
+            if "action" in sample
+            else {"action": sample["actions"]}
+        )
+        if self.normalize_state:
+            if "state" in sample:
+                data["state"] = sample["state"]  # 1 x N
+            else:
+                data["state"] = self.get_state(sample)
         return data
 
     def get_training_dataset(self, val_ratio, seed):
@@ -424,6 +427,20 @@ class MultiTrajDataset:
             self.replay_buffer[idx] = ReplayBuffer.copy_from_path(dataset_path)
             print("Replay buffer keys: ", self.replay_buffer[idx].keys())
 
+    def get_state(self, sample):
+        res = {"state": []}
+        if isinstance(sample, (dict, OrderedDict)):
+            res = sample
+            res['state'] = []
+        for key in self.state_keys:
+            if key in sample.keys():
+                res["state"].append(sample[key])
+                if isinstance(sample, (dict, OrderedDict)):
+                    del sample[key]
+        res["state"] = np.concatenate(res["state"], axis=-1)
+
+        return res["state"]
+
     def flat_sample(self, sample):
         if "obs" in sample.keys():
             for key, val in sample["obs"].items():
@@ -431,7 +448,7 @@ class MultiTrajDataset:
             del sample["obs"]
 
         if "state" not in sample:
-            sample = self.get_state(sample)
+            sample["state"] = self.get_state(sample)
 
         if "images" in sample.keys() and "image" not in sample.keys():
             sample["image"] = sample.pop("images")

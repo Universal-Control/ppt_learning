@@ -649,11 +649,6 @@ class IsaacEnvRolloutRunner:
                     action[-1] = 0.0 if action[-1] < 0.5 else 1.0
                     if self.collision_pred:
                         assert False, "Temporarily not support collision pred"
-                        action[-2] = 0.0 if action[-2] < 0.5 else 1.0
-                        ignore_collisions = bool(action[-1])
-                        action = action[:-1]
-                        next_obs, reward, terminations, timeouts, info = env.step(action)
-                        done = torch.logical_or(terminations, timeouts)
                     else:
                         if isinstance(action, np.ndarray):
                             action = torch.from_numpy(action)

@@ -226,7 +226,8 @@ class PointNet(nn.Module):
         global_feat=None,
         finetune=False,
         pretrained_path=None,
-        mlp_widths=None,
+        mlp_widths=[],
+        output_dim=512,
         color_extra=False,
         **kwargs,
     ):
@@ -255,10 +256,17 @@ class PointNet(nn.Module):
 
         self.mlp = None
         self.activation = None
-        if mlp_widths is not None:
+        if output_dim != 512:
+            mlp_widths = [512] + mlp_widths + [output_dim]
+        if len(mlp_widths):
             self.activation = torch.nn.ReLU()
-            self.mlp = torch.nn.Linear(mlp_widths[0], mlp_widths[1])
-
+            modules = []
+            for i in range(len(mlp_widths) - 1):
+                modules.append(nn.Linear(mlp_widths[i], mlp_widths[i + 1]))
+                if i < len(mlp_widths) - 2:
+                    modules.append(nn.ReLU())
+            self.mlp = nn.Sequential(*modules)
+                    
         self.color_pointnet = None
         if color_extra:
             cfg.model.encoder_args.in_channels = 3

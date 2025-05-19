@@ -254,7 +254,7 @@ class TrajDataset:
             if "state" in sample:
                 data["state"] = sample["state"]  # 1 x N
             else:
-                data["state"] = self.get_state(sample)
+                data["state"] = self.get_state(sample["obs"])
         return data
 
     def get_training_dataset(self, val_ratio, seed):
@@ -443,14 +443,18 @@ class TrajDataset:
         print("Replay buffer keys: ", self.replay_buffer.keys())
 
     def get_state(self, sample):
-        sample["state"] = []
+        res = {"state": []}
+        if isinstance(sample, (dict, OrderedDict)):
+            res = sample
+            res['state'] = []
         for key in self.state_keys:
             if key in sample.keys():
-                sample["state"].append(sample[key])
-                del sample[key]
-        sample["state"] = np.concatenate(sample["state"], axis=-1)
+                res["state"].append(sample[key])
+                if isinstance(sample, (dict, OrderedDict)):
+                    del sample[key]
+        res["state"] = np.concatenate(res["state"], axis=-1)
 
-        return sample
+        return res["state"]
 
     def transform(self, sample):
         if self.resize_img and "image" in sample.keys():
@@ -465,7 +469,7 @@ class TrajDataset:
             del sample["obs"]
 
         if "state" not in sample:
-            sample = self.get_state(sample)
+            sample["state"] = self.get_state(sample)
 
         if "images" in sample.keys() and "image" not in sample.keys():
             sample["image"] = sample.pop("images")
