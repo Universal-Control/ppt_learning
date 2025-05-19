@@ -10,14 +10,11 @@ debug: False # Turn off to allow wandb logging
 suffix: "" # suffix for the experiment
 
 defaults:
-  - env: isaacsim_pcd # rlbench # gensim2
+  - env: isaacsim_rgb # rlbench # gensim2
   - datasetsize: all
   - _self_
 
 # self-explanatory torch config
-network:
-  openloop_steps: 4
-  temporal_agg: True
 dataloader:
   batch_size: ${batch_size}
   num_workers: 8
@@ -52,20 +49,9 @@ train:
   total_iters: 100000000 # maximum training steps before termination
   epoch_iters: 1000  # training steps in each epoch
   validation_iters: 100 # maximum iterations for validation
-  pretrained_dir: "/home/ubuntu/xiaoshen/code/IsaacLab-new/GR-Isaaclab/outputs/ppt_learning/outputs/pcd/2025-05-13_23-18-13/put_bowl_in_microwave_version3_generated/a_h=8,oloop=4" # pretrained model path for testing
+  pretrained_dir: "/home/ubuntu/xiaoshen/code/IsaacLab-new/GR-Isaaclab/outputs/ppt_learning/outputs/rgb/2025-05-09_17-31-48-wbc/ur5_close_microwave_version6_generated_2/wbc" # pretrained model path for testing
   model_names: 
     - model.pth
-    # - model_325.pth
-    # - model_300.pth
-    # - model_275.pth
-    # - model_250.pth
-    # - model_225.pth
-    # - model_200.pth
-    # - model_150.pth
-    # - model_100.pth
-    # - model_75.pth
-    # - model_50.pth
-    # - model_25.pth
     # - model_425.pth
     # - model_400.pth
     # - model_375.pth
@@ -73,15 +59,17 @@ train:
     # - model_275.pth
     # - model_250.pth 
     # - model_225.pth 
+    - model_75.pth
+    - model_50.pth
+    - model_25.pth
   freeze_trunk: False # whether to freeze the trunk during finetuning
 prompt: ""
 rollout_runner:
   save_video: true
-  task_name: "Isaac-UR5-PutBowlInMicroWaveAndClose-Joint-Mimic-v0"
+  task_name: "Isaac-UR5-CloseMicroWave-Mimic-Joint-v0"
   # task_name: "Isaac-UR5-CloseMicroWave-Mimic-v0"
 eval_log_name: "eval_log_l40_8_100_ddp_new"
 n_procs: 8
-domains: put_bowl_in_microwave_version3_generated
 stem:
   pointcloud: 
     pretrained_path: "/mnt/xiaoshen/scanobjectnn-pointnext-s_best.pth"

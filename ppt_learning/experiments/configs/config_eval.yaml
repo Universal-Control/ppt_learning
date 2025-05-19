@@ -49,9 +49,18 @@ train:
   total_iters: 100000000 # maximum training steps before termination
   epoch_iters: 1000  # training steps in each epoch
   validation_iters: 100 # maximum iterations for validation
-  pretrained_dir: "/home/minghuan/ppt_learning/" # pretrained model path for testing
-  model_name: "model_200.pth"
+  pretrained_dir: "/mnt/ppt_learning/outputs/2025-05-07_11-01-32/ur5_close_microwave_version5_generated2/" # pretrained model path for testing
+  model_names: 
+    - model_325.pth
+    - model_300.pth
+    - model_125.pth
+    - model_150.pth
+    - model_175.pth
+    - model_200.pth
+    - model_225.pth 
+    - model_275.pth
   freeze_trunk: False # whether to freeze the trunk during finetuning
 prompt: ""
 rollout_runner:
   save_video: true
+eval_log_name: "eval_log_l40_8_100"
