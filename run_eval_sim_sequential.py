@@ -111,10 +111,5 @@ def run(cfg):
 
     return success_rate
 
-
-
-        
-
-
 if __name__ == "__main__":
     run()

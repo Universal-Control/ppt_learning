@@ -27,53 +27,56 @@ deploy_on_real = True
 MAX_EP_STEPS = 500
 
 def eval_in_one_process(rank, world_size, cfg, domain, queue:JoinableQueue):
-    os.environ["LOCAL_RANK"] = str(rank)
-    os.environ["RANK"] = str(rank)
-    os.environ["WORLD_SIZE"] = str(world_size)
-    device = f"cuda:{rank}"
-    # initialize policy
-    policy = hydra.utils.instantiate(cfg.network, max_timestep=cfg.rollout_runner.max_timestep).to(device)
-    policy.init_domain_stem(domain, cfg.stem)
-    policy.init_domain_head(domain, cfg.head)
+    try:
+        os.environ["LOCAL_RANK"] = str(rank)
+        os.environ["RANK"] = str(rank)
+        os.environ["WORLD_SIZE"] = str(world_size)
+        device = f"cuda:{rank}"
+        # initialize policy
+        policy = hydra.utils.instantiate(cfg.network, max_timestep=cfg.rollout_runner.max_timestep).to(device)
+        policy.init_domain_stem(domain, cfg.stem)
+        policy.init_domain_head(domain, cfg.head)
 
-    # optimizer and scheduler
-    policy.finalize_modules()
-    print(f"rank: {rank}, cfg.train.pretrained_dir:", cfg.train.pretrained_dir)
-    policy.to(device)
+        # optimizer and scheduler
+        policy.finalize_modules()
+        print(f"rank: {rank}, cfg.train.pretrained_dir:", cfg.train.pretrained_dir)
+        policy.to(device)
 
-    print(f"Before init at rank {rank}")
-    runner = hydra.utils.instantiate(cfg.rollout_runner, world_size=world_size, rank=rank)
-    print(f"After init at rank {rank}")
+        print(f"Before init at rank {rank}")
+        runner = hydra.utils.instantiate(cfg.rollout_runner, world_size=world_size, rank=rank)
+        print(f"After init at rank {rank}")
 
-    model_dir = cfg.train.pretrained_dir
+        model_dir = cfg.train.pretrained_dir
 
-    model_names = [name for i, name in enumerate(cfg.train.model_names) if i % world_size == rank]
-    for model_name in model_names:
-        assert os.path.exists(
-            os.path.join(cfg.train.pretrained_dir, model_name)
-        ), f"Pretrained model not found, try to load model from {os.path.join(cfg.train.pretrained_dir, model_name)}"
-        policy.load_state_dict(
-            torch.load(os.path.join(cfg.train.pretrained_dir, model_name))
-        )
+        model_names = [name for i, name in enumerate(cfg.train.model_names) if i % world_size == rank]
+        for model_name in model_names:
+            assert os.path.exists(
+                os.path.join(cfg.train.pretrained_dir, model_name)
+            ), f"Pretrained model not found, try to load model from {os.path.join(cfg.train.pretrained_dir, model_name)}"
+            policy.load_state_dict(
+                torch.load(os.path.join(cfg.train.pretrained_dir, model_name))
+            )
 
-        n_parameters = sum(p.numel() for p in policy.parameters())
-        print(f"number of params (M): {n_parameters / 1.0e6:.2f}")
+            n_parameters = sum(p.numel() for p in policy.parameters())
+            print(f"number of params (M): {n_parameters / 1.0e6:.2f}")
 
-        policy.eval()
+            policy.eval()
 
-        print("Model initialize successfully")
-        start_time = time.time()
-        success_rate, _, (_, subtask_success_nums, episode_num) = runner.run(policy, model_name)
-        end_time = time.time()
-        print(f"Evaluation takes {end_time - start_time} second to finish.")
-        print("\n\nThe success rate is {}\n".format(success_rate))
-        subtask_success_sr = {}
-        for key in range(subtask_success_nums):
-            print(f"Subtask success rate for {key} is: {float(subtask_success_nums) / episode_num}") 
-            subtask_success_sr[key] = float(subtask_success_nums) / episode_num
-        queue.put((model_name, success_rate, subtask_success_sr))
-    
-    queue.join()
+            print("Model initialize successfully")
+            start_time = time.time()
+            success_rate, _, (_, subtask_success_nums, episode_num) = runner.run(policy, model_name)
+            end_time = time.time()
+            print(f"Evaluation takes {end_time - start_time} second to finish.")
+            print("\n\nThe success rate is {}\n".format(success_rate))
+            subtask_success_sr = {}
+            for key in range(subtask_success_nums):
+                print(f"Subtask success rate for {key} is: {float(subtask_success_nums) / episode_num}") 
+                subtask_success_sr[key] = float(subtask_success_nums) / episode_num
+            queue.put((model_name, success_rate, subtask_success_sr))
+        
+        queue.join()
+    except Exception as e:
+        print(f"Error in process {rank}: {e}")
 
 # TODO use +prompt "task description" to run specific task
 # TODO fill in config_name with config from training

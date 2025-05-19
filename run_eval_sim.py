@@ -59,7 +59,7 @@ def run(cfg):
 
     use_pcd = "pointcloud" in cfg.stem.modalities
 
-    action_dim = 8
+    action_dim = 7
     state_dim = 21
 
     # initialize policy
