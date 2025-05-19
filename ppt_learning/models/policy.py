@@ -129,7 +129,7 @@ class Policy(nn.Module):
                     )
 
                     self.stems[cur_name + "_attend_" + modality] = CrossAttention(
-                        self.embed_dim
+                        self.embed_dim, heads=self.stem_spec.num_heads, dim_head=self.stem_spec.dim_head
                     )  # query_dim
                 if self.use_modality_embedding:
                     self.modalities_tokens[modality] = nn.Parameter(

@@ -1,13 +1,15 @@
 # @package _global_
-domains: "ur5_close_microwave_version6_generated_2" # dataset name to be loaded
+domains: put_bowl_in_microwave_8_demos_generated_interrupt_simplify_gripper_retry_22, put_bowl_in_microwave_8_demos_generated_interrupt_simplify_gripper_retry_11 # dataset name to be loaded
 batch_size: 24 # batch size
 save_interval: 25
+dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close
+
 
 # dataset config
 dataset:
   _target_: ppt_learning.dataset.sim_traj_dataset.TrajDataset
   domain: "isaacsim"
-  dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_close_microwave
+  dataset_path: "" # To be filled
   horizon: -1 # horizon for each dataset sample. should be action_horizon+observation_horizon-1 and will be replaced
   val_ratio: 0. # the train-validation ratio
   pad_after: ${dataset.action_horizon} # padding after the episode
@@ -24,7 +26,7 @@ dataset:
   image_encoder: 'resnet' # which encoder to use as the pretrained model  
   dataset_encoder_postfix: "" # "_${dataset.image_encoder}" # another postfix
   use_multiview: False # use multiple camera views
-  normalize_state: False # whether to normalize the states in datasets
+  normalize_state: ${stem.normalize_state} # whether to normalize the states in datasets
   from_empty: False
   use_pcd: False # To be replaced
   pcdnet_pretrain_domain : "" # To be replaced
@@ -55,7 +57,7 @@ rollout_runner:
 network:
   # trunk transformer config
   _target_: ppt_learning.models.policy.Policy
-  embed_dim: 512
+  embed_dim: 128
   num_blocks: 4 # num of blocks in the trunk transformer 
   num_heads: 8 # num of heads in the trunk transformer
   drop_path: 0.0 # drop path in the trunk transformer
@@ -80,15 +82,15 @@ network:
 #     token_postprocessing: "mean"
 
 head:
-    _target_: ppt_learning.models.policy_head.Diffusion
-    input_dim: ${network.embed_dim} # concat = 11264
-    output_dim: -1 # overwrite based on dataset
-    horizon: ${dataset.action_horizon}
-    normalize_action: True
-    down_dims: [512, 1024, 2048]
-    noise_scheduler_type: "DDIM"
-    num_inference_steps: 10
-    token_postprocessing: "mean" # "concat" # maxpool or meanpool the tokens
+  _target_: ppt_learning.models.policy_head.Diffusion
+  input_dim: ${network.embed_dim} # concat = 11264
+  output_dim: -1 # overwrite based on dataset
+  horizon: ${dataset.action_horizon}
+  normalize_action: True
+  down_dims: [512, 1024, 2048]
+  noise_scheduler_type: "DDIM"
+  num_inference_steps: 10
+  token_postprocessing: "mean" # "concat" # maxpool or meanpool the tokens
     
 # head:
 #     _target_: ppt_learning.models.policy_head.TransformerDecoder
@@ -101,11 +103,12 @@ head:
 
 stem:
   modalities: ['state', 'image'] # no 'language'
-  modality_embed_dim: 512
-  normalize_state: False # normalize state vectors 
-  state_embedding_dim: 32 # dimension of positional encoding for state
+  modality_embed_dim: ${network.embed_dim}
+  normalize_state: True # normalize state vectors 
+  num_heads: 8 # num of heads in the trunk transformer
+  dim_head: 32 # dim of head in the trunk transformer
+  # state_embedding_dim: 32 # dimension of positional encoding for state
   cross_attention: True # whether to use cross attention or not
-  attention_type: 'self' # 'perceiver', 'self'
 
   # used as perceiver io to unify token sizes for each modality
   crossattn_latent:
@@ -117,7 +120,7 @@ stem:
   image:
     _target_: ppt_learning.models.policy_stem.ResNet
     resnet_model: 'resnet18'
-    output_dim: 512
+    output_dim: ${network.embed_dim}
     weights: "DEFAULT" # no weights para means no pre-trained weights are used.
     finetune: True
 
@@ -146,8 +149,8 @@ stem:
   # implement tokenization for state
   state:
     _target_: ppt_learning.models.policy_stem.MLP
-    input_dim: ${stem.state_embedding_dim} # ovewrite based on the dataset
-    output_dim: 512
+    input_dim: 0 # ovewrite based on the dataset
+    output_dim: ${network.embed_dim}
     widths: [256, 512]
 
   # language:

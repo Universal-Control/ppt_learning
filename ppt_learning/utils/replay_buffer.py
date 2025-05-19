@@ -96,7 +96,7 @@ class ReplayBuffer:
     Assumes first dimention to be time. Only chunk in time dimension.
     """
 
-    def __init__(self, root: Union[zarr.Group, Dict[str, dict]], env_names=None):
+    def __init__(self, root: Union[zarr.Group, Dict[str, dict]]):
         """
         Dummy constructor. Use copy_from* and create_from* class methods instead.
         """

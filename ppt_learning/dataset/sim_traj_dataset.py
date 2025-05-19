@@ -70,7 +70,6 @@ class TrajDataset:
         pcdnet_pretrain_domain="",
         pcd_channels=None,
         load_from_cache=True,
-        env_names=None,
         voxelization=False,
         voxel_size=0.01,
         ignored_keys=None,
@@ -110,7 +109,6 @@ class TrajDataset:
         self.pcd_transform = None
         self.pcdnet_pretrain_domain = pcdnet_pretrain_domain
         self.pcd_num_points = None
-        self.env_names = env_names
         self.se3_augmentation = se3_augmentation
         self.bounds = BOUND
 
@@ -151,12 +149,12 @@ class TrajDataset:
                     cache = zarr.LRUStoreCache(store=store, max_size=2**30)
                     group = zarr.open(cache, "r")
                     self.replay_buffer = ReplayBuffer.create_from_group(
-                        group, env_names=self.env_names
+                        group
                     )
                     print("Using lru cache")
                 else:
                     self.replay_buffer = ReplayBuffer.create_from_path(
-                        dataset_path, self.env_names
+                        dataset_path
                     )
             else:
                 self.replay_buffer = ReplayBuffer.create_empty_zarr(
@@ -256,7 +254,7 @@ class TrajDataset:
             if "state" in sample:
                 data["state"] = sample["state"]  # 1 x N
             else:
-                data["state"] = self.get_state(sample)
+                data["state"] = self.get_state(sample["obs"])
         return data
 
     def get_training_dataset(self, val_ratio, seed):
@@ -445,14 +443,18 @@ class TrajDataset:
         print("Replay buffer keys: ", self.replay_buffer.keys())
 
     def get_state(self, sample):
-        sample["state"] = []
+        res = {"state": []}
+        if isinstance(sample, (dict, OrderedDict)):
+            res = sample
+            res['state'] = []
         for key in self.state_keys:
             if key in sample.keys():
-                sample["state"].append(sample[key])
-                del sample[key]
-        sample["state"] = np.concatenate(sample["state"], axis=-1)
+                res["state"].append(sample[key])
+                if isinstance(sample, (dict, OrderedDict)):
+                    del sample[key]
+        res["state"] = np.concatenate(res["state"], axis=-1)
 
-        return sample
+        return res["state"]
 
     def transform(self, sample):
         if self.resize_img and "image" in sample.keys():
@@ -467,7 +469,7 @@ class TrajDataset:
             del sample["obs"]
 
         if "state" not in sample:
-            sample = self.get_state(sample)
+            sample["state"] = self.get_state(sample)
 
         if "images" in sample.keys() and "image" not in sample.keys():
             sample["image"] = sample.pop("images")

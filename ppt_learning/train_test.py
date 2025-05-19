@@ -152,7 +152,7 @@ def train(
         optimizer.zero_grad()
         domain_loss.backward()
         optimizer.step()
-        scheduler.step()
+        scheduler.step(epoch + batch_idx / epoch_size)
         train_step = len(train_loader) * epoch + batch_idx
 
         model_ = model.module if isinstance(model, DDP) else model
