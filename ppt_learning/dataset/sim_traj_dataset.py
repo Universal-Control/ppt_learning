@@ -70,7 +70,6 @@ class TrajDataset:
         pcdnet_pretrain_domain="",
         pcd_channels=None,
         load_from_cache=True,
-        env_names=None,
         voxelization=False,
         voxel_size=0.01,
         ignored_keys=None,
@@ -110,7 +109,6 @@ class TrajDataset:
         self.pcd_transform = None
         self.pcdnet_pretrain_domain = pcdnet_pretrain_domain
         self.pcd_num_points = None
-        self.env_names = env_names
         self.se3_augmentation = se3_augmentation
         self.bounds = BOUND
 
@@ -151,12 +149,12 @@ class TrajDataset:
                     cache = zarr.LRUStoreCache(store=store, max_size=2**30)
                     group = zarr.open(cache, "r")
                     self.replay_buffer = ReplayBuffer.create_from_group(
-                        group, env_names=self.env_names
+                        group
                     )
                     print("Using lru cache")
                 else:
                     self.replay_buffer = ReplayBuffer.create_from_path(
-                        dataset_path, self.env_names
+                        dataset_path
                     )
             else:
                 self.replay_buffer = ReplayBuffer.create_empty_zarr(

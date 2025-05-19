@@ -1,13 +1,15 @@
 # @package _global_
-domains: "ur5_close_microwave_version6_generated_2" # dataset name to be loaded
+domains: "put_bowl_in_microwave_version3_generated_origin" # dataset name to be loaded
 batch_size: 24 # batch size
 save_interval: 25
+dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close
+
 
 # dataset config
 dataset:
   _target_: ppt_learning.dataset.sim_traj_dataset.TrajDataset
   domain: "isaacsim"
-  dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_close_microwave
+  dataset_path: "" # To be filled
   horizon: -1 # horizon for each dataset sample. should be action_horizon+observation_horizon-1 and will be replaced
   val_ratio: 0. # the train-validation ratio
   pad_after: ${dataset.action_horizon} # padding after the episode
@@ -55,7 +57,7 @@ rollout_runner:
 network:
   # trunk transformer config
   _target_: ppt_learning.models.policy.Policy
-  embed_dim: 512
+  embed_dim: 128
   num_blocks: 4 # num of blocks in the trunk transformer 
   num_heads: 8 # num of heads in the trunk transformer
   drop_path: 0.0 # drop path in the trunk transformer
@@ -101,7 +103,7 @@ head:
 
 stem:
   modalities: ['state', 'image'] # no 'language'
-  modality_embed_dim: 512
+  modality_embed_dim: 64
   normalize_state: False # normalize state vectors 
   state_embedding_dim: 32 # dimension of positional encoding for state
   cross_attention: True # whether to use cross attention or not
@@ -117,7 +119,7 @@ stem:
   image:
     _target_: ppt_learning.models.policy_stem.ResNet
     resnet_model: 'resnet18'
-    output_dim: 512
+    output_dim: 64
     weights: "DEFAULT" # no weights para means no pre-trained weights are used.
     finetune: True
 

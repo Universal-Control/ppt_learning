@@ -109,9 +109,9 @@ def run(rank: int, world_size: int, cfg: DictConfig):
     # state_dim = 15  # 15 # 24 for rlbench, 15 for gensim2
     if not is_eval:
         cfg.dataset.dataset_path = (
-            cfg.dataset.get("dataset_path", "") + "/" + domain + ".zarr"
+            cfg.get("dataset_path", "") + "/" + domain + ".zarr"
             if len(domain_list) == 1
-            else domain_list
+            else [cfg.get("dataset_path", "") + "/" + domain + ".zarr" for domain in domain_list]
         )
         dataset = hydra.utils.instantiate(
             cfg.dataset,

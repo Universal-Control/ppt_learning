@@ -1,13 +1,14 @@
 # @package _global_
-domains: "ur5_close_microwave_version5_generated2" # dataset name to be loaded
+domains: "put_bowl_in_microwave_8_demos_generated" # dataset name to be loaded
 batch_size: 64 # batch size
-save_interval: 25
+save_interval: 50
+dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close
 
 # dataset config
 dataset:
-  _target_: ppt_learning.dataset.sim_traj_dataset.TrajDataset
+  _target_: ppt_learning.dataset.sim_traj_dataset.MultiTrajDataset
   domain: "isaacsim"
-  dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_close_microwave
+  dataset_path: "" # TO be filled
   horizon: -1 # horizon for each dataset sample. should be action_horizon+observation_horizon-1 and will be replaced
   val_ratio: 0. # the train-validation ratio
   pad_after: ${dataset.action_horizon} # padding after the episode
@@ -18,7 +19,7 @@ dataset:
   use_disk: True # use disk ins1tead of memory to store the data
   pad_before: ${dataset.observation_horizon} # padding before the episode
   data_ratio: 1 # only use a fraction of data
-  action_horizon: 4 # observation: (observation + action) is action horizon 
+  action_horizon: 16 # observation: (observation + action) is action horizon 
   observation_horizon: 3 # before observation horizon is observation
   precompute_feat: True # precompute features using pretrained models for stems
   image_encoder: 'resnet' # which encoder to use as the pretrained model  
@@ -29,9 +30,6 @@ dataset:
   use_pcd: False # To be replaced
   pcdnet_pretrain_domain : "" # To be replaced
   pcd_channels: 4 # 3 is pos, 4 is [pos, height], 5 is [pos, height, seg], 6 is [pos, color], 7 is [pos, color, height]
-  env_names: [
-    "Isaac-UR5-CloseMicroWave-Mimic-v0"
-  ]
   ignored_keys: ["initial_state", "states", "depths", "images", "color"]
 
 # test
@@ -54,7 +52,7 @@ rollout_runner:
 network:
   # trunk transformer config
   _target_: ppt_learning.models.policy.Policy
-  embed_dim: 512
+  embed_dim: 128
   num_blocks: 4 # num of blocks in the trunk transformer 
   num_heads: 8 # num of heads in the trunk transformer
   drop_path: 0.0 # drop path in the trunk transformer
@@ -64,7 +62,7 @@ network:
   weight_init_style: 'pytorch' # weight init
   observation_horizon: ${dataset.observation_horizon}
   action_horizon: ${dataset.action_horizon}
-  openloop_steps: 4
+  openloop_steps: 8
   action_dim : -1 # overwrite based on dataset
   temporal_agg: False # ACT-style temporal aggregation, not always work
 
@@ -108,7 +106,7 @@ stem:
 
   # used as perceiver io to unify token sizes for each modality
   crossattn_latent:
-    pointcloud: 3
+    pointcloud: 5
     state: 3
     # language: 4
     image: 3

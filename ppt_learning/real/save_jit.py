@@ -50,15 +50,15 @@ def export_model_as_jit(model, path, example_color, example_depth):
 
 def export_model_as_trt(model, path, example_color, example_depth):
     # torch_tensorrt.logging.set_level("DEBUG")
-    # trt_gm = torch_tensorrt.compile(JitModelExporter(model), ir="dynamo", inputs=[example_color, example_depth], enabled_precisions={torch.float32})
-    # torch_tensorrt.save(trt_gm, "trt.ts", output_format="torchscript", inputs=[example_color, example_depth])
+    trt_gm = torch_tensorrt.compile(model, ir="dynamo", inputs=[example_color, example_depth], enabled_precisions={torch.float32})
+    torch_tensorrt.save(trt_gm, "trt.ts", output_format="torchscript", inputs=[example_color, example_depth])
 
-    trt_gm = torch2trt(model, [example_color, example_depth], verbose=True)
-    trt_gm.save(path)
+    # trt_gm = torch2trt(model, [example_color, example_depth], verbose=True)
+    # trt_gm.save(path)
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument('--model_path', type=str)
+    parser.add_argument('--model_path', type=str, default='~/480pnoise-e096-s397312.ckpt')
     parser.add_argument('--num_runs', type=int, default=10)
 
     args = parser.parse_args()

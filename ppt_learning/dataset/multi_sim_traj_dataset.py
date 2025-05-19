@@ -15,7 +15,7 @@ from ppt_learning.utils.pcd_utils import (
 
 from ppt_learning.paths import *
 
-from ppt_learning.utils.pcd_utils import BOUND as GENSIM_BOUNDS
+from ppt_learning.utils.pcd_utils import BOUND
 
 try:
     from gensim2.env.utils.rlbench import SCENE_BOUNDS as RLBENCH_BOUNDS
@@ -27,15 +27,15 @@ import zarr
 import ipdb
 
 
-class TrajDataset:
+class MultiTrajDataset:
     """
-    Single Dataset class that converts simulation data into trajectory data.
+    Multiple single Dataset class that converts simulation data into trajectory data.
     Explanations of parameters are in config
     """
 
     def __init__(
         self,
-        dataset_paths="",
+        dataset_path="",
         mode="train",
         episode_cnt=10,
         step_cnt=100,
@@ -49,10 +49,11 @@ class TrajDataset:
         seed=233,
         action_horizon=1,
         observation_horizon=1,
+        resize_img=True,
+        img_size=224,
         dataset_postfix="",
         dataset_encoder_postfix="",
         precompute_feat=False,
-        image_encoder="resnet",
         env_rollout_fn=None,
         use_multiview=False,
         normalize_state=False,
@@ -61,11 +62,15 @@ class TrajDataset:
         pcdnet_pretrain_domain="",
         pcd_channels=None,
         load_from_cache=True,
-        env_names=None,
         voxelization=False,
         voxel_size=0.01,
+        use_lru_cache=True,
+        rank=0,  # Add rank for DDP
         **kwargs,
     ):
+        assert isinstance(dataset_path, list), "dataset_paths must be a list"
+
+        self.rank = rank
         self.horizon = horizon
         self.pad_before = pad_before
         self.pad_after = pad_after
@@ -75,10 +80,11 @@ class TrajDataset:
         self.action_horizon = action_horizon
         self.observation_horizon = observation_horizon
         self.precompute_feat = precompute_feat
-        self.image_encoder = image_encoder
         self.data_ratio = data_ratio
         self.use_multiview = use_multiview
         self.normalize_state = normalize_state
+        self.resize_img = resize_img
+        self.img_size = img_size
         if use_pcd:
             assert pcd_channels is not None, "pcd_channels must be provided for pcd"
         if pcd_channels is not None:
@@ -95,7 +101,7 @@ class TrajDataset:
         self.pcd_transform = None
         self.pcdnet_pretrain_domain = pcdnet_pretrain_domain
         self.pcd_num_points = None
-        self.env_names = env_names
+        self.bounds = BOUND
 
         self.voxelization = voxelization
         self.voxel_size = voxel_size
@@ -105,25 +111,35 @@ class TrajDataset:
         self.dataset_path = [None]
         self.replay_buffer = [None]
         self.sample_ratio = [0.5, 0.5]
-        if isinstance(dataset_paths, list):
-            self.replay_buffer = [None] * len(dataset_paths)
 
-        for idx, dataset_path in enumerate(dataset_paths):
-            self.dataset_path[idx] = dataset_path
-            load_from_cache = os.path.exists(dataset_path) and load_from_cache
+        
+        self.replay_buffer = [None] * len(dataset_path)
+
+        for idx, single_dpath in enumerate(dataset_path):
+            self.dataset_path[idx] = single_dpath
+            load_from_cache = os.path.exists(single_dpath) and load_from_cache
             print(
-                f"\n\n >>>dataset_path: {dataset_path} load_from_cache: {load_from_cache} \n\n"
+                f"\n\n >>>dataset_path: {single_dpath} load_from_cache: {load_from_cache} \n\n"
             )
 
             if use_disk:
                 # self.replay_buffer[idx] = ReplayBuffer.create_empty_zarr(storage=zarr.DirectoryStore(path=dataset_path))
                 if load_from_cache:
-                    self.replay_buffer[idx] = ReplayBuffer.create_from_path(
-                        dataset_path, self.env_names
+                    if use_lru_cache:
+                        store = zarr.DirectoryStore(single_dpath)
+                        cache = zarr.LRUStoreCache(store=store, max_size=2**30)
+                        group = zarr.open(cache, "r")
+                        self.replay_buffer[idx] = ReplayBuffer.create_from_group(
+                            group,
+                        )
+                        print("Using lru cache")
+                    else:
+                        self.replay_buffer[idx] = ReplayBuffer.create_from_path(
+                            single_dpath,
                     )
                 else:
                     self.replay_buffer[idx] = ReplayBuffer.create_empty_zarr(
-                        storage=zarr.DirectoryStore(path=dataset_path)
+                        storage=zarr.DirectoryStore(path=single_dpath)
                     )
             else:
                 self.replay_buffer[idx] = ReplayBuffer.create_empty_numpy()
@@ -248,6 +264,8 @@ class TrajDataset:
                 f"{self.dataset_name[idx]} size: {len(self.sampler[idx])} episodes: {n_episodes} train: {self.train_mask[idx].sum()} eval: {self.val_mask[idx].sum()}"
             )
 
+        self.dataset_lenth = np.cumsum([len(sampler) for sampler in self.sampler])
+
     def get_validation_dataset(self):
         val_set = [None] * len(self.replay_buffer)
         for idx, replay_buffer in enumerate(self.replay_buffer):
@@ -265,12 +283,16 @@ class TrajDataset:
         return val_set
 
     def __len__(self) -> int:
-        return len(self.sampler)
+        return sum([len(sampler) for sampler in self.sampler])
 
     def __getitem__(self, idx: int):
         """normalize observation and actions"""
-        idx = np.random.choice(len(self.sampler), p=self.sample_ratio)
-        sample = self.sampler[idx].sample_sequence(idx)
+        dataset_idx = np.searchsorted(self.dataset_lenth, idx, side="right")
+        idx = idx - self.dataset_lenth[dataset_idx - 1]
+        sample = self.sampler[dataset_idx].sample_sequence(idx)
+        if "actions" in sample:  # Align the name
+            sample["action"] = sample["actions"]
+            del sample["actions"]
 
         # the full horizon is for the trajectory
         def recursive_horizon(data):
@@ -278,13 +300,13 @@ class TrajDataset:
                 if isinstance(val, (dict, OrderedDict)):
                     recursive_horizon(val)
                 else:
-                    if (key != "action") and (key != "action_is_pad"):
+                    if (key not in ["action", "actions"]) and (key != "action_is_pad"):
                         if key == "language":
                             data[key] = val
                         else:
                             data[key] = val[: self.observation_horizon]
                     else:
-                        if key == "action":
+                        if key in ["action", "actions"]:
                             data["action"] = val[
                                 self.observation_horizon
                                 - 1 : self.action_horizon
@@ -300,26 +322,71 @@ class TrajDataset:
                             ]
 
         if self.use_pcd:
-            sample["obs"]["pointcloud"]["x"] = sample["obs"]["pointcloud"]["colors"]
-
-        if self.data_augmentation:
-            sample["obs"]["pointcloud"]["pos"] = self.pcd_aug(
-                sample["obs"]["pointcloud"]["pos"]
-            )
-
-        if self.voxelization:
-            sample["obs"]["pointcloud"] = np.array(
-                [
-                    voxelize_point_cloud(
-                        sample["obs"]["pointcloud"]["pos"][i],
-                        sample["obs"]["pointcloud"]["color"][i],
-                        self.voxel_size,
+            if "pointcloud" not in sample["obs"]:
+                sample["obs"]["pointcloud"] = {}
+                for cam_idx, (cam_name_depth, cam_name_rgb) in enumerate(
+                    zip(sample["obs"]["depths"], sample["obs"]["images"])
+                ):
+                    depth = sample["obs"]["depths"][cam_name_depth]
+                    rgb = sample["obs"]["images"][cam_name_rgb]
+                    sample["obs"]["pointcloud"][f"camera_{cam_idx}"] = (
+                        create_pointcloud_from_rgbd(
+                            depth=depth[..., 0],
+                            rgb=rgb,
+                            intrinsic_matrix=self.replay_buffer.meta["camera_info"][
+                                f"camera_{cam_idx}"
+                            ]["intrinsics"][0],
+                            position=self.replay_buffer.meta["camera_info"][
+                                f"camera_{cam_idx}"
+                            ]["extrinsics"][0, :3],
+                            orientation=self.replay_buffer.meta["camera_info"][
+                                f"camera_{cam_idx}"
+                            ]["extrinsics"][0, 3:],
+                        )
                     )
-                    for i in range(len(sample["obs"]["pointcloud"]["pos"]))
-                ]
-            )
-        else:
-            if self.pcd_transform is not None and "pointcloud" in sample["obs"].keys():
+                camera_nums = len(sample["obs"]["pointcloud"])
+                sample["obs"]["pointcloud"]["pos"] = np.concatenate(
+                    [
+                        sample["obs"]["pointcloud"][f"camera_{cam_idx}"]["pos"]
+                        for cam_idx in range(camera_nums)
+                    ],
+                    axis=1,
+                )
+                sample["obs"]["pointcloud"]["color"] = np.concatenate(
+                    [
+                        sample["obs"]["pointcloud"][f"camera_{cam_idx}"]["color"]
+                        for cam_idx in range(camera_nums)
+                    ],
+                    axis=1,
+                )
+                for cam_idx in range(camera_nums):
+                    del sample["obs"]["pointcloud"][f"camera_{cam_idx}"]
+
+            if self.data_augmentation:
+                sample["obs"]["pointcloud"]["pos"] = self.pcd_aug(
+                    sample["obs"]["pointcloud"]["pos"]
+                )
+
+            if self.se3_augmentation:
+                poses, gripper = sample["action"][:, :6], sample["action"][:, 6:]
+                poses, sample["obs"]["pointcloud"]["pos"] = se3_augmentation(
+                    poses, sample["obs"]["pointcloud"]["pos"], bounds=self.bounds
+                )
+                sample["action"] = np.concatenate([poses, gripper], axis=-1)
+                sample["obs"]["pointcloud"]["pos"] = pcds
+
+            if self.voxelization:
+                sample["obs"]["pointcloud"] = np.array(
+                    [
+                        voxelize_point_cloud(
+                            sample["obs"]["pointcloud"]["pos"][i],
+                            sample["obs"]["pointcloud"]["color"][i],
+                            self.voxel_size,
+                        )
+                        for i in range(len(sample["obs"]["pointcloud"]["pos"]))
+                    ]
+                )
+            if self.pcd_transform is not None:
                 seq_len, num_points = sample["obs"]["pointcloud"]["pos"].shape[:2]
                 for key, val in sample["obs"][
                     "pointcloud"
@@ -340,7 +407,8 @@ class TrajDataset:
                         seq_len, num_points, -1
                     )
 
-            self.flat_sample(sample)
+        self.flat_sample(sample)
+        self.transform(sample)
 
         # if "pointcloud" in sample.keys():
         #     assert sample["pointcloud"].shape[-1] == self.pcd_channels, f"pointcloud channel mismatch! expected {self.pcd_channels}, got {sample['pointcloud'].shape[-1]}"
@@ -361,9 +429,17 @@ class TrajDataset:
             for key, val in sample["obs"].items():
                 sample[key] = val
             del sample["obs"]
+
+        if "state" not in sample:
+            sample = self.get_state(sample)
+
+        if "images" in sample.keys() and "image" not in sample.keys():
+            sample["image"] = sample.pop("images")
+
         if not self.use_pcd:
-            del sample["pointcloud"]
-        if "pointcloud" in sample.keys():
+            if "pointcloud" in sample.keys():
+                del sample["pointcloud"]
+        if self.use_pcd and ("pointcloud" in sample.keys()):
             if self.pcd_channels == 3:
                 pass
                 # sample['pointcloud']['pos'] = sample['pointcloud']['pos']
@@ -403,31 +479,6 @@ class TrajDataset:
         pcd = randomly_drop_point(pcd)
 
         return pcd
-
-
-def delete_indices(
-    replay_buffer: ReplayBuffer,
-    env_name: str,
-) -> np.ndarray:
-    episode_ends = replay_buffer.episode_ends[:]
-    episode_desc = replay_buffer.episode_descriptions[:]
-    env_names = replay_buffer.meta["env_names"]
-
-    indices = list()
-    for i in range(len(episode_ends)):
-        if env_names[i] == env_name:
-            start_idx = 0
-            if i > 0:
-                start_idx = episode_ends[i - 1]
-            end_idx = episode_ends[i]
-            eps_description = episode_desc[i]
-            episode_length = end_idx - start_idx
-
-            # TODO
-
-            # remove i in replay.meta
-
-            # remove start_idx:end_idx in replay.data
 
 
 if __name__ == "__main__":
