@@ -1,6 +1,6 @@
 # @package _global_
 domains: put_bowl_in_microwave_8_demos_generated_interrupt_simplify_gripper_retry_22 # dataset name to be loaded
-batch_size: 64 # batch size
+batch_size: 80 # batch size
 save_interval: 50
 dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close
 

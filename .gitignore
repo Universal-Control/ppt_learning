@@ -5,6 +5,7 @@
 **.png
 **.ipynb
 **.ipynb_checkpoints
+**wandb/
 
 **.pyc
 
