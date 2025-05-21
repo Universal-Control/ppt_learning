@@ -44,13 +44,13 @@ warmup_lr:
   step: 500
 lr_scheduler:
   _target_: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts
-  T_0: 3
-  T_mult: 7
+  T_0: 6
+  T_mult: 15
   eta_min: 1.0e-08
 train:
-  total_epochs: 350 # maximum training epochs before termination. usually set as maximum
+  total_epochs: 550 # maximum training epochs before termination. usually set as maximum
   total_iters: 1000000000 # maximum training steps before termination
-  epoch_iters: 1000  # training steps in each epoch
+  epoch_iters: 500  # training steps in each epoch
   validation_iters: 100 # maximum iterations for validation
   pretrained_dir: "" # pretrained model path for testing
   freeze_trunk: False # whether to freeze the trunk during finetuning

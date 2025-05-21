@@ -397,7 +397,6 @@ class Diffusion(nn.Module):
             pass  # =target
         else:
             raise ValueError(f"Unsupported prediction type {self.prediction_type}")
-
         loss = F.mse_loss(pred, target, reduction="none")
 
         # Mask loss wherever the action is padded with copies (edges of the dataset trajectory).

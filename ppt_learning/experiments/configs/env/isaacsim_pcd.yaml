@@ -1,5 +1,5 @@
 # @package _global_
-domains: put_bowl_in_microwave_8_demos_generated_interrupt_simplify_gripper_retry_22 # dataset name to be loaded
+domains: put_bowl_in_microwave_8_demos_generated_interrupt_520_collected_data_simplify_gripper_retry_more_wait_520 # dataset name to be loaded
 batch_size: 80 # batch size
 save_interval: 50
 dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close
@@ -13,7 +13,7 @@ dataset:
   horizon: -1 # horizon for each dataset sample. should be action_horizon+observation_horizon-1 and will be replaced
   val_ratio: 0. # the train-validation ratio
   pad_after: ${dataset.action_horizon} # padding after the episode
-  # episode_cnt: 100 # total episodes
+  episode_cnt: 100 # total episodes
   step_cnt: 30000 # total data transitions
   data_augmentation: False # data augmentation
   se3_augmentation: False # se3 augmentation
@@ -32,6 +32,8 @@ dataset:
   pcdnet_pretrain_domain : "" # To be replaced
   pcd_channels: 4 # 3 is pos, 4 is [pos, height], 5 is [pos, height, seg], 6 is [pos, color], 7 is [pos, color, height]
   ignored_keys: ["initial_state", "states", "depths", "images", "color"]
+  action_key: "wbc_target/r" # actions
+  pose_transform: "quat_to_pose"
 
 # test
 rollout_runner:

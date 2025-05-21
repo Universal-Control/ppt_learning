@@ -483,6 +483,7 @@ class IsaacEnvRolloutRunner:
         world_size=1,
         rank=0,
         max_timestep=1200,
+        pose_transform=None,
         **kwargs,
     ):
         assert obs_mode == "pointcloud"
@@ -496,6 +497,12 @@ class IsaacEnvRolloutRunner:
         self.pcd_transform, self.pcd_num_points = update_pcd_transform(
             pcdnet_pretrain_domain
         )
+        self.pose_transform = None
+        if pose_transform is not None:
+            if self.pose_transform == "pose_to_quat":
+                from ppt_learning.utils.pose_utils import pose_to_quat
+                self.pose_transform = pose_to_quat
+                                    
         self.random_reset = random_reset
         self.collision_pred = collision_pred
         self.device = device
@@ -604,7 +611,7 @@ class IsaacEnvRolloutRunner:
                 # warm up
                 for _ in range(50):
                     obs, reward, terminations, timeouts, info = env.step(env.cfg.mimic_config.default_actions[None])
-                obs, _ = env.reset()
+                # obs, _ = env.reset()
                 openloop_actions = deque()
                 task_description = ""
                 success = False
@@ -643,13 +650,16 @@ class IsaacEnvRolloutRunner:
                                     task_description=task_description,
                                     t=t,
                                 )
+                            if self.pose_transform is not None:
+                                if self.pose_transform == "pose_to_quat":
+                                    action = np.concatenate([self.pose_transform(action[...,:-1]), action[...,-1:]], axis=-1)
                             if len(action.shape) > 1:
                                 for a in action[1:]:
                                     openloop_actions.append(a)
                                 action = action[0]
                     action[-1] = 0.0 if action[-1] < 0.5 else 1.0
                     if self.collision_pred:
-                        assert False, "Temporarily not support collision pred"
+                        assert False, "Not support collision pred"
                     else:
                         if isinstance(action, np.ndarray):
                             action = torch.from_numpy(action)
