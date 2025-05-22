@@ -12,6 +12,7 @@ from collections import OrderedDict
 from collections import deque
 import transforms3d
 import copy
+import cv2
 
 from multiprocessing import Process, Queue
 import multiprocessing as mp
@@ -224,7 +225,6 @@ class RolloutRunner:
             done = False
             policy.reset()
             obs = env.reset(random=self.random_reset)
-            openloop_actions = deque()
             task_description = env.task.sub_task_descriptions[0]
 
             for task in env.sub_tasks:
@@ -232,34 +232,28 @@ class RolloutRunner:
                     traj_length += 1
 
                     with torch.no_grad():
-                        if len(openloop_actions) > 0:
-                            action = openloop_actions.popleft()
+                        if "pointcloud" in obs.keys():
+                            action = policy.get_action(
+                                preprocess_obs(
+                                    obs,
+                                    self.pcd_aug,
+                                    self.pcd_transform,
+                                    self.pcd_channels,
+                                ),
+                                pcd_npoints=self.pcd_num_points,
+                                in_channels=self.pcd_channels,
+                                task_description=task_description,
+                                t=t,
+                            )
                         else:
-                            if "pointcloud" in obs.keys():
-                                action = policy.get_action(
-                                    preprocess_obs(
-                                        obs,
-                                        self.pcd_aug,
-                                        self.pcd_transform,
-                                        self.pcd_channels,
-                                    ),
-                                    pcd_npoints=self.pcd_num_points,
-                                    in_channels=self.pcd_channels,
-                                    task_description=task_description,
-                                    t=t,
-                                )
-                            else:
-                                action = policy.get_action(
-                                    preprocess_obs(obs, None, None, 3),
-                                    pcd_npoints=self.pcd_num_points,
-                                    in_channels=3,
-                                    task_description=task_description,
-                                    t=t,
-                                )
-                            if len(action.shape) > 1:
-                                for a in action[1:]:
-                                    openloop_actions.append(a)
-                                action = action[0]
+                            action = policy.get_action(
+                                preprocess_obs(obs, None, None, 3),
+                                pcd_npoints=self.pcd_num_points,
+                                in_channels=3,
+                                task_description=task_description,
+                                t=t,
+                            )
+                        
                     action[-1] = 0.0 if action[-1] < 0.5 else 1.0
                     if self.collision_pred:
                         action[-2] = 0.0 if action[-2] < 0.5 else 1.0
@@ -363,7 +357,6 @@ class RLBenchRolloutRunner:
             policy.reset()
             descriptions, obs = env.reset()
             task_description = np.random.choice(descriptions)
-            openloop_actions = deque()
 
             if self.save_video:
                 self.tr._cam_motion.restore_pose()
@@ -380,28 +373,21 @@ class RLBenchRolloutRunner:
                 if done:
                     break
                 with torch.no_grad():
-                    if len(openloop_actions) > 0:
-                        action = openloop_actions.popleft()
-                    else:
-                        action = policy.get_action(
-                            preprocess_obs(
-                                copy.deepcopy(obs_data),
-                                None,
-                                self.pcd_transform,
-                                self.pcd_channels,
-                            ),
-                            # preprocess_obs(obs_data, self.pcd_aug, self.pcd_transform, self.pcd_channels),
-                            pcd_npoints=self.pcd_num_points,
-                            in_channels=self.pcd_channels,
-                            task_description=task_description,
-                            t=t,
-                        )
-                        # plot_pred(action, obs_data["pointcloud"]["pos"], obs_data["pointcloud"]["colors"], ".")
-                        if len(action.shape) > 1:
-                            if True:  # self.action_mode != "key_pose":
-                                for a in action[1:]:
-                                    openloop_actions.append(a)
-                            action = action[0]
+                    action = policy.get_action(
+                        preprocess_obs(
+                            copy.deepcopy(obs_data),
+                            None,
+                            self.pcd_transform,
+                            self.pcd_channels,
+                        ),
+                        # preprocess_obs(obs_data, self.pcd_aug, self.pcd_transform, self.pcd_channels),
+                        pcd_npoints=self.pcd_num_points,
+                        in_channels=self.pcd_channels,
+                        task_description=task_description,
+                        t=t,
+                    )
+                    # plot_pred(action, obs_data["pointcloud"]["pos"], obs_data["pointcloud"]["colors"], ".")
+                    
                 action[-1] = 0.0 if action[-1] < 0.5 else 1.0
                 if self.collision_pred:
                     action[-2] = 0.0 if action[-2] < 0.5 else 1.0  # -2 is gripper open
@@ -483,6 +469,7 @@ class IsaacEnvRolloutRunner:
         world_size=1,
         rank=0,
         max_timestep=1200,
+        warmup_step=10,
         **kwargs,
     ):
         assert obs_mode == "pointcloud"
@@ -493,6 +480,7 @@ class IsaacEnvRolloutRunner:
         self.headless = headless
         self.episode_num = episode_num
         self.pcd_channels = pcd_channels
+        self.warmup_step = warmup_step
         self.pcd_transform, self.pcd_num_points = update_pcd_transform(
             pcdnet_pretrain_domain
         )
@@ -598,55 +586,60 @@ class IsaacEnvRolloutRunner:
                 eps_reward = 0
                 traj_length = 0
                 done = False
+                self.success_term.func(env, **self.success_term.params)
+
                 policy.reset()
                 obs, _ = env.reset()
                 
-                # warm up
-                for _ in range(50):
-                    obs, reward, terminations, timeouts, info = env.step(env.cfg.mimic_config.default_actions[None])
-                obs, _ = env.reset()
-                openloop_actions = deque()
                 task_description = ""
                 success = False
                 subtask_successes = {key: False for key in obs["subtask_terms"]}
+                self.max_timestep = 20
+                
+                # warm up
+                for _ in range(self.warmup_step):
+                    obs, reward, terminations, timeouts, info = env.step(env.cfg.mimic_config.default_actions[None])
+
                 for t in range(self.max_timestep):
+                    if self.save_video:
+                        for key in obs["images"]:
+                            image = image = obs["images"][key][0].cpu().numpy()
+                            cv2.putText(image, f'{key}: step {t}', (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2, cv2.LINE_AA)
+                            self.video_logger.extend(
+                                key, image, category="color"
+                            )
+
                     traj_length += 1
 
                     with torch.no_grad():
-                        if len(openloop_actions) > 0:
-                            action = openloop_actions.popleft()
+                        if (
+                            "pointcloud" in obs.keys()
+                            or "pointcloud" in obs["policy_infer"].keys()
+                        ):
+                            action = policy.get_action(
+                                preprocess_obs(
+                                    self._isaac_obs_warpper(obs),
+                                    # self.pcd_aug,
+                                    None,
+                                    self.pcd_transform,
+                                    self.pcd_channels,
+                                ),
+                                pcd_npoints=self.pcd_num_points,
+                                in_channels=self.pcd_channels,
+                                task_description=task_description,
+                                t=t,
+                            )
                         else:
-                            if (
-                                "pointcloud" in obs.keys()
-                                or "pointcloud" in obs["policy_infer"].keys()
-                            ):
-                                action = policy.get_action(
-                                    preprocess_obs(
-                                        self._isaac_obs_warpper(obs),
-                                        # self.pcd_aug,
-                                        None,
-                                        self.pcd_transform,
-                                        self.pcd_channels,
-                                    ),
-                                    pcd_npoints=self.pcd_num_points,
-                                    in_channels=self.pcd_channels,
-                                    task_description=task_description,
-                                    t=t,
-                                )
-                            else:
-                                action = policy.get_action(
-                                    preprocess_obs(
-                                        self._isaac_obs_warpper(obs), None, None, 3
-                                    ),
-                                    pcd_npoints=self.pcd_num_points,
-                                    in_channels=3,
-                                    task_description=task_description,
-                                    t=t,
-                                )
-                            if len(action.shape) > 1:
-                                for a in action[1:]:
-                                    openloop_actions.append(a)
-                                action = action[0]
+                            action = policy.get_action(
+                                preprocess_obs(
+                                    self._isaac_obs_warpper(obs), None, None, 3
+                                ),
+                                pcd_npoints=self.pcd_num_points,
+                                in_channels=3,
+                                task_description=task_description,
+                                t=t,
+                            )
+                        
                     action[-1] = 0.0 if action[-1] < 0.5 else 1.0
                     if self.collision_pred:
                         assert False, "Temporarily not support collision pred"
@@ -664,11 +657,6 @@ class IsaacEnvRolloutRunner:
                         done = torch.logical_or(terminations, timeouts)
 
                     eps_reward += reward
-                    if self.save_video:
-                        for key in obs["images"]:
-                            self.video_logger.extend(
-                                key, obs["images"][key][0].cpu().numpy(), category="color"
-                            )
                     obs = next_obs
 
                     if done:
@@ -717,6 +705,7 @@ class IsaacEnvWbcRolloutRunner(IsaacEnvRolloutRunner):
         world_size=1,
         rank=0,
         max_timestep=1200,
+        warmup_step=10,
         wbc_controller=None,
         until_wbc_reach=False,
         robot_type="ur5e",
@@ -754,14 +743,15 @@ class IsaacEnvWbcRolloutRunner(IsaacEnvRolloutRunner):
                 eps_reward = 0
                 traj_length = 0
                 done = False
+                self.success_term.func(env, **self.success_term.params)
+
                 policy.reset()
                 obs, _ = env.reset()
                 
                 # warm up
-                for _ in range(50):
+                for _ in range(self.warmup_step):
                     obs, reward, terminations, timeouts, info = env.step(env.cfg.mimic_config.default_actions[None])
-                obs, _ = env.reset()
-                openloop_actions = deque()
+                
                 task_description = ""
                 success = False
                 subtask_successes = {key: False for key in obs["subtask_terms"]}
@@ -769,40 +759,34 @@ class IsaacEnvWbcRolloutRunner(IsaacEnvRolloutRunner):
                     traj_length += 1
 
                     with torch.no_grad():
-                        if len(openloop_actions) > 0:
-                            action = openloop_actions.popleft()
+                        if (
+                            "pointcloud" in obs.keys()
+                            or "pointcloud" in obs["policy_infer"].keys()
+                        ):
+                            action = policy.get_action(
+                                preprocess_obs(
+                                    self._isaac_obs_warpper(obs),
+                                    # self.pcd_aug,
+                                    None,
+                                    self.pcd_transform,
+                                    self.pcd_channels,
+                                ),
+                                pcd_npoints=self.pcd_num_points,
+                                in_channels=self.pcd_channels,
+                                task_description=task_description,
+                                t=t,
+                            )
                         else:
-                            if (
-                                "pointcloud" in obs.keys()
-                                or "pointcloud" in obs["policy_infer"].keys()
-                            ):
-                                action = policy.get_action(
-                                    preprocess_obs(
-                                        self._isaac_obs_warpper(obs),
-                                        # self.pcd_aug,
-                                        None,
-                                        self.pcd_transform,
-                                        self.pcd_channels,
-                                    ),
-                                    pcd_npoints=self.pcd_num_points,
-                                    in_channels=self.pcd_channels,
-                                    task_description=task_description,
-                                    t=t,
-                                )
-                            else:
-                                action = policy.get_action(
-                                    preprocess_obs(
-                                        self._isaac_obs_warpper(obs), None, None, 3
-                                    ),
-                                    pcd_npoints=self.pcd_num_points,
-                                    in_channels=3,
-                                    task_description=task_description,
-                                    t=t,
-                                )
-                            if len(action.shape) > 1:
-                                for a in action[1:]:
-                                    openloop_actions.append(a)
-                                action = action[0]
+                            action = policy.get_action(
+                                preprocess_obs(
+                                    self._isaac_obs_warpper(obs), None, None, 3
+                                ),
+                                pcd_npoints=self.pcd_num_points,
+                                in_channels=3,
+                                task_description=task_description,
+                                t=t,
+                            )
+                        
                     action[-1] = 0.0 if action[-1] < 0.5 else 1.0
                     if self.collision_pred:
                         assert False, "Temporarily not support collision pred"
