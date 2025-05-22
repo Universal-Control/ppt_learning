@@ -12,9 +12,10 @@ debug: False # Turn off to allow wandb logging
 suffix: "" # suffix for the experiment
 
 defaults:
-  - _self_
-  - env: isaacsim_pcd # rlbench # gensim2
+  - env: isaacsim # rlbench # gensim2
+  - network: pcd
   - datasetsize: all
+  - _self_
 
 real:
   trained_policy: /home/minghuan/ppt_learning/models/close_microwave/clip_traj/model_225.pth

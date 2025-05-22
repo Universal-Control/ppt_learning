@@ -106,8 +106,6 @@ def run(rank: int, world_size: int, cfg: DictConfig):
     random.seed(seed + rank)
 
     normalizer = None
-    # action_dim = 7  # 8 for rlbench, 7 for gensim2
-    # state_dim = 15  # 15 # 24 for rlbench, 15 for gensim2
     if not is_eval:
         cfg.dataset.dataset_path = (
             cfg.get("dataset_path", "") + "/" + domain_list[0] + ".zarr"
@@ -143,6 +141,8 @@ def run(rank: int, world_size: int, cfg: DictConfig):
         state_dim = dataset.state_dim
 
     # initialize policy
+    if cfg.dataset.get("hist_action_cond", False):
+        cfg.head["hist_horizon"] = cfg.dataset.observation_horizon
     cfg.head["output_dim"] = cfg.network["action_dim"] = action_dim
     policy = hydra.utils.instantiate(cfg.network)
     cfg.stem.state["input_dim"] = state_dim
@@ -256,7 +256,7 @@ def filter_ddp_args():
     """Filter out DDP-specific arguments to avoid Hydra conflicts."""
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--local_rank", type=int, default=0)
-    parser.add_argument("--model", type=str, default="pcd") # , choice=["pcd", "rgb"])
+    parser.add_argument("--model", type=str, default="pcd") # ["pcd", "rgb", "PCD"])
     parser.add_argument("--suffix", type=str, default="")
     args, remaining = parser.parse_known_args()
     sys.argv = [sys.argv[0]] + remaining

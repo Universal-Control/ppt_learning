@@ -33,6 +33,8 @@ def eval_in_one_process(rank, world_size, cfg, domain, queue:JoinableQueue):
         os.environ["WORLD_SIZE"] = str(world_size)
         device = f"cuda:{rank}"
         # initialize policy
+        if cfg.dataset.get("hist_action_cond", False):
+            cfg.head["hist_horizon"] = cfg.dataset.observation_horizon
         policy = hydra.utils.instantiate(cfg.network, max_timestep=cfg.rollout_runner.max_timestep).to(device)
         policy.init_domain_stem(domain, cfg.stem)
         policy.init_domain_head(domain, cfg.head)
@@ -82,7 +84,7 @@ def eval_in_one_process(rank, world_size, cfg, domain, queue:JoinableQueue):
 # TODO fill in config_name with config from training
 @hydra.main(
     config_path=f"{PPT_DIR}/experiments/configs",
-    config_name="config_eval_ddp",
+    config_name="config_eval_pcd_ddp",
     version_base="1.2",
 )
 def run(cfg):
@@ -143,12 +145,6 @@ def run(cfg):
             json.dump(srs, j)
     except KeyboardInterrupt:
         print("\nProgram interrupted by user. Exiting...")
-
-
-
-
-        
-
 
 if __name__ == "__main__":
     run()

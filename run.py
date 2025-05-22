@@ -77,8 +77,6 @@ def run(cfg):
     cfg.dataset.domain = domain
 
     normalizer = None
-    # action_dim = 7  # 8 for rlbench, 7 for gensim2
-    # state_dim = 15  # 15 # 24 for rlbench, 15 for gensim2
     if not is_eval:
         cfg.dataset.dataset_path = (
             cfg.get("dataset_path", "") + "/" + domain_list[0] + ".zarr"
@@ -110,6 +108,8 @@ def run(cfg):
         state_dim = dataset.state_dim
 
     # initialize policy
+    if cfg.dataset.get("hist_action_cond", False):
+        cfg.head["hist_horizon"] = cfg.dataset.observation_horizon
     cfg.head["output_dim"] = cfg.network["action_dim"] = action_dim
     policy = hydra.utils.instantiate(cfg.network).to(device)
     cfg.stem.state["input_dim"] = state_dim

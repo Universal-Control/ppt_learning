@@ -1,0 +1,57 @@
+# @package _global_
+domains: "ur5_close_microwave_version5_generated2" # dataset name to be loaded
+save_interval: 25
+
+# dataset config
+dataset:
+  _target_: ppt_learning.dataset.sim_traj_dataset.TrajDataset
+  domain: "isaacsim"
+  dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_close_microwave
+  horizon: -1 # horizon for each dataset sample. should be action_horizon+observation_horizon-1 and will be replaced
+  val_ratio: 0. # the train-validation ratio
+  pad_after: ${dataset.action_horizon} # padding after the episode
+  # episode_cnt: 100 # total episodes
+  step_cnt: 30000 # total data transitions
+  data_augmentation: False # data augmentation
+  se3_augmentation: False # se3 augmentation
+  use_disk: True # use disk ins1tead of memory to store the data
+  pad_before: ${dataset.observation_horizon} # padding before the episode
+  data_ratio: 1 # only use a fraction of data
+  action_horizon: 4 # observation: (observation + action) is action horizon 
+  observation_horizon: 3 # before observation horizon is observation
+  precompute_feat: True # precompute features using pretrained models for stems
+  image_encoder: 'resnet' # which encoder to use as the pretrained model  
+  dataset_encoder_postfix: "" # "_${dataset.image_encoder}" # another postfix
+  use_multiview: False # use multiple camera views
+  normalize_state: False # whether to normalize the states in datasets
+  from_empty: False
+  use_pcd: False # To be replaced
+  pcdnet_pretrain_domain : "" # To be replaced
+  pcd_channels: 4 # 3 is pos, 4 is [pos, height], 5 is [pos, height, seg], 6 is [pos, color], 7 is [pos, color, height]
+  env_names: [
+    "Isaac-UR5-CloseMicroWave-Mimic-v0"
+  ]
+  action_key: "actions"
+
+# test
+rollout_runner:
+  _target_: ppt_learning.utils.rollout_runner.IsaacEnvWbcRolloutRunner
+  headless: true
+  episode_num: 100
+  # save_video: True
+  max_timestep: 1200
+  obs_mode: "pointcloud"
+  pcdnet_pretrain_domain : "" # To be replaced
+  pcd_channels: ${dataset.pcd_channels}
+  video_save_dir: "${train.pretrained_dir}/eval_video"
+  wbc_controller: 
+    _target_: isaaclab_mimic.utils.robots.mobile_wbc_controller.MobileWbcController
+    cfg: 
+      _target_: isaaclab_mimic.utils.robots.mobile_wbc_controller.MobileWbcControllerCfg
+      urdf: "/home/ubuntu/xiaoshen/code/GR-Isaaclab/source/arxx7_assets/UR5/ur5_isaac_simulation/robot.urdf"
+      ee: "wrist_3_link"
+      active_joint_idx: [0, 1, 2, 3, 4, 5]
+      threshold: 0.02
+      mobile_type: "none"
+  robot_type: "ur5e"
+  until_wbc_reach: False

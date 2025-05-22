@@ -64,6 +64,8 @@ def run(cfg):
 
     # initialize policy
     cfg.head["output_dim"] = cfg.network["action_dim"] = action_dim
+    if cfg.dataset.get("hist_action_cond", False):
+        cfg.head["hist_horizon"] = cfg.dataset.observation_horizon
     policy = hydra.utils.instantiate(cfg.network, max_timestep=cfg.rollout_runner.max_timestep).to(device)
     cfg.stem.state["input_dim"] = state_dim
     policy.init_domain_stem(domain, cfg.stem)

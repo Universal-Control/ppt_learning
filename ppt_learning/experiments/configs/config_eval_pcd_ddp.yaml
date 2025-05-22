@@ -22,13 +22,16 @@ train:
   total_iters: 100000000 # maximum training steps before termination
   epoch_iters: 1000  # training steps in each epoch
   validation_iters: 100 # maximum iterations for validation
-  pretrained_dir: "/home/ubuntu/xiaoshen/code/IsaacLab-new/GR-Isaaclab/outputs/ppt_learning/outputs/pcd/2025-05-20_00-24-32/ur5_put_bowl_in_microwave_and_close/retry_oldgripper" # pretrained model path for testing
-  model_names:
-    - model_500.pth 
+  pretrained_dir: "/home/ubuntu/xiaoshen/code/IsaacLab-new/GR-Isaaclab/outputs/ppt_learning/outputs/pcd/2025-05-15_21-36-05/put_bowl_in_microwave_8_demos_generated/a_h=16" # pretrained model path for testing
+  model_names: 
     - model.pth
-    - model_450.pth
-    - model_400.pth
-    # - model_550.pth
+    # - model_450.pth
+    # - model_400.pth
+    # - model_350.pth
+    - model_600.pth
+    - model_650.pth
+    - model_700.pth
+    - model_750.pth
   freeze_trunk: False # whether to freeze the trunk during finetuning
 prompt: ""
 rollout_runner:
@@ -37,7 +40,7 @@ rollout_runner:
   # task_name: "Isaac-UR5-CloseMicroWave-Mimic-v0"
 eval_log_name: "eval_log_l40_8_100_ddp_new"
 n_procs: 8
-domains: ur5_put_bowl_in_microwave_and_close
+domains: put_bowl_in_microwave_8_demos_generated
 stem:
   pointcloud: 
     pretrained_path: "/mnt/xiaoshen/scanobjectnn-pointnext-s_best.pth"

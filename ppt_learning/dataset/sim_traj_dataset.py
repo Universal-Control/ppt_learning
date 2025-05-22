@@ -59,6 +59,7 @@ class TrajDataset:
         seed=233,
         action_horizon=1,
         observation_horizon=1,
+        hist_action_cond=False,
         resize_img=True,
         img_size=224,
         dataset_postfix="",
@@ -98,6 +99,7 @@ class TrajDataset:
         self.resize_img = resize_img
         self.img_size = img_size
         self.action_key = action_key
+        self.hist_action_cond = hist_action_cond
         if use_pcd:
             assert pcd_channels is not None, "pcd_channels must be provided for pcd"
         if pcd_channels is not None:
@@ -117,7 +119,8 @@ class TrajDataset:
         self.se3_augmentation = se3_augmentation
         self.bounds = BOUND
 
-        assert self.horizon == self.observation_horizon + self.action_horizon - 1, "Check if your horizon is right"
+        if not hist_action_cond:
+            assert self.horizon == self.observation_horizon + self.action_horizon - 1, "Check if your horizon is right"
 
         self.state_keys = state_keys
         if state_keys is None:
@@ -343,20 +346,17 @@ class TrajDataset:
                         else:
                             data[key] = val[: self.observation_horizon]
                     else:
-                        if key == "action":
-                            data["action"] = val[
-                                self.observation_horizon
-                                - 1 : self.action_horizon
-                                + self.observation_horizon
-                                - 1
-                            ]
-                        elif key == "action_is_pad":
-                            data["action_is_pad"] = val[
-                                self.observation_horizon
-                                - 1 : self.action_horizon
-                                + self.observation_horizon
-                                - 1
-                            ]
+                        if self.hist_action_cond:
+                            if key in ["action", "action_is_pad"]:
+                                data[key] = val[: self.action_horizon] # including hist action
+                        else:
+                            if key in ["action", "action_is_pad"]:
+                                data[key] = val[
+                                    self.observation_horizon
+                                    - 1 : self.action_horizon
+                                    + self.observation_horizon
+                                    - 1
+                                ]
 
         if self.use_pcd:
             if "pointcloud" not in sample["obs"]:

@@ -86,6 +86,8 @@ def run(cfg):
     cfg.dataset.horizon = (
         cfg.dataset.observation_horizon + cfg.dataset.action_horizon - 1
     )
+    if cfg.dataset.get("hist_action_cond", False):
+        cfg.head["hist_horizon"] = cfg.dataset.observation_horizon
 
     # initialize policy
     cfg.stem.pointcloud.pretrained_path = None
@@ -145,7 +147,6 @@ def run_in_real(policy, cfg, robot=None):
     done = False
     policy.reset()
     obs = robot.get_obs(visualize=False)
-    openloop_actions = deque()
     init_time = time.time()
     last_time = init_time
     for t in range(MAX_EP_STEPS):
@@ -153,27 +154,19 @@ def run_in_real(policy, cfg, robot=None):
         if done:
             break
         with torch.no_grad():
-            if len(openloop_actions) > 0:
-                action = openloop_actions.popleft()
-            else:
-                obs["state"] = get_state(obs["state"])
-                obs = preprocess_obs(
-                    obs, pcd_transform=pcd_transform, pcd_channels=pcd_channels
-                )
-                start_time = time.time()
-                action = policy.get_action(
-                    obs,
-                    pcd_npoints=pcd_num_points,
-                    in_channels=pcd_channels,
-                    task_description=cfg.prompt,
-                    t=t,
-                )
-                print(f"Time to get action: {time.time() - start_time:.4f}")
-
-                if len(action.shape) > 1:
-                    for a in action[1:]:
-                        openloop_actions.append(a)
-                    action = action[0]
+            obs["state"] = get_state(obs["state"])
+            obs = preprocess_obs(
+                obs, pcd_transform=pcd_transform, pcd_channels=pcd_channels
+            )
+            start_time = time.time()
+            action = policy.get_action(
+                obs,
+                pcd_npoints=pcd_num_points,
+                in_channels=pcd_channels,
+                task_description=cfg.prompt,
+                t=t,
+            )
+            print(f"Time to get action: {time.time() - start_time:.4f}")
         action[-1] = 0.0 if action[-1] < 0.5 else 1.0
 
         # If want to visualize pcd for debugging turn to True

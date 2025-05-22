@@ -11,12 +11,18 @@ env_names: [
 debug: False # Turn off to allow wandb logging
 suffix: "debug" # suffix for the experiment
 
-defaults:
-  - _self_
-  - env: isaacsim_pcd # rlbench # gensim2
-  - datasetsize: all
+batch_size: 80
 
-# self-explanatory torch config
+defaults:
+  - env: isaacsim # rlbench # gensim2
+  - network: pcd
+  - datasetsize: all
+  - _self_
+
+dataset:
+  ignored_keys: ["initial_state", "states", "depths", "images", "color"]
+  hist_action_cond: True
+
 dataloader:
   batch_size: ${batch_size}
   num_workers: 8

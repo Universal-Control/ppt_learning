@@ -13,6 +13,7 @@ suffix: "" # suffix for the experiment
 
 defaults:
   - env: isaacsim_pcd_wbc # rlbench # gensim2
+  - network: pcd
   - datasetsize: all
   - _self_
 
