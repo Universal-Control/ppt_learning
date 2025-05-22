@@ -17,6 +17,9 @@ defaults:
   - _self_
 
 # self-explanatory torch config
+network:
+  openloop_steps: 8
+  temporal_agg: False
 dataloader:
   batch_size: ${batch_size}
   num_workers: 8
@@ -55,8 +58,8 @@ train:
   total_iters: 100000000 # maximum training steps before termination
   epoch_iters: 1000  # training steps in each epoch
   validation_iters: 100 # maximum iterations for validation
-  pretrained_dir: "/home/ubuntu/xiaoshen/code/IsaacLab-new/GR-Isaaclab/outputs/ppt_learning/outputs/pcd/2025-05-14_22-16-14/put_bowl_in_microwave_version3_generated/a_h=16" # pretrained model path for testing
-  model_name: model_450.pth
+  pretrained_dir: "/home/ubuntu/xiaoshen/code/IsaacLab-new/GR-Isaaclab/outputs/ppt_learning/outputs/pcd/2025-05-20_00-24-32/ur5_put_bowl_in_microwave_and_close/retry_oldgripper" # pretrained model path for testing
+  model_name: model_500.pth
   freeze_trunk: False # whether to freeze the trunk during finetuning
 prompt: ""
 domains: put_bowl_in_microwave_version3_generated

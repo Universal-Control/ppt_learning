@@ -39,7 +39,7 @@ rollout_runner:
   headless: true
   episode_num: 100
   # save_video: True
-  max_timestep: 1200
+  max_timestep: 2000
   obs_mode: "pointcloud"
   pcdnet_pretrain_domain : "" # To be replaced
   pcd_channels: ${dataset.pcd_channels}

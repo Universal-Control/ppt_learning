@@ -38,7 +38,7 @@ import IPython
 
 
 def merge_act(actions_for_curr_step, t, k=0.01):
-    actions_populated = torch.all(actions_for_curr_step != 0, axis=1)
+    actions_populated = torch.all(actions_for_curr_step != 0, dim=1)
     actions_for_curr_step = actions_for_curr_step[actions_populated]
 
     exp_weights = np.exp(-k * np.arange(len(actions_for_curr_step)))
@@ -95,6 +95,8 @@ class Policy(nn.Module):
             self.all_time_actions = torch.zeros(
                 [max_timesteps, max_timesteps + action_horizon, action_dim]
             ).cuda()
+        else:
+            self.openloop_actions = deque()
 
         if self.use_modality_embedding:
             self.modalities_tokens = OrderedDict()
@@ -448,6 +450,9 @@ class Policy(nn.Module):
                 recursive_append(data_np[key], key, self.history_buffer)
             data_np = recursive_concatenate(self.history_buffer)
 
+        if not self.temporal_agg and len(self.openloop_actions) > 0:
+            return self.openloop_actions.popleft()
+
         data_tensor = dict_apply(
             data_np, lambda x: torch.Tensor(x).to(device, non_blocking=True).float()
         )
@@ -462,12 +467,20 @@ class Policy(nn.Module):
 
         output = self.policy_action
         if self.temporal_agg:
+            # self.all_time_actions[[t], t - self.observation_horizon + 1 : t - self.observation_horizon + 1 + self.action_horizon] = output
             self.all_time_actions[[t], t : t + self.action_horizon] = output
             output = merge_act(self.all_time_actions[:, t], t)
 
         action = output.reshape(-1, self.action_dim).detach().cpu().numpy()
 
-        return action[: self.openloop_steps].squeeze()
+        if self.temporal_agg:
+            return action.squeeze()
+        else:
+            if len(action.shape) > 1:
+                # for a in action[self.observation_horizon : self.observation_horizon-1+self.openloop_steps]:
+                for a in action[1:self.openloop_steps]:
+                    self.openloop_actions.append(a)
+            return action[0] # action w.r.t current obs
 
     def forward_train(self, batch):
         """Traing loop forward pass"""
