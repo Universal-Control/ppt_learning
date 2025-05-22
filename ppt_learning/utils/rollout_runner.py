@@ -5,18 +5,17 @@
 from typing import List, Optional
 import numpy as np
 
+from hydra.utils import instantiate
 from matplotlib import pyplot as plt
 import torch
 from tqdm import tqdm
 from collections import OrderedDict
-from collections import deque
 import transforms3d
 import copy
 import cv2
 
 from multiprocessing import Process, Queue
 import multiprocessing as mp
-from hydra.utils import instantiate
 
 try:
     mp.set_start_method("forkserver", force=True)
@@ -461,6 +460,7 @@ class IsaacEnvRolloutRunner:
         pcdnet_pretrain_domain="",
         random_reset=True,
         collision_pred=False,
+        pose_transform=None,
         num_envs=1,
         device="cuda:0",
         seed=0,
@@ -469,11 +469,7 @@ class IsaacEnvRolloutRunner:
         world_size=1,
         rank=0,
         max_timestep=1200,
-<<<<<<< HEAD
         warmup_step=10,
-=======
-        pose_transform=None,
->>>>>>> 09386d9b9952a3392abceec0cd229cbb0e46951b
         **kwargs,
     ):
         assert obs_mode == "pointcloud"
@@ -604,7 +600,6 @@ class IsaacEnvRolloutRunner:
                 task_description = ""
                 success = False
                 subtask_successes = {key: False for key in obs["subtask_terms"]}
-                self.max_timestep = 20
                 
                 # warm up
                 for _ in range(self.warmup_step):
@@ -640,7 +635,6 @@ class IsaacEnvRolloutRunner:
                                 t=t,
                             )
                         else:
-<<<<<<< HEAD
                             action = policy.get_action(
                                 preprocess_obs(
                                     self._isaac_obs_warpper(obs), None, None, 3
@@ -651,42 +645,6 @@ class IsaacEnvRolloutRunner:
                                 t=t,
                             )
                         
-=======
-                            if (
-                                "pointcloud" in obs.keys()
-                                or "pointcloud" in obs["policy_infer"].keys()
-                            ):
-                                action = policy.get_action(
-                                    preprocess_obs(
-                                        self._isaac_obs_warpper(obs),
-                                        # self.pcd_aug,
-                                        None,
-                                        self.pcd_transform,
-                                        self.pcd_channels,
-                                    ),
-                                    pcd_npoints=self.pcd_num_points,
-                                    in_channels=self.pcd_channels,
-                                    task_description=task_description,
-                                    t=t,
-                                )
-                            else:
-                                action = policy.get_action(
-                                    preprocess_obs(
-                                        self._isaac_obs_warpper(obs), None, None, 3
-                                    ),
-                                    pcd_npoints=self.pcd_num_points,
-                                    in_channels=3,
-                                    task_description=task_description,
-                                    t=t,
-                                )
-                            if self.pose_transform is not None:
-                                if self.pose_transform == "pose_to_quat":
-                                    action = np.concatenate([self.pose_transform(action[...,:-1]), action[...,-1:]], axis=-1)
-                            if len(action.shape) > 1:
-                                for a in action[1:]:
-                                    openloop_actions.append(a)
-                                action = action[0]
->>>>>>> 09386d9b9952a3392abceec0cd229cbb0e46951b
                     action[-1] = 0.0 if action[-1] < 0.5 else 1.0
                     if self.collision_pred:
                         assert False, "Not support collision pred"
