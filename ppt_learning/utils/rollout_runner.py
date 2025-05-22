@@ -469,7 +469,11 @@ class IsaacEnvRolloutRunner:
         world_size=1,
         rank=0,
         max_timestep=1200,
+<<<<<<< HEAD
         warmup_step=10,
+=======
+        pose_transform=None,
+>>>>>>> 09386d9b9952a3392abceec0cd229cbb0e46951b
         **kwargs,
     ):
         assert obs_mode == "pointcloud"
@@ -484,6 +488,12 @@ class IsaacEnvRolloutRunner:
         self.pcd_transform, self.pcd_num_points = update_pcd_transform(
             pcdnet_pretrain_domain
         )
+        self.pose_transform = None
+        if pose_transform is not None:
+            if self.pose_transform == "pose_to_quat":
+                from ppt_learning.utils.pose_utils import pose_to_quat
+                self.pose_transform = pose_to_quat
+                                    
         self.random_reset = random_reset
         self.collision_pred = collision_pred
         self.device = device
@@ -630,6 +640,7 @@ class IsaacEnvRolloutRunner:
                                 t=t,
                             )
                         else:
+<<<<<<< HEAD
                             action = policy.get_action(
                                 preprocess_obs(
                                     self._isaac_obs_warpper(obs), None, None, 3
@@ -640,9 +651,45 @@ class IsaacEnvRolloutRunner:
                                 t=t,
                             )
                         
+=======
+                            if (
+                                "pointcloud" in obs.keys()
+                                or "pointcloud" in obs["policy_infer"].keys()
+                            ):
+                                action = policy.get_action(
+                                    preprocess_obs(
+                                        self._isaac_obs_warpper(obs),
+                                        # self.pcd_aug,
+                                        None,
+                                        self.pcd_transform,
+                                        self.pcd_channels,
+                                    ),
+                                    pcd_npoints=self.pcd_num_points,
+                                    in_channels=self.pcd_channels,
+                                    task_description=task_description,
+                                    t=t,
+                                )
+                            else:
+                                action = policy.get_action(
+                                    preprocess_obs(
+                                        self._isaac_obs_warpper(obs), None, None, 3
+                                    ),
+                                    pcd_npoints=self.pcd_num_points,
+                                    in_channels=3,
+                                    task_description=task_description,
+                                    t=t,
+                                )
+                            if self.pose_transform is not None:
+                                if self.pose_transform == "pose_to_quat":
+                                    action = np.concatenate([self.pose_transform(action[...,:-1]), action[...,-1:]], axis=-1)
+                            if len(action.shape) > 1:
+                                for a in action[1:]:
+                                    openloop_actions.append(a)
+                                action = action[0]
+>>>>>>> 09386d9b9952a3392abceec0cd229cbb0e46951b
                     action[-1] = 0.0 if action[-1] < 0.5 else 1.0
                     if self.collision_pred:
-                        assert False, "Temporarily not support collision pred"
+                        assert False, "Not support collision pred"
                     else:
                         if isinstance(action, np.ndarray):
                             action = torch.from_numpy(action)

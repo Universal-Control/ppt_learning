@@ -556,3 +556,11 @@ class Policy(nn.Module):
     def unfreeze_trunk(self):
         for param in self.trunk.parameters():
             param.requires_grad = True
+
+    def freeze_stems(self):
+        for param in self.stems.parameters():
+            param.requires_grad = False
+
+    def unfreeze_stems(self):
+        for param in self.stems.parameters():
+            param.requires_grad = True

@@ -4,6 +4,8 @@ from collections import OrderedDict
 from typing import Dict
 import copy
 import cv2
+import hydra
+from hydra import initialize, compose
 
 from ppt_learning.utils.replay_buffer import ReplayBuffer
 from ppt_learning.utils.sampler import SequenceSampler, get_val_mask
@@ -75,6 +77,8 @@ class TrajDataset:
         ignored_keys=None,
         use_lru_cache=True,
         rank=0,  # Add rank for DDP
+        action_key="actions",
+        pose_transform=None,
         **kwargs,
     ):
         self.rank = rank
@@ -93,6 +97,7 @@ class TrajDataset:
         self.normalize_state = normalize_state
         self.resize_img = resize_img
         self.img_size = img_size
+        self.action_key = action_key
         if use_pcd:
             assert pcd_channels is not None, "pcd_channels must be provided for pcd"
         if pcd_channels is not None:
@@ -112,6 +117,8 @@ class TrajDataset:
         self.se3_augmentation = se3_augmentation
         self.bounds = BOUND
 
+        assert self.horizon == self.observation_horizon + self.action_horizon - 1, "Check if your horizon is right"
+
         self.state_keys = state_keys
         if state_keys is None:
             self.state_keys = [
@@ -126,11 +133,19 @@ class TrajDataset:
                 "initial_state",
                 "states",
                 "depths",
-            ]  # , "images", "color"]
+            ] # , "images", "color"]
             # self.use_pcd = False
 
         self.voxelization = voxelization
         self.voxel_size = voxel_size
+
+        self.pose_transform = None
+        if pose_transform is not None:
+            if pose_transform == "quat_to_pose":
+                from ppt_learning.utils.pose_utils import quat_to_pose
+                self.pose_transform = quat_to_pose
+            else:
+                raise NotImplementedError("Pose transform function not assigned!")
 
         self.update_pcd_transform()
 
@@ -245,11 +260,7 @@ class TrajDataset:
         return self.replay_buffer.get_episode(idx)
 
     def _sample_to_data(self, sample):
-        data = (
-            {"action": sample["action"]}
-            if "action" in sample
-            else {"action": sample["actions"]}
-        )
+        data = {"action": sample[self.action_key]}
         if self.normalize_state:
             if "state" in sample:
                 data["state"] = sample["state"]  # 1 x N
@@ -308,9 +319,17 @@ class TrajDataset:
         sample = self.sampler.sample_sequence(idx)
         # end_time = time.time()
         # print("Time used of sample:", end_time - start_time)
-        if "actions" in sample:  # Align the name
-            sample["action"] = sample["actions"]
-            del sample["actions"]
+        action_sub_keys = self.action_key.split('/')
+        action = sample
+        for key in action_sub_keys:
+            if isinstance(action, (dict, OrderedDict)):
+                try:
+                    action = action[key]
+                except:
+                    print("Action key not found:", key)
+                    import ipdb; ipdb.set_trace()
+        sample["action"] = action
+        del sample[action_sub_keys[0]]
 
         # the full horizon is for the trajectory
         def recursive_horizon(data):
@@ -318,13 +337,13 @@ class TrajDataset:
                 if isinstance(val, (dict, OrderedDict)):
                     recursive_horizon(val)
                 else:
-                    if (key not in ["action", "actions"]) and (key != "action_is_pad"):
+                    if (key not in self.ignored_keys) and (key != "action") and (key != "action_is_pad"):
                         if key == "language":
                             data[key] = val
                         else:
                             data[key] = val[: self.observation_horizon]
                     else:
-                        if key in ["action", "actions"]:
+                        if key == "action":
                             data["action"] = val[
                                 self.observation_horizon
                                 - 1 : self.action_horizon
@@ -461,6 +480,15 @@ class TrajDataset:
             for key, val in sample["image"].items():
                 # Image shape N, H, W, C
                 resize_image_sequence(val, (self.img_size, self.img_size))
+        if self.pose_transform is not None: # Last dim is gripper
+            if len(sample['action'].shape) == 2:
+                N, A = sample['action'].shape
+                sample['action'] = np.concatenate([self.pose_transform(sample['action'][..., :-1].reshape(-1, A-1)).reshape(N, -1), sample['action'][..., -1:]], axis=-1)
+            elif len(sample['action'].shape) == 3:
+                N, L, A = sample['action'].shape
+                sample['action'] = np.concatenate([self.pose_transform(sample['action'][..., :-1].reshape(-1, A-1)).reshape(N, L, -1), sample['action'][..., -1:]], axis=-1)
+            else:
+                raise ValueError(f"Invalid action shape: {sample['action'].shape}")
 
     def flat_sample(self, sample):
         if "obs" in sample.keys():
@@ -579,22 +607,41 @@ def resize_image_sequence(images, target_size):
 
 if __name__ == "__main__":
     import collections
+    import matplotlib.pyplot as plt
+    import imageio.v3 as imageio
 
     parser = argparse.ArgumentParser()
-    parser.add_argument("--dataset", default="rlbench_test_keypose")
+    # parser.add_argument("--dataset", default="rlbench_test_keypose")
     parser.add_argument("--render", action="store_true")
     args = parser.parse_args()
 
     dataset = TrajDataset(
-        dataset_path="/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_close_microwave/ur5_close_microwave_version_4_generated_1000_2.zarr",
+        domain="debug",
+        dataset_path="/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/put_bowl_in_microwave_8_demos_generated_interrupt_520_collected_data_simplify_gripper_retry_more_wait_520.zarr",
         from_empty=False,
         use_disk=True,
         load_from_cache=True,
+        use_lru_cache=True,
+        val_ratio=0.,
+        action_horizon=16,
+        observation_horizon=3,
+        horizon=18,
+        pad_before=3,
+        pad_after=16,
+        action_key="wbc_target/r"
     )
-    dataset.load_dataset()
-    print(collections.Counter(dataset.replay_buffer.meta["episode_descriptions"]))
-    if "env_names" in dataset.replay_buffer.meta.keys():
-        print(collections.Counter(dataset.replay_buffer.meta["env_names"]))
+    # dataset.load_dataset()
+    # rigid_pos = dataset.replay_buffer['initial_state']['rigid_object']['bowl']['root_pose'][:, :2]
+    # articulation_pos = dataset.replay_buffer['initial_state']['articulation']['microwave']['root_pose'][:, :2]
+    # plt.scatter(rigid_pos[:, 0], rigid_pos[:, 1], label="rigid body")
+    # plt.scatter(articulation_pos[:, 0], articulation_pos[:, 1], color='b', label="articulation")
+    # plt.legend()
+    # plt.savefig("pos_visualization.png")
+    # images = dataset.replay_buffer.data.obs.images.camera_0[73366:74103]
+    import ipdb; ipdb.set_trace()
+    # print(collections.Counter(dataset.replay_buffer.meta["episode_descriptions"]))
+    # if "env_names" in dataset.replay_buffer.meta.keys():
+    #     print(collections.Counter(dataset.replay_buffer.meta["env_names"]))
 
     if args.render:
         # visualize point cloud trajectory with open3d
