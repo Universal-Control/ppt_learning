@@ -592,7 +592,7 @@ class IsaacEnvRolloutRunner:
                 eps_reward = 0
                 traj_length = 0
                 done = False
-                self.success_term.func(env, **self.success_term.params)
+                self.success_term.func(env, **self.success_term.params) # initialize the success func to prevent weired render bug from isaacsim
 
                 policy.reset()
                 obs, _ = env.reset()

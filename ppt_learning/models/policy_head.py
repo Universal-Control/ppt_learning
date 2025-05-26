@@ -341,7 +341,7 @@ class Diffusion(nn.Module):
         self.noise_scheduler.set_timesteps(self.num_inference_steps)
         if self.hist_horizon > 0 and local_cond is not None:
             # local cond the past trajectory
-            sample[..., : self.hist_horizon, :] = local_cond[..., : self.hist_horizon, :]
+            sample[..., : self.hist_horizon-1, :] = local_cond[..., : self.hist_horizon-1, :]
 
         for t in self.noise_scheduler.timesteps:
             # Predict model output.
@@ -396,7 +396,7 @@ class Diffusion(nn.Module):
 
         if self.hist_horizon > 0 and local_cond is not None:
             # local cond the past trajectory
-            noisy_trajectory[..., : self.hist_horizon, :] = local_cond[..., : self.hist_horizon, :]
+            noisy_trajectory[..., : self.hist_horizon-1, :] = local_cond[..., : self.hist_horizon-1, :]
             
         # Run the denoising network (that might denoise the trajectory, or attempt to predict the noise).
         pred = self.unet(noisy_trajectory, timesteps, global_cond=x)
@@ -409,7 +409,11 @@ class Diffusion(nn.Module):
             pass  # =target
         else:
             raise ValueError(f"Unsupported prediction type {self.prediction_type}")
-        loss = F.mse_loss(pred, target, reduction="none")
+        
+        if self.hist_horizon > 0 and local_cond is not None:
+            loss = F.mse_loss(pred[..., self.hist_horizon-1:, :], target[..., self.hist_horizon-1:, :], reduction="none")
+        else:
+            loss = F.mse_loss(pred, target, reduction="none")
 
         # Mask loss wherever the action is padded with copies (edges of the dataset trajectory).
         if (
@@ -427,7 +431,7 @@ class Diffusion(nn.Module):
             return self.generate_actions(x, local_cond)
 
         if local_cond is None and self.hist_horizon > 0:
-            local_cond = target[..., : self.hist_horizon, :]
+            local_cond = target[..., : self.hist_horizon-1, :]
         """Run the batch through the model and compute the loss for training or validation."""
         loss = self.compute_loss(x, target=target, local_cond=local_cond)
         return {"loss": loss}

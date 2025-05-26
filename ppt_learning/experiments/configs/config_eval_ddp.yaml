@@ -6,13 +6,13 @@ script_name: ''
 pretrained_dir: ${train.pretrained_dir}
 parallel_eval: false
 env_names: [
-    "Isaac-UR5-CloseMicroWave-Mimic-v0"
+    "Isaac-UR5-PutBowlInMicroWaveAndClose-Joint-Mimic-Retry-v0"
   ]
 debug: False # Turn off to allow wandb logging
 suffix: "" # suffix for the experiment
 
 defaults:
-  - env: isaacsim_pcd # rlbench # gensim2
+  - env: isaacsim # rlbench # gensim2
   - network: pcd
   - datasetsize: all
   - _self_
@@ -34,7 +34,7 @@ prompt: ""
 rollout_runner:
   save_video: true
   task_name: "Isaac-UR5-PutBowlInMicroWaveAndClose-Joint-Mimic-v0"
-  # task_name: "Isaac-UR5-CloseMicroWave-Mimic-v0"
+  # task_name: "Isaac-UR5-PutBowlInMicroWaveAndClose-Joint-Mimic-Retry-v0"
 eval_log_name: "eval_log_l40_8_100_ddp_new"
 n_procs: 8
 domains: ur5_put_bowl_in_microwave_and_close
