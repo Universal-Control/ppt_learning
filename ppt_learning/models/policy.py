@@ -471,15 +471,11 @@ class Policy(nn.Module):
         output = self.policy_action.squeeze()
         if self.temporal_agg:
             if hist_action_cond:
-<<<<<<< Updated upstream
-                self.all_time_actions[[t], t - self.observation_horizon + 1 : t - self.observation_horizon + 1 + self.action_horizon] = output
-=======
                 if t - self.observation_horizon + 1 < 0:
                     assert t - self.observation_horizon + 1 + self.action_horizon > 0
                     self.all_time_actions[t, 0 : t - self.observation_horizon + 1 + self.action_horizon] = output[output.shape[0] - (t - self.observation_horizon + 1 + self.action_horizon):]
                 else:
                     self.all_time_actions[t, t - self.observation_horizon + 1 : t - self.observation_horizon + 1 + self.action_horizon] = output
->>>>>>> Stashed changes
             else:
                 self.all_time_actions[[t], t : t + self.action_horizon] = output
             output = merge_act(self.all_time_actions[:, t], t)
