@@ -6,7 +6,7 @@ script_name: ''
 pretrained_dir: ${train.pretrained_dir}
 parallel_eval: false
 env_names: [
-    "Isaac-UR5-CloseMicroWave-Mimic-v0"
+    "Isaac-UR5-PutBowlInMicroWaveAndClose-Joint-Mimic-v0"
   ]
 debug: False # Turn off to allow wandb logging
 suffix: "" # suffix for the experiment
@@ -59,11 +59,11 @@ train:
   total_iters: 100000000 # maximum training steps before termination
   epoch_iters: 1000  # training steps in each epoch
   validation_iters: 100 # maximum iterations for validation
-  pretrained_dir: "/home/ubuntu/xiaoshen/code/IsaacLab-new/GR-Isaaclab/outputs/ppt_learning/outputs/pcd/2025-05-20_00-24-32/ur5_put_bowl_in_microwave_and_close/retry_oldgripper" # pretrained model path for testing
-  model_name: model_500.pth
+  pretrained_dir: "/home/ubuntu/xiaoshen/code/IsaacLab-new/GR-Isaaclab/outputs/ppt_learning/outputs/pcd/2025-05-25_16-46-21/ur5_put_bowl_in_microwave_and_close" # pretrained model path for testing
+  model_names: model_500.pth
   freeze_trunk: False # whether to freeze the trunk during finetuning
 prompt: ""
-domains: put_bowl_in_microwave_version3_generated
+domains: ur5_put_bowl_in_microwave_and_close
 stem:
   pointcloud: 
     pretrained_path: "/mnt/xiaoshen/scanobjectnn-pointnext-s_best.pth"

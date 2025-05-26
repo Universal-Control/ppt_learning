@@ -4,12 +4,12 @@
 
 from typing import List, Optional
 import numpy as np
+import inspect
 
 from hydra.utils import instantiate
 from matplotlib import pyplot as plt
 import torch
 from tqdm import tqdm
-from collections import OrderedDict
 import transforms3d
 import copy
 import cv2
@@ -32,6 +32,13 @@ from ppt_learning.utils.pcd_utils import (
 )
 from ppt_learning.paths import *
 from pathlib import Path
+
+import collections
+try:
+    collections.Iterable=collections.abc.Iterable
+except:
+    pass
+from collections import OrderedDict
 
 try:
     from gensim2.env.task.origin_tasks import *
@@ -113,8 +120,8 @@ def update_pcd_transform(pcdnet_pretrain_domain, pcd_setup_cfg=None):
             recursive=True,
         )
 
-    # pcd_transform = build_transforms_from_cfg("train", pcd_setup_cfg.datatransforms)
-    pcd_transform = build_transforms_from_cfg("val", pcd_setup_cfg.datatransforms)
+    pcd_transform = build_transforms_from_cfg("train", pcd_setup_cfg.datatransforms)
+    # pcd_transform = build_transforms_from_cfg("val", pcd_setup_cfg.datatransforms)
     pcd_num_points = pcd_setup_cfg.num_points
 
     return pcd_transform, pcd_num_points
@@ -470,6 +477,7 @@ class IsaacEnvRolloutRunner:
         rank=0,
         max_timestep=1200,
         warmup_step=10,
+        hist_action_cond=False,
         **kwargs,
     ):
         assert obs_mode == "pointcloud"
@@ -489,6 +497,7 @@ class IsaacEnvRolloutRunner:
             if self.pose_transform == "pose_to_quat":
                 from ppt_learning.utils.pose_utils import pose_to_quat
                 self.pose_transform = pose_to_quat
+        self.hist_action_cond = hist_action_cond
                                     
         self.random_reset = random_reset
         self.collision_pred = collision_pred
@@ -545,6 +554,12 @@ class IsaacEnvRolloutRunner:
         self.env = self.gym_env.unwrapped
         print("Env created")
 
+        if inspect.isclass(self.success_term.func):
+            self.success_term.func = self.success_term.func(cfg=self.success_term, env=self.env)
+            self._success_term_class = True
+        else:
+            self._success_term_class = False
+
         self.video_save_dir = Path(video_save_dir)
         print(f"Video will be saved to {self.video_save_dir}")
         if self.save_video:
@@ -552,25 +567,24 @@ class IsaacEnvRolloutRunner:
         self.rank = rank
 
     def get_state(self, sample):
-        sample["state"] = []
+        res = []
         for key in self.state_keys:
             if key in sample.keys():
-                sample["state"].append(sample[key])
-                del sample[key]
-        sample["state"] = torch.cat(sample["state"], dim=-1)
+                res.append(sample[key])
+        res = torch.cat(res, dim=-1)
 
-        return sample
+        return res
 
-    def _isaac_obs_warpper(self, obs):
+    def _isaac_obs_wrapper(self, obs):
         ppt_obs = {}
         ppt_obs["pointcloud"] = {
             "color": obs["policy_infer"]["pointcloud"][..., 1],
             "pos": obs["policy_infer"]["pointcloud"][..., 0],
         }
-        ppt_obs.update(obs["policy"])
+        
         ppt_obs = _recursive_flat_env_dim(ppt_obs)
-        if "state" not in ppt_obs:
-            ppt_obs = self.get_state(ppt_obs)
+        ppt_obs["state"] = self.get_state(obs["policy"])
+
         return ppt_obs
 
     @torch.inference_mode()
@@ -592,11 +606,14 @@ class IsaacEnvRolloutRunner:
                 eps_reward = 0
                 traj_length = 0
                 done = False
-                self.success_term.func(env, **self.success_term.params)
-
+                
+                if not self._success_term_class:
+                    self.success_term.func(env, **self.success_term.params)
                 policy.reset()
                 obs, _ = env.reset()
-                
+                if self._success_term_class:
+                    self.success_term.func.reset()
+                    
                 task_description = ""
                 success = False
                 subtask_successes = {key: False for key in obs["subtask_terms"]}
@@ -608,8 +625,10 @@ class IsaacEnvRolloutRunner:
                 for t in range(self.max_timestep):
                     if self.save_video:
                         for key in obs["images"]:
-                            image = image = obs["images"][key][0].cpu().numpy()
+                            image = obs["images"][key][0].cpu().numpy()
                             cv2.putText(image, f'{key}: step {t}', (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2, cv2.LINE_AA)
+                            for idx,subtask in enumerate(obs["subtask_terms"].keys()):
+                                cv2.putText(image, f'{subtask}: {obs["subtask_terms"][subtask]}', (50, 50*(idx+1)), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2, cv2.LINE_AA)
                             self.video_logger.extend(
                                 key, image, category="color"
                             )
@@ -619,11 +638,11 @@ class IsaacEnvRolloutRunner:
                     with torch.no_grad():
                         if (
                             "pointcloud" in obs.keys()
-                            or "pointcloud" in obs["policy_infer"].keys()
+                            or "pointcloud" in obs.get("policy_infer", {}).keys()
                         ):
                             action = policy.get_action(
                                 preprocess_obs(
-                                    self._isaac_obs_warpper(obs),
+                                    self._isaac_obs_wrapper(obs),
                                     # self.pcd_aug,
                                     None,
                                     self.pcd_transform,
@@ -633,16 +652,18 @@ class IsaacEnvRolloutRunner:
                                 in_channels=self.pcd_channels,
                                 task_description=task_description,
                                 t=t,
+                                hist_action_cond=self.hist_action_cond
                             )
                         else:
                             action = policy.get_action(
                                 preprocess_obs(
-                                    self._isaac_obs_warpper(obs), None, None, 3
+                                    self._isaac_obs_wrapper(obs), None, None, 3
                                 ),
                                 pcd_npoints=self.pcd_num_points,
                                 in_channels=3,
                                 task_description=task_description,
                                 t=t,
+                                hist_action_cond=self.hist_action_cond
                             )
                         
                     action[-1] = 0.0 if action[-1] < 0.5 else 1.0
@@ -710,7 +731,6 @@ class IsaacEnvWbcRolloutRunner(IsaacEnvRolloutRunner):
         world_size=1,
         rank=0,
         max_timestep=1200,
-        warmup_step=10,
         wbc_controller=None,
         until_wbc_reach=False,
         robot_type="ur5e",
@@ -770,7 +790,7 @@ class IsaacEnvWbcRolloutRunner(IsaacEnvRolloutRunner):
                         ):
                             action = policy.get_action(
                                 preprocess_obs(
-                                    self._isaac_obs_warpper(obs),
+                                    self._isaac_obs_wrapper(obs),
                                     # self.pcd_aug,
                                     None,
                                     self.pcd_transform,
@@ -784,7 +804,7 @@ class IsaacEnvWbcRolloutRunner(IsaacEnvRolloutRunner):
                         else:
                             action = policy.get_action(
                                 preprocess_obs(
-                                    self._isaac_obs_warpper(obs), None, None, 3
+                                    self._isaac_obs_wrapper(obs), None, None, 3
                                 ),
                                 pcd_npoints=self.pcd_num_points,
                                 in_channels=3,
