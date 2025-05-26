@@ -38,7 +38,7 @@ rollout_runner:
   warmup_step: 20
   save_video: true
   task_name: "Isaac-UR5-PutBowlInMicroWaveAndClose-Joint-Mimic-v0"
-  # task_name: "Isaac-UR5-CloseMicroWave-Mimic-v0"
+  # task_name: "Isaac-UR5-PutBowlInMicroWaveAndClose-Joint-Mimic-Retry-v0"
 eval_log_name: "eval_log_l40_8_100_ddp_new"
 n_procs: 8
 domains: put_bowl_in_microwave_8_demos_generated
