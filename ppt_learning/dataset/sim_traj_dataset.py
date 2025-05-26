@@ -617,7 +617,7 @@ if __name__ == "__main__":
 
     dataset = TrajDataset(
         domain="debug",
-        dataset_path="/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/put_bowl_in_microwave_8_demos_generated_interrupt_520_collected_data_simplify_gripper_retry_more_wait_520.zarr",
+        dataset_path="/mnt/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/put_bowl_in_microwave_8_demos_generated_interrupt_520_collected_data_simplify_gripper_retry_more_wait_520.zarr",
         from_empty=False,
         use_disk=True,
         load_from_cache=True,
@@ -628,8 +628,12 @@ if __name__ == "__main__":
         horizon=18,
         pad_before=3,
         pad_after=16,
-        action_key="wbc_target/r"
+        use_pcd=True,
+        pcd_channels=4,
+        pcdnet_pretrain_domain="scanobjectnn",
+        # action_key="wbc_target/r"
     )
+    dataset.__getitem__(0)
     # dataset.load_dataset()
     # rigid_pos = dataset.replay_buffer['initial_state']['rigid_object']['bowl']['root_pose'][:, :2]
     # articulation_pos = dataset.replay_buffer['initial_state']['articulation']['microwave']['root_pose'][:, :2]

@@ -18,22 +18,19 @@ defaults:
   - _self_
 
 network:
-  openloop_steps: 8
-
-dataset:
-  ignored_keys: ["initial_state", "states", "depths", "images", "color"]
-  hist_action_cond: True
+  openloop_steps: 12
+  # temporal_agg: true
 
 train:
   total_epochs: 550  # maximum training epochs before termination. usually set as maximum
   total_iters: 100000000 # maximum training steps before termination
   epoch_iters: 1000  # training steps in each epoch
   validation_iters: 100 # maximum iterations for validation
-  pretrained_dir: "/home/ubuntu/xiaoshen/code/IsaacLab-new/GR-Isaaclab/outputs/ppt_learning/outputs/pcd/2025-05-25_18-30-09/ur5_put_bowl_in_microwave_and_close" # pretrained model path for testing
+  pretrained_dir: "/home/ubuntu/xiaoshen/code/IsaacLab-new/GR-Isaaclab/outputs/ppt_learning/outputs/pcd/2025-05-26_15-48-19/ur5_put_bowl_in_microwave_and_close" # pretrained model path for testing
   model_names:
-    - model_500.pth
     - model.pth
     - model_450.pth
+    - model_500.pth
     - model_400.pth
     - model_350.pth
     - model_300.pth

@@ -93,7 +93,7 @@ class Policy(nn.Module):
 
         if temporal_agg:
             self.all_time_actions = torch.zeros(
-                [max_timesteps, max_timesteps + action_horizon, action_dim]
+                [max_timesteps + action_horizon, max_timesteps + action_horizon, action_dim]
             ).cuda()
         else:
             self.openloop_actions = deque()
@@ -395,6 +395,8 @@ class Policy(nn.Module):
                     self.action_dim,
                 ]
             ).cuda()
+        else:
+            self.openloop_actions.clear()
 
     def get_action(
         self,
@@ -466,22 +468,30 @@ class Policy(nn.Module):
         action_th = self(domain, data_tensor)[0]
         self.policy_action = action_th
 
-        output = self.policy_action
+        output = self.policy_action.squeeze()
         if self.temporal_agg:
             if hist_action_cond:
+<<<<<<< Updated upstream
                 self.all_time_actions[[t], t - self.observation_horizon + 1 : t - self.observation_horizon + 1 + self.action_horizon] = output
+=======
+                if t - self.observation_horizon + 1 < 0:
+                    assert t - self.observation_horizon + 1 + self.action_horizon > 0
+                    self.all_time_actions[t, 0 : t - self.observation_horizon + 1 + self.action_horizon] = output[output.shape[0] - (t - self.observation_horizon + 1 + self.action_horizon):]
+                else:
+                    self.all_time_actions[t, t - self.observation_horizon + 1 : t - self.observation_horizon + 1 + self.action_horizon] = output
+>>>>>>> Stashed changes
             else:
                 self.all_time_actions[[t], t : t + self.action_horizon] = output
             output = merge_act(self.all_time_actions[:, t], t)
 
-        action = output.reshape(-1, self.action_dim).detach().cpu().numpy()
+        action = output.detach().cpu().numpy()
 
         if self.temporal_agg:
             return action.squeeze()
         else:
             if hist_action_cond:
-                assert len(action.shape) >= self.observation_horizon, "condition on history horizon but get too short prediction!"
-                for a in action[self.observation_horizon-1:self.observation_horizon-1+self.openloop_steps]:
+                assert (len(action.shape) == 2) and (len(action[0]) >= self.observation_horizon), "condition on history horizon but get too short prediction!"
+                for a in action[self.observation_horizon:self.observation_horizon-1+self.openloop_steps]:
                     self.openloop_actions.append(a)
                 return action[self.observation_horizon-1]
             else:

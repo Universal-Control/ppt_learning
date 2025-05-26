@@ -480,91 +480,96 @@ class IsaacEnvRolloutRunner:
         hist_action_cond=False,
         **kwargs,
     ):
-        assert obs_mode == "pointcloud"
-        import os
-        self.task_name = task_name
-        self.save_video = save_video
-        self.max_timestep = max_timestep
-        self.headless = headless
-        self.episode_num = episode_num
-        self.pcd_channels = pcd_channels
-        self.warmup_step = warmup_step
-        self.pcd_transform, self.pcd_num_points = update_pcd_transform(
-            pcdnet_pretrain_domain
-        )
-        self.pose_transform = None
-        if pose_transform is not None:
-            if self.pose_transform == "pose_to_quat":
-                from ppt_learning.utils.pose_utils import pose_to_quat
-                self.pose_transform = pose_to_quat
-        self.hist_action_cond = hist_action_cond
-                                    
-        self.random_reset = random_reset
-        self.collision_pred = collision_pred
-        self.device = device
-        self.num_envs = num_envs
-        self.state_keys = state_keys
-        if state_keys is None:
-            self.state_keys = [
-                "eef_pos",
-                "eef_quat",
-                "joint_pos",
-                "joint_vel",
-            ]
-        self.pcd_aug = lambda x: randomly_drop_point(add_gaussian_noise(x))
+        try:
+            assert obs_mode == "pointcloud"
+            import os
+            self.task_name = task_name
+            self.save_video = save_video
+            self.max_timestep = max_timestep
+            self.headless = headless
+            self.episode_num = episode_num
+            self.pcd_channels = pcd_channels
+            self.warmup_step = warmup_step
+            self.pcd_transform, self.pcd_num_points = update_pcd_transform(
+                pcdnet_pretrain_domain
+            )
+            self.pose_transform = None
+            if pose_transform is not None:
+                if self.pose_transform == "pose_to_quat":
+                    from ppt_learning.utils.pose_utils import pose_to_quat
+                    self.pose_transform = pose_to_quat
+            self.hist_action_cond = hist_action_cond
+                                        
+            self.random_reset = random_reset
+            self.collision_pred = collision_pred
+            self.device = device
+            self.num_envs = num_envs
+            self.state_keys = state_keys
+            if state_keys is None:
+                self.state_keys = [
+                    "eef_pos",
+                    "eef_quat",
+                    "joint_pos",
+                    "joint_vel",
+                ]
+            self.pcd_aug = lambda x: randomly_drop_point(add_gaussian_noise(x))
 
-        from isaaclab.app import AppLauncher
+            from isaaclab.app import AppLauncher
 
-        distributed = (world_size != 1)
+            distributed = (world_size != 1)
 
-        app_launcher_kwargs = {
-            "headless": self.headless, "enable_cameras": True,
-            "distributed": distributed, "n_procs": world_size, "livestream": -1,
-            "xr": False, device:'cuda:0', "cpu": False,
-            "verbose": False, "info": False, "experience": '', "rendering_mode": None,
-            "kit_args":''
-        }
-        self.app_launcher = AppLauncher(None, **app_launcher_kwargs)
-        self.app = self.app_launcher.app
+            app_launcher_kwargs = {
+                "headless": self.headless, "enable_cameras": True,
+                "distributed": distributed, "n_procs": world_size, "livestream": -1,
+                "xr": False, device:'cuda:0', "cpu": False,
+                "verbose": False, "info": False, "experience": '', "rendering_mode": None,
+                "kit_args":''
+            }
+            self.app_launcher = AppLauncher(None, **app_launcher_kwargs)
+            self.app = self.app_launcher.app
 
-        import isaaclab_mimic.envs
-        import bytemini_sim.tasks
-        from isaaclab_tasks.utils.parse_cfg import parse_env_cfg
-        from isaaclab.envs import ManagerBasedRLEnv
-        import gymnasium as gym
+            import isaaclab_mimic.envs
+            import bytemini_sim.tasks
+            from isaaclab_tasks.utils.parse_cfg import parse_env_cfg
+            from isaaclab.envs import ManagerBasedRLEnv
+            import gymnasium as gym
 
-        if world_size > 1:
-            self.device = f"cuda:{rank}"
+            if world_size > 1:
+                self.device = f"cuda:{rank}"
 
-        env_cfg = parse_env_cfg(
-            self.task_name, device=self.device, num_envs=self.num_envs
-        )
-        
-        self.success_term = env_cfg.terminations.success
-        env_cfg.terminations.success = None
-        
-        env_cfg.seed = seed
+            env_cfg = parse_env_cfg(
+                self.task_name, device=self.device, num_envs=self.num_envs
+            )
+            
+            self.success_term = env_cfg.terminations.success
+            env_cfg.terminations.success = None
+            
+            env_cfg.seed = seed
 
-        if world_size > 1:
-            env_cfg.sim.device = f'cuda:{rank}'
-            env_cfg.seed += self.app_launcher.global_rank
-            print("self.app_launcher.global_rank:", self.app_launcher.global_rank)
+            if world_size > 1:
+                env_cfg.sim.device = f'cuda:{rank}'
+                env_cfg.seed += self.app_launcher.global_rank
+                print("self.app_launcher.global_rank:", self.app_launcher.global_rank)
 
-        self.gym_env = gym.make(self.task_name, cfg=env_cfg)
-        self.env = self.gym_env.unwrapped
-        print("Env created")
+            self.gym_env = gym.make(self.task_name, cfg=env_cfg)
+            self.env = self.gym_env.unwrapped
+            print("Env created")
 
-        if inspect.isclass(self.success_term.func):
-            self.success_term.func = self.success_term.func(cfg=self.success_term, env=self.env)
-            self._success_term_class = True
-        else:
-            self._success_term_class = False
+            if inspect.isclass(self.success_term.func):
+                self.success_term.func = self.success_term.func(cfg=self.success_term, env=self.env)
+                self._success_term_class = True
+            else:
+                self._success_term_class = False
 
-        self.video_save_dir = Path(video_save_dir)
-        print(f"Video will be saved to {self.video_save_dir}")
-        if self.save_video:
-            self.video_logger = videoLogger(self.video_save_dir)
-        self.rank = rank
+            self.video_save_dir = Path(video_save_dir)
+            print(f"Video will be saved to {self.video_save_dir}")
+            if self.save_video:
+                self.video_logger = videoLogger(self.video_save_dir)
+            self.rank = rank
+        except Exception as e:
+            print(f"Error initializing IsaacEnvRolloutRunner: {e}")
+            import traceback
+            traceback.print_exc()
 
     def get_state(self, sample):
         res = []
@@ -628,7 +633,9 @@ class IsaacEnvRolloutRunner:
                             image = obs["images"][key][0].cpu().numpy()
                             cv2.putText(image, f'{key}: step {t}', (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2, cv2.LINE_AA)
                             for idx,subtask in enumerate(obs["subtask_terms"].keys()):
-                                cv2.putText(image, f'{subtask}: {obs["subtask_terms"][subtask]}', (50, 50*(idx+1)), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2, cv2.LINE_AA)
+                                cv2.putText(image, f'{subtask}: {obs["subtask_terms"][subtask].cpu().numpy()[0]}', (50, 50*(idx+2)), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
+                            if hasattr(policy, "openloop_actions") and len(policy.openloop_actions) == 0:
+                                cv2.putText(image, f'Next step new action trunk!', (50, 50*(idx+3)), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2, cv2.LINE_AA)
                             self.video_logger.extend(
                                 key, image, category="color"
                             )

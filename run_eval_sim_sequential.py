@@ -22,14 +22,13 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 hostname = ""  # TODO fill in the hostname
 deploy_on_real = True
-MAX_EP_STEPS = 500
-
+MAX_EP_STEPS = 1000
 
 # TODO use +prompt "task description" to run specific task
 # TODO fill in config_name with config from training
 @hydra.main(
     config_path=f"{PPT_DIR}/experiments/configs",
-    config_name="config_eval_ddp",
+    config_name="config_eval_pcd_sequential_histact",
     version_base="1.2",
 )
 def run(cfg):
@@ -58,14 +57,17 @@ def run(cfg):
     print("output dir", cfg.output_dir)
 
     use_pcd = "pointcloud" in cfg.stem.modalities
+    if use_pcd:
+        cfg.rollout_runner.pcdnet_pretrain_domain = cfg.stem.pointcloud.pcd_domain
 
     action_dim = 7
     state_dim = 21
 
     # initialize policy
-    cfg.head["output_dim"] = cfg.network["action_dim"] = action_dim
-    if cfg.dataset.get("hist_action_cond", False):
+    if cfg.rollout_runner.get("hist_action_cond", False):
         cfg.head["hist_horizon"] = cfg.dataset.observation_horizon
+    cfg.head["output_dim"] = cfg.network["action_dim"] = action_dim
+    
     policy = hydra.utils.instantiate(cfg.network, max_timestep=cfg.rollout_runner.max_timestep).to(device)
     cfg.stem.state["input_dim"] = state_dim
     policy.init_domain_stem(domain, cfg.stem)
@@ -91,6 +93,7 @@ def run(cfg):
         assert os.path.exists(
             os.path.join(cfg.train.pretrained_dir, model_name)
         ), f"Pretrained model not found, try to load model from {os.path.join(cfg.train.pretrained_dir, model_name)}"
+        
         policy.load_state_dict(
             torch.load(os.path.join(cfg.train.pretrained_dir, model_name))
         )

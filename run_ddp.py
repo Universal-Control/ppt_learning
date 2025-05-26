@@ -81,10 +81,11 @@ def run(rank: int, world_size: int, cfg: DictConfig):
     use_pcd = "pointcloud" in cfg.stem.modalities
     if use_pcd:
         cfg.dataset.use_pcd = use_pcd
-        cfg.dataset.pcdnet_pretrain_domain = (
-            cfg.rollout_runner.pcdnet_pretrain_domain
-        ) = cfg.stem.pointcloud.pcd_domain
+        cfg.dataset.pcdnet_pretrain_domain = cfg.rollout_runner.pcdnet_pretrain_domain = cfg.stem.pointcloud.pcd_domain
         cfg.rollout_runner.pcd_channels = cfg.dataset.pcd_channels
+        
+    if cfg.dataset.get("hist_action_cond", False):
+        cfg.head["hist_horizon"] = cfg.dataset.observation_horizon
     cfg.dataset.horizon = (
         cfg.dataset.observation_horizon + cfg.dataset.action_horizon - 1
     )
@@ -133,8 +134,6 @@ def run(rank: int, world_size: int, cfg: DictConfig):
         state_dim = dataset.state_dim
 
     # initialize policy
-    if cfg.dataset.get("hist_action_cond", False):
-        cfg.head["hist_horizon"] = cfg.dataset.observation_horizon
     cfg.head["output_dim"] = cfg.network["action_dim"] = action_dim
 
     if rank == 0:

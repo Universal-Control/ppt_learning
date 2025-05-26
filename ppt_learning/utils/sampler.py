@@ -221,8 +221,14 @@ class SequenceSampler:
 
         result["language"] = eps_description
         result["obs_is_pad"] = np.zeros((self.sequence_length, 1), dtype=np.float32)
-        result["obs_is_pad"][:sample_start_idx] = True
         result["action_is_pad"] = np.zeros((self.sequence_length, 1), dtype=np.float32)
-        result["action_is_pad"][sample_end_idx:] = True
+
+        if sample_start_idx > 0:
+            result["obs_is_pad"][:sample_start_idx] = True
+            result["action_is_pad"][:sample_start_idx] = True
+
+        if sample_end_idx < self.sequence_length:
+            result["obs_is_pad"][sample_end_idx:] = True
+            result["action_is_pad"][sample_end_idx:] = True
 
         return result

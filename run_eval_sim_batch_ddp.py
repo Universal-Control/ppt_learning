@@ -32,8 +32,9 @@ def eval_in_one_process(rank, world_size, cfg, domain, queue:JoinableQueue):
         os.environ["RANK"] = str(rank)
         os.environ["WORLD_SIZE"] = str(world_size)
         device = f"cuda:{rank}"
+
         # initialize policy
-        if cfg.dataset.get("hist_action_cond", False):
+        if cfg.rollout_runner.get("hist_action_cond", False):
             cfg.head["hist_horizon"] = cfg.dataset.observation_horizon
         policy = hydra.utils.instantiate(cfg.network, max_timestep=cfg.rollout_runner.max_timestep).to(device)
         policy.init_domain_stem(domain, cfg.stem)
@@ -79,6 +80,8 @@ def eval_in_one_process(rank, world_size, cfg, domain, queue:JoinableQueue):
         queue.join()
     except Exception as e:
         print(f"Error in process {rank}: {e}")
+        import traceback
+        traceback.print_exc()
 
 # TODO use +prompt "task description" to run specific task
 # TODO fill in config_name with config from training
@@ -112,9 +115,13 @@ def run(cfg):
     print("cfg: ", cfg)
     print("output dir", cfg.output_dir)
 
+    use_pcd = "pointcloud" in cfg.stem.modalities
+
     action_dim = 7
     state_dim = 21
 
+    if use_pcd:
+        cfg.rollout_runner.pcdnet_pretrain_domain = cfg.stem.pointcloud.pcd_domain
     cfg.head["output_dim"] = cfg.network["action_dim"] = action_dim
     cfg.stem.state["input_dim"] = state_dim
 

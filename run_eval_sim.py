@@ -30,7 +30,7 @@ MAX_EP_STEPS = 500
 # TODO fill in config_name with config from training
 @hydra.main(
     config_path=f"{PPT_DIR}/experiments/configs",
-    config_name="config_eval",
+    config_name="config_eval_pcd_sequential",
     version_base="1.2",
 )
 def run(cfg):

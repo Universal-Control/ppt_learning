@@ -17,12 +17,16 @@ defaults:
   - datasetsize: all
   - _self_
 
+network:
+  openloop_steps: 12
+  # temporal_agg: true
+
 train:
   total_epochs: 250  # maximum training epochs before termination. usually set as maximum
   total_iters: 100000000 # maximum training steps before termination
   epoch_iters: 1000  # training steps in each epoch
   validation_iters: 100 # maximum iterations for validation
-  pretrained_dir: "/home/ubuntu/xiaoshen/code/IsaacLab-new/GR-Isaaclab/outputs/ppt_learning/outputs/pcd/2025-05-25_16-46-21/ur5_put_bowl_in_microwave_and_close" # pretrained model path for testing
+  pretrained_dir: "/mnt/xiaoshen/code/IsaacLab-new/GR-Isaaclab/outputs/ppt_learning/outputs/pcd/2025-05-26_19-55-13/ur5_put_bowl_in_microwave_and_close" # pretrained model path for testing
   model_names:
     - model_500.pth 
     - model.pth
@@ -35,13 +39,15 @@ train:
   freeze_trunk: False # whether to freeze the trunk during finetuning
 prompt: ""
 rollout_runner:
-  warmup_step: 20
+  episode_num: 50
+  hist_action_cond: true
+  warmup_step: 30
   save_video: true
   task_name: "Isaac-UR5-PutBowlInMicroWaveAndClose-Joint-Mimic-v0"
   # task_name: "Isaac-UR5-PutBowlInMicroWaveAndClose-Joint-Mimic-Retry-v0"
 eval_log_name: "eval_log_l40_8_100_ddp_new"
 n_procs: 8
-domains: put_bowl_in_microwave_8_demos_generated
+domains: ur5_put_bowl_in_microwave_and_close
 stem:
   pointcloud: 
     pretrained_path: "/mnt/xiaoshen/scanobjectnn-pointnext-s_best.pth"
