@@ -71,10 +71,6 @@ def run(cfg):
     output_dir += "-eval"
 
     cfg.output_dir = output_dir
-    utils.save_args_hydra(cfg.output_dir, cfg)
-
-    print("cfg: ", cfg)
-    print("output dir", cfg.output_dir)
 
     use_pcd = "pointcloud" in cfg.stem.modalities
     if use_pcd:
@@ -88,12 +84,17 @@ def run(cfg):
     )
     if cfg.dataset.get("hist_action_cond", False):
         cfg.head["hist_horizon"] = cfg.dataset.observation_horizon
-
     # initialize policy
     cfg.stem.pointcloud.pretrained_path = None
     cfg.stem.pointcloud.finetune = False
     cfg.head["output_dim"] = cfg.network["action_dim"] = 8
     cfg.stem.state["input_dim"] = 21
+
+    utils.save_args_hydra(cfg.output_dir, cfg)
+
+    print("cfg: ", cfg)
+    print("output dir", cfg.output_dir)
+
     policy = hydra.utils.instantiate(cfg.network)
     policy.init_domain_stem(domain, cfg.stem)
     policy.init_domain_head(domain, cfg.head, normalizer=None)  # no normalizer

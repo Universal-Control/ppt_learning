@@ -58,8 +58,8 @@ stem:
 
   # used as perceiver io to unify token sizes for each modality
   crossattn_latent:
-    pointcloud: 5
-    state: 3
+    pointcloud: 1
+    state: 1
 
   pointcloud:
     _target_: ppt_learning.models.policy_stem.PointNet
@@ -89,7 +89,7 @@ stem:
     _target_: ppt_learning.models.policy_stem.MLP
     input_dim: 0 # ovewrite based on the dataset
     output_dim: ${network.embed_dim}
-    widths: [256, 512]
+    widths: [128, 256]
 
   # language:
   #   _target_: ppt_learning.models.policy_stem.TextEncoder

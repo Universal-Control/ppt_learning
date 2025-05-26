@@ -277,7 +277,7 @@ class Diffusion(nn.Module):
         kernel_size: int = 5,
         n_groups: int = 8,
         use_film_scale_modulation: bool = True,
-        do_mask_loss_for_padding: bool = True,
+        do_mask_loss_for_padding: bool = False,
         **kwargs,
     ):
         from .diffusion import _make_noise_scheduler
@@ -290,8 +290,6 @@ class Diffusion(nn.Module):
         self.output_dim = output_dim
         self.hist_horizon = hist_horizon
         self.horizon = horizon # default as future horizon
-        if hist_horizon > 1:
-            self.horizon = horizon + hist_horizon - 1 # hist and future has one step overlap
         self.do_mask_loss_for_padding = do_mask_loss_for_padding
 
         self.unet = DiffusionConditionalUnet1d(
@@ -325,7 +323,7 @@ class Diffusion(nn.Module):
         self,
         batch_size: int,
         global_cond: Optional[Tensor] = None,
-        local_cond: Optional[Tensor] = None,
+        local_cond: Optional[Tensor] = None, # impainting the past trajectory
         generator: Optional[torch.Generator] = None,
     ) -> Tensor:
         device = next(iter(self.parameters())).device
@@ -339,9 +337,9 @@ class Diffusion(nn.Module):
             generator=generator,
         )
         self.noise_scheduler.set_timesteps(self.num_inference_steps)
-        if self.hist_horizon > 0 and local_cond is not None:
-            # local cond the past trajectory
-            sample[..., : self.hist_horizon-1, :] = local_cond[..., : self.hist_horizon-1, :]
+        # if self.hist_horizon > 0 and local_cond is not None:
+        #     # local cond the past trajectory
+        #     sample[..., : self.hist_horizon-1, :] = local_cond[..., : self.hist_horizon-1, :]
 
         for t in self.noise_scheduler.timesteps:
             # Predict model output.
@@ -394,9 +392,9 @@ class Diffusion(nn.Module):
         # Add noise to the clean trajectories according to the noise magnitude at each timestep.
         noisy_trajectory = self.noise_scheduler.add_noise(trajectory, eps, timesteps)
 
-        if self.hist_horizon > 0 and local_cond is not None:
-            # local cond the past trajectory
-            noisy_trajectory[..., : self.hist_horizon-1, :] = local_cond[..., : self.hist_horizon-1, :]
+        # if self.hist_horizon > 0 and local_cond is not None:
+        #     # impaint the past trajectory
+        #     noisy_trajectory[..., : self.hist_horizon-1, :] = local_cond[..., : self.hist_horizon-1, :]
             
         # Run the denoising network (that might denoise the trajectory, or attempt to predict the noise).
         pred = self.unet(noisy_trajectory, timesteps, global_cond=x)
@@ -410,7 +408,7 @@ class Diffusion(nn.Module):
         else:
             raise ValueError(f"Unsupported prediction type {self.prediction_type}")
         
-        if self.hist_horizon > 0 and local_cond is not None:
+        if False: # self.hist_horizon > 0 and local_cond is not None:
             loss = F.mse_loss(pred[..., self.hist_horizon-1:, :], target[..., self.hist_horizon-1:, :], reduction="none")
         else:
             loss = F.mse_loss(pred, target, reduction="none")
@@ -430,8 +428,9 @@ class Diffusion(nn.Module):
         if target is None:
             return self.generate_actions(x, local_cond)
 
-        if local_cond is None and self.hist_horizon > 0:
-            local_cond = target[..., : self.hist_horizon-1, :]
+        # if local_cond is None and self.hist_horizon > 0:
+        #     local_cond = target[..., : self.hist_horizon-1, :]
+        
         """Run the batch through the model and compute the loss for training or validation."""
         loss = self.compute_loss(x, target=target, local_cond=local_cond)
         return {"loss": loss}

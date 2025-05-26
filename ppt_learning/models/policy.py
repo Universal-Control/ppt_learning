@@ -404,6 +404,7 @@ class Policy(nn.Module):
         in_channels=4,
         task_description="",
         t=0,
+        hist_action_cond=False,
     ):
         """Get action in the evaluation setup.
         data should be dictionary
@@ -467,8 +468,10 @@ class Policy(nn.Module):
 
         output = self.policy_action
         if self.temporal_agg:
-            # self.all_time_actions[[t], t - self.observation_horizon + 1 : t - self.observation_horizon + 1 + self.action_horizon] = output
-            self.all_time_actions[[t], t : t + self.action_horizon] = output
+            if hist_action_cond:
+                self.all_time_actions[[t], t - self.observation_horizon + 1 : t - self.observation_horizon + 1 + self.action_horizon] = output
+            else:
+                self.all_time_actions[[t], t : t + self.action_horizon] = output
             output = merge_act(self.all_time_actions[:, t], t)
 
         action = output.reshape(-1, self.action_dim).detach().cpu().numpy()
@@ -476,11 +479,17 @@ class Policy(nn.Module):
         if self.temporal_agg:
             return action.squeeze()
         else:
-            if len(action.shape) > 1:
-                # for a in action[self.observation_horizon : self.observation_horizon-1+self.openloop_steps]:
-                for a in action[1:self.openloop_steps]:
+            if hist_action_cond:
+                assert len(action.shape) >= self.observation_horizon, "condition on history horizon but get too short prediction!"
+                for a in action[self.observation_horizon-1:self.observation_horizon-1+self.openloop_steps]:
                     self.openloop_actions.append(a)
-            return action[0] # action w.r.t current obs
+                return action[self.observation_horizon-1]
+            else:
+                if len(action.shape) > 1:
+                    # for a in action[self.observation_horizon : self.observation_horizon-1+self.openloop_steps]:
+                    for a in action[1:self.openloop_steps]:
+                        self.openloop_actions.append(a)
+                return action[0] # action w.r.t current obs
 
     def forward_train(self, batch):
         """Traing loop forward pass"""
@@ -491,6 +500,7 @@ class Policy(nn.Module):
         """main forward pass of the combined policy.
         :param batch: data
         :return: action"""
+        hist_act = data.get("hist_act", None)
         # preprocess / normalization
         data = self.preprocess_states(domain, data)
         data = self.preprocess_actions(domain, data)
@@ -516,10 +526,10 @@ class Policy(nn.Module):
         # head pass
         if self.train_mode:
             action = self.heads[domain](
-                features, data["action"], action_is_pad=data.get("action_is_pad", None)
+                features, target=data["action"], action_is_pad=data.get("action_is_pad", None)
             )
         else:
-            action = self.heads[domain](features)
+            action = self.heads[domain](features, local_cond=hist_act)
 
         if isinstance(action, (dict, OrderedDict)):  # That should be losses
             return action
@@ -542,8 +552,8 @@ class Policy(nn.Module):
             )
 
     def load(self, path):
-        """load the trunk part of the model"""
-        self.trunk.load_state_dict(torch.load(path))
+        """load all parts of the model"""
+        self.load_state_dict(torch.load(path))
 
     def load_trunk(self, path, postfix="_last", extension="pth"):
         """load the trunk part of the model"""
