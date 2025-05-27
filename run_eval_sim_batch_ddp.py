@@ -72,9 +72,9 @@ def eval_in_one_process(rank, world_size, cfg, domain, queue:JoinableQueue):
             print(f"Evaluation takes {end_time - start_time} second to finish.")
             print("\n\nThe success rate is {}\n".format(success_rate))
             subtask_success_sr = {}
-            for key in range(subtask_success_nums):
-                print(f"Subtask success rate for {key} is: {float(subtask_success_nums) / episode_num}") 
-                subtask_success_sr[key] = float(subtask_success_nums) / episode_num
+            for key in subtask_success_nums:
+                print(f"Subtask success rate for {key} is: {float(subtask_success_nums[key]) / episode_num}") 
+                subtask_success_sr[key] = float(subtask_success_nums[key]) / episode_num
             queue.put((model_name, success_rate, subtask_success_sr))
         
         queue.join()
