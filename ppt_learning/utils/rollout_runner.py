@@ -674,6 +674,7 @@ class IsaacEnvRolloutRunner:
                             )
                         
                     action[-1] = 0.0 if action[-1] < 0.5 else 1.0
+
                     if self.collision_pred:
                         assert False, "Not support collision pred"
                     else:
@@ -697,7 +698,6 @@ class IsaacEnvRolloutRunner:
 
                 # if not info["sub_task_success"]:
                 #     break
-
                 total_reward += eps_reward
                 total_success += success
                 for key in subtask_successes:

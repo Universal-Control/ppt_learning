@@ -10,9 +10,9 @@ from pathlib import Path
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--failed_dataset_path", default="/data/datasets/ur5_put_bowl_in_microwave_and_close/put_bowl_in_microwave_8_demos_generated_interrupt_simplify_gripper_retry_more_wait_520.zarr")
-parser.add_argument("--dataset_path", default="/mnt/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/put_bowl_in_microwave_8_demos_generated_interrupt_simplify_gripper_retry_22.zarr")
+parser.add_argument("--dataset_path", default="/mnt/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/put_bowl_in_microwave__520_collected_data_retry_random_x015_new_subtask_generated_1gpu.zarr")
 # parser.add_argument("--dataset_path", default="/data/datasets/ur5_put_bowl_in_microwave_and_close/put_bowl_in_microwave_8_demos_generated_interrupt_simplify_gripper_retry_more_wait_520.zarr")
-parser.add_argument("--type", type=int, default=0) # 0 for success, 1 for fail 
+parser.add_argument("--type", type=int, default=0) # 0 for initial, 1 for last
 args = parser.parse_args()
 
 zarr_store = zarr.DirectoryStore(os.path.expanduser(args.dataset_path))
@@ -40,10 +40,10 @@ else:
 fig, ax = plt.subplots(figsize=(10, 8))
 
 # 绘制散点
-ax.scatter(faild_rigid_pos[:, 0], faild_rigid_pos[:, 1], label="failed rigid body", color='r')
+# ax.scatter(faild_rigid_pos[:, 0], faild_rigid_pos[:, 1], label="failed rigid body", color='r')
 ax.scatter(rigid_pos[:, 0], rigid_pos[:, 1], label="success rigid body", color='y')
-ax.scatter(faild_articulation_pos[:, 0], faild_articulation_pos[:, 1], color='b', label="success articulation")
-ax.scatter(articulation_pos[:, 0], articulation_pos[:, 1], color='orange', label="failed articulation")
+# ax.scatter(faild_articulation_pos[:, 0], faild_articulation_pos[:, 1], color='b', label="failed articulation")
+ax.scatter(articulation_pos[:, 0], articulation_pos[:, 1], color='orange', label="success articulation")
 
 # 计算articulation位置的均值中心
 art_center = np.mean(articulation_pos, axis=0)
@@ -56,8 +56,8 @@ rect = Rectangle((art_center[0] - rect_width/2, art_center[1] - rect_height/2),
                  linewidth=1, edgecolor='g', facecolor='none')
 ax.add_patch(rect)
 
-random_x = -0.1, 0.05
-random_y = -0.2, 0.1
+random_x = -0.1, 0.14
+random_y = -0.2, 0.15
 rigid_center = -0.1, -0.04
 rect_width, rect_height = rigid_center[0]+random_x[1] - (rigid_center[0]+random_x[0]), rigid_center[1]+random_y[1] - (rigid_center[1]+random_y[0])
 rect = Rectangle((rigid_center[0] + random_x[0], rigid_center[1] + random_y[0]),
