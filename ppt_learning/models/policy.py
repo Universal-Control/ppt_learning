@@ -69,6 +69,7 @@ class Policy(nn.Module):
         temporal_agg=False,
         max_timesteps=1300,
         action_dim=7,
+        num_envs=1, # for parallell evaluation
         **kwargs,
     ):
         super().__init__()
@@ -90,13 +91,9 @@ class Policy(nn.Module):
         self.temporal_agg = temporal_agg
         self.max_timesteps = max_timesteps
         self.action_dim = action_dim
+        self.train_mode = False  # whether in training mode
 
-        if temporal_agg:
-            self.all_time_actions = torch.zeros(
-                [max_timesteps + action_horizon, max_timesteps + action_horizon, action_dim]
-            ).cuda()
-        else:
-            self.openloop_actions = deque()
+        self.num_envs = num_envs
 
         if self.use_modality_embedding:
             self.modalities_tokens = OrderedDict()
@@ -384,19 +381,40 @@ class Policy(nn.Module):
             feats.append(stem_token)
         return feats
 
-    def reset(self):
+    def reset(self, env_id=None):
         """reset the policy's history buffer"""
-        self.history_buffer = OrderedDict()
-        if self.temporal_agg:
-            self.all_time_actions = torch.zeros(
-                [
-                    self.max_timesteps,
-                    self.max_timesteps + self.action_horizon,
-                    self.action_dim,
-                ]
-            ).cuda()
+        if self.num_envs > 1:
+            if env_id is None:
+                self.history_buffer = OrderedDict(
+                    {i: OrderedDict() for i in range(self.num_envs)}
+                )
+            else:
+                self.history_buffer[env_id] = OrderedDict()
         else:
-            self.openloop_actions.clear()
+            self.history_buffer = OrderedDict()
+
+        if self.temporal_agg:
+            if self.num_envs > 1:
+                if env_id is None:
+                    self.all_time_actions = torch.zeros(
+                        [self.num_envs, self.max_timesteps + self.action_horizon, self.max_timesteps + self.action_horizon, self.action_dim]
+                    ).cuda()
+                else:
+                    self.all_time_actions[env_id] = torch.zeros(
+                        [self.max_timesteps + self.action_horizon, self.max_timesteps + self.action_horizon, self.action_dim]
+                    ).cuda()
+            else:
+                self.all_time_actions = torch.zeros(
+                    [self.max_timesteps + self.action_horizon, self.max_timesteps + self.action_horizon, self.action_dim]
+                ).cuda()
+        else:
+            if self.num_envs > 1:
+                if env_id is None:
+                    self.openloop_actions = [deque() for _ in range(self.num_envs)]
+                else:
+                    self.openloop_actions[env_id] = deque()
+            else:
+                self.openloop_actions = deque()
 
     def get_action(
         self,
@@ -457,7 +475,7 @@ class Policy(nn.Module):
             return self.openloop_actions.popleft()
 
         data_tensor = dict_apply(
-            data_np, lambda x: torch.Tensor(x).to(device, non_blocking=True).float()
+            data_np, lambda x: torch.from_numpy(x).to(device, non_blocking=True).float()
         )
         if "pointcloud" in data_tensor:
             sample_pcd_data(
