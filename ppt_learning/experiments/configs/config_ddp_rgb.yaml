@@ -20,11 +20,11 @@ defaults:
   - _self_
 
 dataset:
-  ignored_keys: ["initial_state", "states", "depths", "pointcloud"]
+  ignored_keys: ["initial_state", "states", "depths", "pointcloud", "abs_gripper_pos"]
 
 dataloader:
   batch_size: ${batch_size}
-  num_workers: 4
+  num_workers: 8
   pin_memory: true
   persistent_workers: true
   shuffle: true

@@ -204,17 +204,6 @@ class ReplayBuffer:
         src_root = zarr.group(src_store)
         root = None
         if store is None:
-            # numpy backend
-            meta = dict()
-            for key, value in src_root["meta"].items():
-                if len(value.shape) == 0:
-                    meta[key] = np.array(value)
-                else:
-                    meta[key] = value[:]
-
-            if keys is None:
-                keys = src_root["data"].keys()
-
             def recurisive_copy(data, target_data):
                 for key, value in data.items():
                     if isinstance(value, zarr.hierarchy.Group):
@@ -224,6 +213,19 @@ class ReplayBuffer:
                         target_data[key] = value[:]
                     else:
                         raise NotImplementedError(f"Unsupported type {type(value)}")
+                    
+            # numpy backend
+            meta = dict()
+            # for key, value in src_root["meta"].items():
+            #     import ipdb; ipdb.set_trace()
+            #     if len(value.shape) == 0:
+            #         meta[key] = np.array(value)
+            #     else:
+            #         meta[key] = value[:]
+            recurisive_copy(src_root["meta"], meta)
+
+            if keys is None:
+                keys = src_root["data"].keys()
 
             data = dict()
             recurisive_copy(src_root["data"], data)

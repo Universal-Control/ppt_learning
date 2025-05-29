@@ -20,7 +20,7 @@ defaults:
   - _self_
 
 dataset:
-  ignored_keys: ["initial_state", "states", "depths", "images", "color"]
+  ignored_keys: ["initial_state", "states", "depths", "images", "color", "abs_gripper_pos"]
 
 dataloader:
   batch_size: ${batch_size}

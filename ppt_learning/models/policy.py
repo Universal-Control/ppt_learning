@@ -524,7 +524,6 @@ class Policy(nn.Module):
         """main forward pass of the combined policy.
         :param batch: data
         :return: action"""
-        hist_act = data.get("hist_act", None)
         # preprocess / normalization
         data = self.preprocess_states(domain, data)
         data = self.preprocess_actions(domain, data)
@@ -553,7 +552,7 @@ class Policy(nn.Module):
                 features, target=data["action"], action_is_pad=data.get("action_is_pad", None)
             )
         else:
-            action = self.heads[domain](features, local_cond=hist_act)
+            action = self.heads[domain](features)
 
         if isinstance(action, (dict, OrderedDict)):  # That should be losses
             return action

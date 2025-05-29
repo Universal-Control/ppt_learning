@@ -94,7 +94,7 @@ def train(
     in_channels=4,
     log_name="train",
     debug=True,
-    epoch_size=None,
+    epoch_size=None, # Not used for now
 ):
     """training for one epoch"""
     info_log = {k: deque([], maxlen=20) for k in info_key}
@@ -102,7 +102,7 @@ def train(
     start_time = time.time()
 
     # combined_dataloader = train_loader  # WeightedDataLoader(train_loaders)
-    epoch_size = epoch_size or len(train_loader)
+    epoch_size = len(train_loader)
     assert epoch_size > 0, "empty dataloader"
     
     # Create progress bar for rank 0 only
