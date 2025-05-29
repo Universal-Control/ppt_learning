@@ -73,6 +73,50 @@ class MLP(nn.Module):
         return y
 
 
+class DepthCNN(nn.Module):
+    def __init__(self, output_dim, output_activation=None, num_channel=1):
+        super().__init__()
+
+        self.num_frames = num_channel
+        activation = nn.ELU()
+        self.image_compression = nn.Sequential(
+            # [1, 54, 96]
+            nn.Conv2d(in_channels=self.num_frames, out_channels=32, kernel_size=5),
+            # [32, 50, 92]
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            # [32, 25, 46]
+            activation,
+            nn.Conv2d(in_channels=32, out_channels=64, kernel_size=3),
+            # [64, 23, 44]
+            activation,
+            nn.Flatten(),
+            # Calculate the flattened size
+            nn.Linear(168960, 128),
+            activation,
+            nn.Linear(128, output_dim)
+        )
+
+        if output_activation == "tanh":
+            self.output_activation = nn.Tanh()
+        else:
+            self.output_activation = activation
+
+    def forward(self, x):
+        """
+        x: dict of cameras, each with B x T x H x W x 1
+        """
+        x = torch.stack([*x.values()], dim=1) # B x N x H x W x 1
+        B, N, H, W, C = x.shape
+        x = x.permute(0, 1, 4, 2, 3)
+        # flatten first
+        x = x.reshape(-1, C, H, W)
+        
+        images_compressed = self.image_compression(x)
+        latent = self.output_activation(images_compressed)
+        latent = latent.reshape(B, -1, latent.shape[-1])  # B,  Ncam x output_dim
+
+        return latent
+
 class ResNet(nn.Module):
     def __init__(
         self,
@@ -113,16 +157,17 @@ class ResNet(nn.Module):
 
     def forward(self, x):
         """
-        x: dict of B x T x H x W x 4
+        x: dict of cameras, each with B x T x H x W x C
         """
-        x = torch.stack([*x.values()], dim=0)[..., :3]  # N x B x H x W x 4
-        x = x.permute(1, 0, 4, 2, 3)
+        x = torch.stack([*x.values()], dim=1)[..., :3]  # B x N x H x W x 3
+        B, N, H, W, C = x.shape
+        x = x.permute(0, 1, 4, 2, 3)
         # flatten first
-        B, N, D, H, W = x.shape
-        x = x.reshape(len(x), -1, 3, H, W)
+        x = x.reshape(len(x), -1, C, H, W)
 
         # normalize
-        x = (x / 255.0 - self._mean) / self._std
+        if self.rgb_only:
+            x = (x / 255.0 - self._mean) / self._std
 
         if self.num_of_copy > 1:
             # separate encoding for each view
@@ -134,12 +179,12 @@ class ResNet(nn.Module):
                 out.append(net(input))
             feat = torch.stack(out, dim=1)
         else:
-            x = x.reshape(-1, 3, H, W)
+            x = x.reshape(-1, C, H, W)
             feat = self.net(x)
 
         feat = self.avgpool(feat).contiguous()
-        feat = self.proj(feat.view(feat.shape[0], -1))  # (B * Ncam) x 512
-        feat = feat.view(B, -1, feat.shape[-1])  # concat all views
+        feat = self.proj(feat.view(feat.shape[0], -1))  # (B * Ncam) x output_dim
+        feat = feat.view(B, -1, feat.shape[-1])  # B,  Ncam x output_dim
 
         return feat
 

@@ -37,7 +37,7 @@ head:
   num_inference_steps: 10
   token_postprocessing: "mean" # "concat" # maxpool or meanpool the tokens
   hist_horizon: 0 # whether predicting the hist action
-  
+    
 # head:
 #     _target_: ppt_learning.models.policy_head.TransformerDecoder
 #     token_dim: ${network.embed_dim}
@@ -48,25 +48,22 @@ head:
 #     token_postprocessing: ""
 
 stem:
-  modalities: ['state', 'pointcloud'] # no 'language'
+  modalities: ['state', 'depth'] # no 'language'
   modality_embed_dim: ${network.embed_dim}
+  normalize_state: True # normalize state vectors 
   num_heads: 8 # num of heads in the trunk transformer
   dim_head: 32 # dim of head in the trunk transformer
-  normalize_state: True # normalize state vectors 
   # state_embedding_dim: 32 # dimension of positional encoding for state
   cross_attention: True # whether to use cross attention or not
 
   # used as perceiver io to unify token sizes for each modality
   crossattn_latent:
     state: 1
-    image: 2
+    depth: 2
 
-  image:
-    _target_: ppt_learning.models.policy_stem.ResNet
-    resnet_model: 'resnet18'
+  depth:
+    _target_: ppt_learning.models.policy_stem.DepthCNN
     output_dim: ${network.embed_dim}
-    weights: "DEFAULT" # no weights para means no pre-trained weights are used.
-    finetune: True
 
   # implement tokenization for state
   state:

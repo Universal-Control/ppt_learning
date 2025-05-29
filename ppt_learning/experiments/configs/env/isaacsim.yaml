@@ -1,12 +1,14 @@
 # @package _global_
-domains: put_bowl_in_microwave__520_collected_data_retry_random_x015_new_subtask_generated_1gpu # dataset name to be loaded
+# dataset name to be loaded
+domains: 
+  put_bowl_in_microwave_random_x015_527_force_term, put_bowl_in_microwave_520_retry_place_random_x015_528
 save_interval: 50
 dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close
 
 # dataset config
 dataset:
-  # _target_: ppt_learning.dataset.multi_sim_traj_dataset.MultiTrajDataset
-  _target_: ppt_learning.dataset.sim_traj_dataset.TrajDataset
+  _target_: ppt_learning.dataset.multi_sim_traj_dataset.MultiTrajDataset
+  # _target_: ppt_learning.dataset.sim_traj_dataset.TrajDataset
   domain: "isaacsim"
   dataset_path: "" # TO be filled
   horizon: -1 # horizon for each dataset sample. should be action_horizon+observation_horizon-1 and will be replaced

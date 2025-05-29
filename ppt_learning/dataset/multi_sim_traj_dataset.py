@@ -1,8 +1,9 @@
-from PIL import Image
 import numpy as np
 from collections import OrderedDict
-from typing import Dict
 import copy
+import os
+import zarr
+import ipdb
 
 from ppt_learning.utils.replay_buffer import ReplayBuffer
 from ppt_learning.utils.sampler import SequenceSampler, get_val_mask
@@ -14,18 +15,8 @@ from ppt_learning.utils.pcd_utils import (
 )
 
 from ppt_learning.paths import *
-
 from ppt_learning.utils.pcd_utils import BOUND
-
-try:
-    from gensim2.env.utils.rlbench import SCENE_BOUNDS as RLBENCH_BOUNDS
-except:
-    print("RLBench is not installed. Skip.")
-
-import os
-import zarr
-import ipdb
-
+from ppt_learning.dataset.sim_traj_dataset import resize_image_sequence
 
 class MultiTrajDataset:
     """
@@ -35,11 +26,13 @@ class MultiTrajDataset:
 
     def __init__(
         self,
+        domain,
         dataset_path="",
         mode="train",
         episode_cnt=10,
         step_cnt=100,
         data_augmentation=False,
+        se3_augmentation=False,  # pcd in roboframe do not need this (gensim2 & rlbench)
         data_ratio=1,
         use_disk=False,
         horizon=4,
@@ -49,6 +42,7 @@ class MultiTrajDataset:
         seed=233,
         action_horizon=1,
         observation_horizon=1,
+        hist_action_cond=False,
         resize_img=True,
         img_size=224,
         dataset_postfix="",
@@ -66,15 +60,21 @@ class MultiTrajDataset:
         voxel_size=0.01,
         use_lru_cache=True,
         rank=0,  # Add rank for DDP
+        ignored_keys=None,
+        state_keys=None,
+        action_key="actions",
+        pose_transform=None,
         **kwargs,
     ):
         assert not isinstance(dataset_path, list), f"dataset_path must be a list, but got {type(dataset_path)}: {dataset_path}"
 
+        self.dataset_name = domain
         self.rank = rank
         self.horizon = horizon
         self.pad_before = pad_before
         self.pad_after = pad_after
         self.data_augmentation = data_augmentation
+        self.se3_augmentation = se3_augmentation
         self.episode_cnt = episode_cnt
         self.step_cnt = step_cnt
         self.action_horizon = action_horizon
@@ -85,6 +85,8 @@ class MultiTrajDataset:
         self.normalize_state = normalize_state
         self.resize_img = resize_img
         self.img_size = img_size
+        self.action_key = action_key
+        self.hist_action_cond = hist_action_cond
         if use_pcd:
             assert pcd_channels is not None, "pcd_channels must be provided for pcd"
         if pcd_channels is not None:
@@ -103,9 +105,38 @@ class MultiTrajDataset:
         self.pcd_num_points = None
         self.bounds = BOUND
 
+        if not hist_action_cond:
+            assert self.horizon == self.observation_horizon + self.action_horizon - 1, "Check if your horizon is right"
+
+        self.state_keys = state_keys
+        if state_keys is None:
+            self.state_keys = [
+                "eef_pos",
+                "eef_quat",
+                "joint_pos",
+                "joint_vel",
+                "normalized_gripper_pos"
+            ]
+        self.ignored_keys = ignored_keys
+        if ignored_keys is None:
+            self.ignored_keys = [
+                "initial_state",
+                "states",
+                "depths",
+            ] # , "images", "color"]
+            # self.use_pcd = False
+
         self.voxelization = voxelization
         self.voxel_size = voxel_size
 
+        self.pose_transform = None
+        if pose_transform is not None:
+            if pose_transform == "quat_to_pose":
+                from ppt_learning.utils.pose_utils import quat_to_pose
+                self.pose_transform = quat_to_pose
+            else:
+                raise NotImplementedError("Pose transform function not assigned!")
+        
         self.update_pcd_transform()
 
         self.dataset_path = dataset_path
@@ -123,7 +154,7 @@ class MultiTrajDataset:
                 if load_from_cache:
                     if use_lru_cache:
                         store = zarr.DirectoryStore(single_dpath)
-                        cache = zarr.LRUStoreCache(store=store, max_size=2**30)
+                        cache = zarr.LRUStoreCache(store=store, max_size=2**(38-len(dataset_path)))
                         group = zarr.open(cache, "r")
                         self.replay_buffer[idx] = ReplayBuffer.create_from_group(
                             group,
@@ -182,7 +213,15 @@ class MultiTrajDataset:
 
     def get_normalizer(self, mode="limits", **kwargs):
         """action normalizer"""
-        data = self._sample_to_data(self.replay_buffer)
+        data = {}
+        for idx in range(len(self.replay_buffer)):
+            tmp = self._sample_to_data(self.replay_buffer[idx])
+            for k, v in tmp.items():
+                if k not in data:
+                    data[k] = []
+                data[k].append(v)
+        for k, v in data.items():
+            data[k] = np.concatenate(v, axis=0)
         self.normalizer = LinearNormalizer()
         self.normalizer.fit(data=data, last_n_dims=1, mode=mode, **kwargs)
         for k, v in self.normalizer.params_dict.items():
@@ -190,48 +229,18 @@ class MultiTrajDataset:
             print(f"normalizer {k} stats max: {v['input_stats'].max}")
         return self.normalizer
 
-    def append_episode(self, episode, description="", env_name=None):
-        data = OrderedDict()
-
-        def recursive_dict_update(d, u):
-            for k, v in u.items():
-                if isinstance(v, (dict, OrderedDict)):
-                    d[k] = recursive_dict_update(d.get(k, {}), v)
-                else:
-                    if k not in d:
-                        d[k] = []
-                    d[k].append(v)
-            return d
-
-        def recursive_array(d):
-            if isinstance(d, (dict, OrderedDict)):
-                for k, v in d.items():
-                    d[k] = recursive_array(v)
-            elif isinstance(d, list):
-                d = np.array(d)
-            return d
-
-        for dataset_step in episode:
-            recursive_dict_update(data, dataset_step)
-        for key, val in data.items():
-            data[key] = recursive_array(data[key])
-
-        self.replay_buffer.add_episode(data, description=description, env_name=env_name)
-
     def get_episode(self, idx):
-        return self.replay_buffer.get_episode(idx)
+        dataset_idx = np.searchsorted(self.dataset_episodes, idx, side="right") - 1
+        idx = idx - self.dataset_episodes[dataset_idx]
+        return self.replay_buffer[dataset_idx].get_episode(idx)
 
     def _sample_to_data(self, sample):
-        data = (
-            {"action": sample["action"]}
-            if "action" in sample
-            else {"action": sample["actions"]}
-        )
+        data = {"action": sample[self.action_key]}
         if self.normalize_state:
             if "state" in sample:
                 data["state"] = sample["state"]  # 1 x N
             else:
-                data["state"] = self.get_state(sample)
+                data["state"] = self.get_state(sample["obs"])
         return data
 
     def get_training_dataset(self, val_ratio, seed):
@@ -245,7 +254,7 @@ class MultiTrajDataset:
                 val_ratio=val_ratio,
                 seed=seed,
             )
-            self.train_mask[idx] = ~self.val_mask
+            self.train_mask[idx] = ~self.val_mask[idx]
 
             # considering hyperparameters and masking
             n_episodes = int(
@@ -262,12 +271,15 @@ class MultiTrajDataset:
                 pad_before=self.pad_before,
                 pad_after=self.pad_after,
                 episode_mask=self.train_mask[idx],
+                ignored_keys=self.ignored_keys,
             )
             print(
                 f"{self.dataset_name[idx]} size: {len(self.sampler[idx])} episodes: {n_episodes} train: {self.train_mask[idx].sum()} eval: {self.val_mask[idx].sum()}"
             )
 
-        self.dataset_lenth = np.cumsum([len(sampler) for sampler in self.sampler])
+        self.dataset_length = np.cumsum([len(sampler) for sampler in self.sampler])
+        self.dataset_length = np.insert(self.dataset_length, 0, 0)
+        self.dataset_episodes = [0] + [self.replay_buffer[idx].n_episodes for idx in range(len(self.replay_buffer))]
 
     def get_validation_dataset(self):
         val_set = [None] * len(self.replay_buffer)
@@ -290,12 +302,21 @@ class MultiTrajDataset:
 
     def __getitem__(self, idx: int):
         """normalize observation and actions"""
-        dataset_idx = np.searchsorted(self.dataset_lenth, idx, side="right")
-        idx = idx - self.dataset_lenth[dataset_idx - 1]
+        dataset_idx = np.searchsorted(self.dataset_length, idx, side="right") - 1
+        idx = idx - self.dataset_length[dataset_idx]
         sample = self.sampler[dataset_idx].sample_sequence(idx)
-        if "actions" in sample:  # Align the name
-            sample["action"] = sample["actions"]
-            del sample["actions"]
+        
+        action_sub_keys = self.action_key.split('/')
+        action = sample
+        for key in action_sub_keys:
+            if isinstance(action, (dict, OrderedDict)):
+                try:
+                    action = action[key]
+                except:
+                    print("Action key not found:", key)
+                    import ipdb; ipdb.set_trace()
+        sample["action"] = action
+        del sample[action_sub_keys[0]]
 
         # the full horizon is for the trajectory
         def recursive_horizon(data):
@@ -419,9 +440,6 @@ class MultiTrajDataset:
 
         return {"domain": self.dataset_name, "data": sample}
 
-    def save_dataset(self):
-        self.replay_buffer.save_to_path(self.dataset_path)
-
     def load_dataset(self):
         for idx, dataset_path in enumerate(self.dataset_path):
             self.replay_buffer[idx] = ReplayBuffer.copy_from_path(dataset_path)
@@ -434,12 +452,30 @@ class MultiTrajDataset:
             res['state'] = []
         for key in self.state_keys:
             if key in sample.keys():
-                res["state"].append(sample[key])
+                if len(sample[key].shape) == 1:
+                    res["state"].append(np.array(sample[key])[..., None])
+                else:
+                    res["state"].append(sample[key])
                 if isinstance(sample, (dict, OrderedDict)):
                     del sample[key]
         res["state"] = np.concatenate(res["state"], axis=-1)
 
         return res["state"]
+
+    def transform(self, sample):
+        if self.resize_img and "image" in sample.keys():
+            for key, val in sample["image"].items():
+                # Image shape N, H, W, C
+                resize_image_sequence(val, (self.img_size, self.img_size))
+        if self.pose_transform is not None: # Last dim is gripper
+            if len(sample['action'].shape) == 2:
+                N, A = sample['action'].shape
+                sample['action'] = np.concatenate([self.pose_transform(sample['action'][..., :-1].reshape(-1, A-1)).reshape(N, -1), sample['action'][..., -1:]], axis=-1)
+            elif len(sample['action'].shape) == 3:
+                N, L, A = sample['action'].shape
+                sample['action'] = np.concatenate([self.pose_transform(sample['action'][..., :-1].reshape(-1, A-1)).reshape(N, L, -1), sample['action'][..., -1:]], axis=-1)
+            else:
+                raise ValueError(f"Invalid action shape: {sample['action'].shape}")
 
     def flat_sample(self, sample):
         if "obs" in sample.keys():
@@ -501,15 +537,24 @@ class MultiTrajDataset:
 if __name__ == "__main__":
     import collections
 
-    dataset = TrajDataset(
-        dataset_name="rlbench_dnact_keypose_cleanpcd10240_100",  # "rlbench_dnact_keypose_cleanpcd10240_100",
+    dataset = MultiTrajDataset(
+        domain="debug",
+        dataset_path="/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/put_bowl_in_microwave__520_collected_data_retry_random_x015_new_subtask_generated_1gpu.zarr",
         from_empty=False,
         use_disk=True,
         load_from_cache=True,
+        use_lru_cache=True,
+        val_ratio=0.,
+        action_horizon=16,
+        observation_horizon=3,
+        horizon=18,
+        pad_before=2,
+        pad_after=15,
+        use_pcd=True,
+        pcd_channels=4,
+        pcdnet_pretrain_domain="scanobjectnn",
+        # action_key="wbc_target/r"
     )
-    # dataset = TrajDataset(dataset_name="rlbench_peract_cleanpcd10240_100", from_empty=False, use_disk=True, load_from_cache=True)
-    # dataset = TrajDataset(dataset_name="rlbench_peract_keypose_cleanpcd10240_100", from_empty=False, use_disk=True, load_from_cache=True)
-    # dataset = TrajDataset(dataset_name="rlbench_peract_jointpos_cleanpcd10240_100", from_empty=False, use_disk=True, load_from_cache=True)
     # dataset.load_dataset()
     print(collections.Counter(dataset.replay_buffer.meta["episode_descriptions"]))
     if "env_names" in dataset.replay_buffer.meta.keys():

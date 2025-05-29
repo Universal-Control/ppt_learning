@@ -20,12 +20,12 @@ defaults:
   - _self_
 
 dataset:
-  ignored_keys: ["initial_state", "states", "depths", "images", "color"]
+  ignored_keys: ["initial_state", "states", "depths", "images", "color", "abs_gripper_pos"]
   hist_action_cond: True
   
 dataloader:
   batch_size: ${batch_size}
-  num_workers: 4
+  num_workers: 8
   pin_memory: true
   persistent_workers: true
   shuffle: true

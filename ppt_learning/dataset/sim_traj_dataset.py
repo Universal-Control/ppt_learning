@@ -1,11 +1,11 @@
-from PIL import Image
 import numpy as np
 from collections import OrderedDict
-from typing import Dict
 import copy
 import cv2
-import hydra
-from hydra import initialize, compose
+import os
+import zarr
+import ipdb
+import argparse
 
 from ppt_learning.utils.replay_buffer import ReplayBuffer
 from ppt_learning.utils.sampler import SequenceSampler, get_val_mask
@@ -19,19 +19,7 @@ from ppt_learning.utils.pcd_utils import (
 )
 
 from ppt_learning.paths import *
-
 from ppt_learning.utils.pcd_utils import BOUND
-
-try:
-    from gensim2.env.utils.rlbench import SCENE_BOUNDS as RLBENCH_BOUNDS
-except:
-    print("RLBench is not installed. Skip.")
-
-import os
-import zarr
-import ipdb
-
-import argparse
 
 
 class TrajDataset:
@@ -44,7 +32,6 @@ class TrajDataset:
         self,
         domain,
         dataset_path,
-        state_keys=None,
         mode="train",
         episode_cnt=10,
         step_cnt=100,
@@ -61,7 +48,7 @@ class TrajDataset:
         observation_horizon=1,
         hist_action_cond=False,
         resize_img=True,
-        img_size=224,
+        img_size=(224,224),
         dataset_postfix="",
         dataset_encoder_postfix="",
         precompute_feat=False,
@@ -75,9 +62,10 @@ class TrajDataset:
         load_from_cache=True,
         voxelization=False,
         voxel_size=0.01,
-        ignored_keys=None,
         use_lru_cache=True,
         rank=0,  # Add rank for DDP
+        ignored_keys=None,
+        state_keys=None,
         action_key="actions",
         pose_transform=None,
         **kwargs,
@@ -129,6 +117,7 @@ class TrajDataset:
                 "eef_quat",
                 "joint_pos",
                 "joint_vel",
+                "normalized_gripper_pos"
             ]
         self.ignored_keys = ignored_keys
         if ignored_keys is None:
@@ -164,7 +153,7 @@ class TrajDataset:
             if load_from_cache:
                 if use_lru_cache:
                     store = zarr.DirectoryStore(dataset_path)
-                    cache = zarr.LRUStoreCache(store=store, max_size=2**30)
+                    cache = zarr.LRUStoreCache(store=store, max_size=2**38)
                     group = zarr.open(cache, "r")
                     self.replay_buffer = ReplayBuffer.create_from_group(
                         group
@@ -468,7 +457,10 @@ class TrajDataset:
             res['state'] = []
         for key in self.state_keys:
             if key in sample.keys():
-                res["state"].append(sample[key])
+                if len(sample[key].shape) == 1:
+                    res["state"].append(np.array(sample[key])[..., None])
+                else:
+                    res["state"].append(sample[key])
                 if isinstance(sample, (dict, OrderedDict)):
                     del sample[key]
         res["state"] = np.concatenate(res["state"], axis=-1)
@@ -479,7 +471,11 @@ class TrajDataset:
         if self.resize_img and "image" in sample.keys():
             for key, val in sample["image"].items():
                 # Image shape N, H, W, C
-                resize_image_sequence(val, (self.img_size, self.img_size))
+                sample["image"][key] = resize_image_sequence(val, (self.img_size[0], self.img_size[1]))
+        if self.resize_img and "depth" in sample.keys():
+            for key, val in sample["depth"].items():
+                # Image shape N, H, W, C
+                sample["depth"][key] = resize_image_sequence(clip_depth(val), (self.img_size[0], self.img_size[1]))
         if self.pose_transform is not None: # Last dim is gripper
             if len(sample['action'].shape) == 2:
                 N, A = sample['action'].shape
@@ -501,6 +497,9 @@ class TrajDataset:
 
         if "images" in sample.keys() and "image" not in sample.keys():
             sample["image"] = sample.pop("images")
+
+        if "depths" in sample.keys() and "depth" not in sample.keys():
+            sample["depth"] = sample.pop("depths")
 
         if not self.use_pcd:
             if "pointcloud" in sample.keys():
@@ -572,6 +571,19 @@ def delete_indices(
             # remove start_idx:end_idx in replay.data
 
 
+def clip_depth(depth):
+    valid_mask = np.logical_and(depth > 0.01, ~np.isnan(depth)) & (~np.isinf(depth))
+    if valid_mask.sum() == 0:
+        Log.warn(
+            "No valid mask in the depth map of {}".format(self.depth_files[index])
+        )
+    if valid_mask.sum() != 0 and np.isnan(depth).sum() != 0:
+        depth[np.isnan(depth)] = depth[valid_mask].max()
+    if valid_mask.sum() != 0 and np.isinf(depth).sum() != 0:
+        depth[np.isinf(depth)] = depth[valid_mask].max()
+
+    return depth
+
 def resize_image_sequence(images, target_size):
     """
     Resize an image sequence using OpenCV
@@ -598,9 +610,13 @@ def resize_image_sequence(images, target_size):
 
     # Resize each image
     for i in range(N):
-        output[i] = cv2.resize(
+        res = cv2.resize(
             images[i], (new_W, new_H), interpolation=cv2.INTER_LINEAR
         )
+        if C == 1:
+            output[i] = res[:, :, np.newaxis]
+        else:
+            output[i] = res
 
     return output
 
@@ -617,7 +633,7 @@ if __name__ == "__main__":
 
     dataset = TrajDataset(
         domain="debug",
-        dataset_path="/mnt/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/put_bowl_in_microwave_8_demos_generated_interrupt_520_collected_data_simplify_gripper_retry_more_wait_520.zarr",
+        dataset_path="/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/put_bowl_in_microwave__520_collected_data_retry_random_x015_new_subtask_generated_1gpu.zarr",
         from_empty=False,
         use_disk=True,
         load_from_cache=True,
@@ -626,8 +642,8 @@ if __name__ == "__main__":
         action_horizon=16,
         observation_horizon=3,
         horizon=18,
-        pad_before=3,
-        pad_after=16,
+        pad_before=2,
+        pad_after=15,
         use_pcd=True,
         pcd_channels=4,
         pcdnet_pretrain_domain="scanobjectnn",
