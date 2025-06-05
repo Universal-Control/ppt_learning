@@ -155,24 +155,18 @@ def run(rank: int, world_size: int, cfg: DictConfig):
     # optimizer and scheduler
     policy.finalize_modules()
 
-    policy.to(device)
-    policy = DDP(policy, device_ids=[rank])
-
-    if rank == 0:
-        print("cfg.train.pretrained_dir:", cfg.train.pretrained_dir)
-
     loaded_epoch = -1
     if len(cfg.train.pretrained_dir) > 0:
         if "pth" in cfg.train.pretrained_dir:
             assert os.path.exists(
                 cfg.train.pretrained_dir
             ), "Pretrained model not found"
-            if rank == 0:
-                print("load model from", cfg.train.pretrained_dir)
             policy.load_state_dict(torch.load(cfg.train.pretrained_dir))
             loaded_epoch = int(
                 cfg.train.pretrained_dir.split("/")[-1].split(".")[0].split("_")[-1]
             )
+            if rank == 0:
+                print("load model from", cfg.train.pretrained_dir, "loaded_epoch", loaded_epoch)
         else:
             assert os.path.exists(
                 os.path.join(cfg.train.pretrained_dir, f"model.pth")
@@ -180,6 +174,8 @@ def run(rank: int, world_size: int, cfg: DictConfig):
             policy.load_state_dict(
                 torch.load(os.path.join(cfg.train.pretrained_dir, f"model.pth"))
             )
+            if rank == 0:
+                print("load model from", cfg.train.pretrained_dir)
         if rank == 0:
             print("loaded trunk")
         # policy.load_trunk(os.path.join(cfg.train.pretrained_dir, f"model.pth"))
@@ -191,6 +187,11 @@ def run(rank: int, world_size: int, cfg: DictConfig):
             print("train from scratch")
 
     policy.to(device)
+    policy = DDP(policy, device_ids=[rank])
+
+    if rank == 0:
+        print("cfg.train.pretrained_dir:", cfg.train.pretrained_dir)
+
     opt = utils.get_optimizer(cfg.optimizer, policy)
     sch = utils.get_scheduler(cfg.lr_scheduler, optimizer=opt)
 

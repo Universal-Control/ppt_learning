@@ -64,7 +64,7 @@ def run(cfg):
 
     # initialize policy
     cfg.head["output_dim"] = cfg.network["action_dim"] = action_dim
-    policy = hydra.utils.instantiate(cfg.network).to(device)
+    policy = hydra.utils.instantiate(cfg.network)
     cfg.stem.state["input_dim"] = state_dim
     policy.init_domain_stem(domain, cfg.stem)
     policy.init_domain_head(domain, cfg.head)
