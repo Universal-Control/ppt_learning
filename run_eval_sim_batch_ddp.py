@@ -36,7 +36,7 @@ def eval_in_one_process(rank, world_size, cfg, domain, queue:JoinableQueue):
         # initialize policy
         if cfg.rollout_runner.get("hist_action_cond", False):
             cfg.head["hist_horizon"] = cfg.dataset.observation_horizon
-        policy = hydra.utils.instantiate(cfg.network, max_timestep=cfg.rollout_runner.max_timestep).to(device)
+        policy = hydra.utils.instantiate(cfg.network, max_timestep=cfg.rollout_runner.max_timestep)
         policy.init_domain_stem(domain, cfg.stem)
         policy.init_domain_head(domain, cfg.head)
 

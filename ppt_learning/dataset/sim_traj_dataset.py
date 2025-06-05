@@ -362,12 +362,12 @@ class TrajDataset:
                             intrinsic_matrix=self.replay_buffer.meta["camera_info"][
                                 f"camera_{cam_idx}"
                             ]["intrinsics"][0],
-                            position=self.replay_buffer.meta["camera_info"][
-                                f"camera_{cam_idx}"
-                            ]["extrinsics"][0, :3],
-                            orientation=self.replay_buffer.meta["camera_info"][
-                                f"camera_{cam_idx}"
-                            ]["extrinsics"][0, 3:],
+                            # position=self.replay_buffer.meta["camera_info"][
+                            #     f"camera_{cam_idx}"
+                            # ]["extrinsics"][0, :3],
+                            # orientation=self.replay_buffer.meta["camera_info"][
+                            #     f"camera_{cam_idx}"
+                            # ]["extrinsics"][0, 3:],
                         )
                     )
                 camera_nums = len(sample["obs"]["pointcloud"])
@@ -671,19 +671,20 @@ if __name__ == "__main__":
         pcds_traj = data["obs"]["pointcloud"]["pos"]
 
         # open a blank o3d visualizer
-        vis = o3d.visualization.Visualizer()
-        vis.create_window()
+        # vis = o3d.visualization.Visualizer()
+        # vis.create_window()
 
         for i in range(len(pcds_traj)):
             pcds = pcds_traj[i]
             pcd = o3d.geometry.PointCloud()
             pcd.points = o3d.utility.Vector3dVector(pcds)
-            vis.clear_geometries()
-            vis.add_geometry(pcd)
-            vis.poll_events()
-            vis.update_renderer()
-            vis.run()
+            o3d.write_point_cloud(f"pcd_{i}.ply", pcd)
+            # vis.clear_geometries()
+            # vis.add_geometry(pcd)
+            # vis.poll_events()
+            # vis.update_renderer()
+            # vis.run()
 
             # clean up the visualizer
 
-        vis.destroy_window()
+        # vis.destroy_window()
