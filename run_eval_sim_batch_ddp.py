@@ -117,8 +117,8 @@ def run(cfg):
 
     use_pcd = "pointcloud" in cfg.stem.modalities
 
-    action_dim = 7
-    state_dim = 21
+    action_dim = 7 # cfg.action_dim
+    state_dim = cfg.state_dim
 
     if use_pcd:
         cfg.rollout_runner.pcdnet_pretrain_domain = cfg.stem.pointcloud.pcd_domain
@@ -144,7 +144,7 @@ def run(cfg):
                 t.write(f"success rate of {model_name} is: {success_rate}\n")
                 for key in subtask_sr:
                     t.write(f"Subtask success rate for {key} is: {subtask_sr[key]}\n")
-            srs[model_name] = success_rate
+            srs[model_name] = {"total": success_rate}
             shared_queue.task_done()
             idx += 1
             srs[model_name]["subtask_sr"] = subtask_sr

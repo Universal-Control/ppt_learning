@@ -60,8 +60,8 @@ def run(cfg):
     if use_pcd:
         cfg.rollout_runner.pcdnet_pretrain_domain = cfg.stem.pointcloud.pcd_domain
 
-    action_dim = 7
-    state_dim = 21
+    action_dim = 7 # cfg.action_dim
+    state_dim = cfg.state_dim
 
     # initialize policy
     if cfg.rollout_runner.get("hist_action_cond", False):
