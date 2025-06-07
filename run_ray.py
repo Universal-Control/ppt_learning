@@ -362,7 +362,7 @@ def run(config):
     # utils.log_results(cfg, total_success)
 
 
-def filter_ddp_args():
+def get_args():
     """Filter out DDP-specific arguments to avoid Hydra conflicts."""
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("-n", "--num_workers", type=int, default=1)
@@ -371,13 +371,14 @@ def filter_ddp_args():
     parser.add_argument("--suffix", type=str, default="")
     args, remaining = parser.parse_known_args()
     sys.argv = [sys.argv[0]] + remaining
-    return args.local_rank, args.model, args.suffix
+    return args
 
 
 def main():
-    ray.init("192.18.0.15:6379")
-    # Filter DDP arguments
-    local_rank, model_type, suffix = filter_ddp_args()
+    args = get_args()
+    model_type, suffix = args.model, args.suffix
+
+    ray.init(args.address)
 
     # Initialize Hydra
     with initialize(config_path=f"ppt_learning/experiments/configs", version_base="1.2"):
@@ -399,7 +400,7 @@ def main():
     if world_size < 1:
         raise RuntimeError("No GPUs available for DDP training.")
 
-    scaling_config = ray.train.ScalingConfig(num_workers=8, use_gpu=True)
+    scaling_config = ray.train.ScalingConfig(num_workers=args.num_workers, use_gpu=True)
     # Spawn DDP processes
     trainer = ray.train.torch.TorchTrainer(
         run,
