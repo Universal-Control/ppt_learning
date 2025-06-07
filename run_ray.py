@@ -365,7 +365,8 @@ def run(config):
 def filter_ddp_args():
     """Filter out DDP-specific arguments to avoid Hydra conflicts."""
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument("--local_rank", type=int, default=0)
+    parser.add_argument("-n", "--num_workers", type=int, default=1)
+    parser.add_argument("--address", type=str, default="127.0.0.1:6379")
     parser.add_argument("--model", type=str, default="pcd") # ["pcd", "rgb", "PCD"])
     parser.add_argument("--suffix", type=str, default="")
     args, remaining = parser.parse_known_args()
