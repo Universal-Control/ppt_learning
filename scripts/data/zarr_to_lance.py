@@ -86,21 +86,51 @@ def process_meta_info(root, output_root: Path):
     print("processed meta info and saved to", output_root / "meta_info.json", "and", "meta_info.pkl")
 
 @ray.remote(num_cpus=1)
-def process_one_row(zarr_path, key_list, row_id):
+def process_subbatch(zarr_path, key_list, row_ids):
+    """处理一个子批次的多行数据"""
     zarr_store = zarr.DirectoryStore(zarr_path)
     zarr_root = zarr.group(zarr_store)
-    data_one_row = {}
-    for key in key_list:
-        data = zarr_root["data"][key[1:]][row_id]
-        data_one_row[key[1:]] = data
-    data_one_row["row_id"] = row_id
-    return data_one_row
+    results = []
+    
+    for row_id in row_ids:
+        data_one_row = {}
+        for key in key_list:
+            data = zarr_root["data"][key[1:]][row_id]
+            data_one_row[key[1:]] = data
+        data_one_row["row_id"] = row_id
+        results.append(data_one_row)
+    
+    return results
 
 def process_batch(zarr_path, key_list, start_idx, end_idx):
+    """处理一个完整批次，将其分割为多个子批次并行处理"""
     # 读取batch数据
     ids = list(range(start_idx, end_idx))
-    futures = [process_one_row.remote(zarr_path, key_list, row_id) for row_id in ids]
-    results = ray.get(futures)
+    total_rows = len(ids)
+    
+    # 控制并发任务数量的最大值
+    max_concurrent_tasks = 64
+    
+    # 计算每个子批次的大小，确保最多有max_concurrent_tasks个任务
+    subbatch_size = max(1, (total_rows + max_concurrent_tasks - 1) // max_concurrent_tasks)
+    
+    # 分割成子批次
+    subbatches = []
+    for i in range(0, total_rows, subbatch_size):
+        end = min(i + subbatch_size, total_rows)
+        subbatches.append(ids[i:end])
+    
+    # 提交所有子批次任务
+    futures = [process_subbatch.remote(zarr_path, key_list, subbatch) for subbatch in subbatches]
+    
+    # 获取结果并按顺序展平
+    results = []
+    for result in ray.get(futures):
+        results.extend(result)
+    
+    # 确保结果按行ID排序
+    results.sort(key=lambda x: x["row_id"])
+    
     return results
 
 def zarr_to_lance_distributed(zarr_path, key_to_shape, rows_num, output_root, batch_size=1000):
