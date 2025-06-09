@@ -899,7 +899,8 @@ def create_pointcloud_from_depth(
     # compute pointcloud
     depth_cloud = unproject_depth(depth, intrinsic_matrix)
     # convert 3D points to world frame
-    depth_cloud = transform_points(depth_cloud, position, orientation)
+    if (position is not None) or (orientation is not None):
+        depth_cloud = transform_points(depth_cloud, position, orientation)
 
     # keep only valid entries if flag is set
     if not keep_invalid:

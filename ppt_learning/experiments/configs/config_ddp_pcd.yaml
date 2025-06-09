@@ -10,7 +10,7 @@ debug: False # Turn off to allow wandb logging
 suffix: "" # suffix for the experiment
 wb_tag: ${suffix}
 
-batch_size: 80 # batch size
+batch_size: 60 # batch size
 
 defaults:
   - env: isaacsim # rlbench # gensim2
@@ -20,6 +20,7 @@ defaults:
 
 dataset:
   ignored_keys: ["initial_state", "states", "depths", "images", "color", "abs_gripper_pos"]
+  # use_lru_cache: false
   
 dataloader:
   batch_size: ${batch_size}
@@ -28,13 +29,12 @@ dataloader:
   persistent_workers: true
   shuffle: true
   drop_last: true
+  prefetch_factor: 2
 val_dataloader:
   batch_size: ${batch_size}
   num_workers: 4
   shuffle: false
   pin_memory: true
-  persistent_workers: true
-  drop_last: true
 optimizer:
   _target_: torch.optim.AdamW
   lr: 0.0001
