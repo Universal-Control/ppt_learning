@@ -291,7 +291,7 @@ class PointNet(nn.Module):
         update_openpoint_cfgs(cfg)
         self.in_channels = int(cfg.model.encoder_args.in_channels)
         self.pointnet = build_model_from_cfg(cfg.model)
-        if pretrained_path is not None:  # load pre-train weights
+        if pretrained_path is not None and len(pretrained_path):  # load pre-train weights
             load_checkpoint(self.pointnet, pretrained_path=pretrained_path)
         if not finetune:
             self.pointnet.requires_grad_(False)  # Freeze the model
