@@ -161,9 +161,9 @@ class MultiTrajDataset:
                         )
                         print("Using lru cache")
                     else:
-                        self.replay_buffer[idx] = ReplayBuffer.create_from_path(
-                            single_dpath,
-                    )
+                        self.replay_buffer[idx] = ReplayBuffer.create_from_group(
+                            zarr.open(zarr.DirectoryStore(single_dpath), "r"),
+                        )
                 else:
                     self.replay_buffer[idx] = ReplayBuffer.create_empty_zarr(
                         storage=zarr.DirectoryStore(path=single_dpath)

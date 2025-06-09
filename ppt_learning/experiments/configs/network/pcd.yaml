@@ -63,7 +63,7 @@ stem:
 
   pointcloud:
     _target_: ppt_learning.models.policy_stem.PointNet
-    pcd_domain: 'scanobjectnn'
+    pcd_domain: 'dense' # 'scanobjectnn'
     finetune: True
     cfg_name: 'pointnext-s' # We need output_dim to be equal to `modality_embed_dim`, it happens to be 512 in this case so we do not need anything else
     pretrained_path: "/mnt/bn/robot-minghuan-debug/ppt_learning/pretrained_weights/scanobjectnn-pointnext-s_best.pth" # path/to/pretrained/pointnet.pth
