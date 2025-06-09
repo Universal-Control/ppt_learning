@@ -43,17 +43,22 @@ def get_dataloader(dataset, seed, rank, world_size, **kwargs):
     return dataloader
 
 
-def run(rank: int, world_size: int, cfg: DictConfig):
+def run(local_rank: int, world_size: int, cfg: DictConfig, node_rank: int = 0):
     """
     This script runs through the train / test / eval loop. Assumes single task for now.
     """
+    # Compute global rank
+    gpus_per_node = torch.cuda.device_count()
+    rank = node_rank * gpus_per_node + local_rank
+
     # Initialize DDP process group
+    print(f"Process {rank} initialized with world size {world_size}")
     dist.init_process_group(backend="nccl", rank=rank, world_size=world_size)
-    torch.cuda.set_device(rank)
+    torch.cuda.set_device(local_rank)
 
     is_eval = cfg.train.total_epochs == 0
 
-    device = torch.device(f"cuda:{rank}")
+    device = torch.device(f"cuda:{local_rank}")
     domain_list = [d.strip() for d in cfg.domains.split(",")]
     
     domain = cfg.get("dataset_path", "debug").split("/")[-1] # domain_list[0] if len(domain_list) == 1 else "_".join(domain_list)
@@ -286,13 +291,20 @@ def main():
         cfg.output_dir = os.path.join("outputs", model_type, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
     cfg.wb_tag = cfg.suffix if len(cfg.suffix) else "default"
 
-    # Determine world size (number of GPUs)
-    world_size = torch.cuda.device_count()
+    # Get world size and rank from environment variables
+    world_size = int(os.environ.get('WORLD_SIZE', 1)) * torch.cuda.device_count()
+    rank = int(os.environ.get('RANK', 0))
+    local_rank = int(os.environ.get('LOCAL_RANK', 0))
+    node_rank = int(os.environ.get('RANK', 0))
+
     if world_size < 1:
         raise RuntimeError("No GPUs available for DDP training.")
 
     # Spawn DDP processes
-    mp.spawn(run, args=(world_size, cfg), nprocs=world_size, join=True)
+    if world_size > 1:
+        mp.spawn(run, args=(world_size, cfg, node_rank), nprocs=torch.cuda.device_count(), join=True)
+    else:
+        run(local_rank, world_size, cfg)
 
 
 if __name__ == "__main__":

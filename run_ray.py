@@ -395,11 +395,6 @@ def main():
         cfg.output_dir = os.path.join("outputs", model_type, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
     cfg.wb_tag = cfg.suffix if len(cfg.suffix) else "default"
 
-    # Determine world size (number of GPUs)
-    world_size = torch.cuda.device_count()
-    if world_size < 1:
-        raise RuntimeError("No GPUs available for DDP training.")
-
     scaling_config = ray.train.ScalingConfig(num_workers=args.num_workers, use_gpu=True)
     # Spawn DDP processes
     trainer = ray.train.torch.TorchTrainer(
