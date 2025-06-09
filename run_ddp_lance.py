@@ -25,7 +25,7 @@ sys.path.append(f"{PPT_DIR}/third_party/")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 from ppt_learning import train_test
-
+from lance.torch.data import get_safe_loader
 
 def get_dataloader(dataset, seed, rank, world_size, **kwargs):
 
@@ -36,8 +36,8 @@ def get_dataloader(dataset, seed, rank, world_size, **kwargs):
     )
 
     # Create DataLoader with the sampler
-    dataloader = DataLoader(
-        dataset, **kwargs, sampler=sampler, multiprocessing_context="spawn"
+    dataloader = get_safe_loader(
+        dataset, **kwargs, sampler=sampler
     )
 
     return dataloader
