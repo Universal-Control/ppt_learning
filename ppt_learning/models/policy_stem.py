@@ -125,6 +125,7 @@ class ResNet(nn.Module):
         resnet_model="resnet18",
         num_of_copy=1,
         finetune=True,
+        rgb_only=True,
         **kwargs,
     ):
         super().__init__()
@@ -151,13 +152,14 @@ class ResNet(nn.Module):
                 ]
             )
 
+        self.rgb_only = rgb_only
         self.output_dim = output_dim
-        self.avgpool = nn.AvgPool2d(9, stride=1)
-        self.proj = nn.Linear(7 * 12 * 512, output_dim)
+        self.avgpool = nn.AvgPool2d(7, stride=1)
+        self.proj = nn.Linear(512, output_dim)
 
     def forward(self, x):
         """
-        x: dict of cameras, each with B x T x H x W x C
+        x: dict of cameras, each with (B x T) x H x W x C
         """
         x = torch.stack([*x.values()], dim=1)[..., :3]  # B x N x H x W x 3
         B, N, H, W, C = x.shape

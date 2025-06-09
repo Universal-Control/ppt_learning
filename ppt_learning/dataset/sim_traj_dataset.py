@@ -48,7 +48,7 @@ class TrajDataset:
         observation_horizon=1,
         hist_action_cond=False,
         resize_img=True,
-        img_size=(224,224),
+        img_size=(224, 224),
         dataset_postfix="",
         dataset_encoder_postfix="",
         precompute_feat=False,
@@ -108,7 +108,9 @@ class TrajDataset:
         self.bounds = BOUND
 
         if not hist_action_cond:
-            assert self.horizon == self.observation_horizon + self.action_horizon - 1, "Check if your horizon is right"
+            assert (
+                self.horizon == self.observation_horizon + self.action_horizon - 1
+            ), "Check if your horizon is right"
 
         self.state_keys = state_keys
         if state_keys is None:
@@ -117,7 +119,7 @@ class TrajDataset:
                 "eef_quat",
                 "joint_pos",
                 "joint_vel",
-                "normalized_gripper_pos"
+                "normalized_gripper_pos",
             ]
         self.ignored_keys = ignored_keys
         if ignored_keys is None:
@@ -125,7 +127,7 @@ class TrajDataset:
                 "initial_state",
                 "states",
                 "depths",
-            ] # , "images", "color"]
+            ]  # , "images", "color"]
             # self.use_pcd = False
 
         self.voxelization = voxelization
@@ -135,6 +137,7 @@ class TrajDataset:
         if pose_transform is not None:
             if pose_transform == "quat_to_pose":
                 from ppt_learning.utils.pose_utils import quat_to_pose
+
                 self.pose_transform = quat_to_pose
             else:
                 raise NotImplementedError("Pose transform function not assigned!")
@@ -155,14 +158,10 @@ class TrajDataset:
                     store = zarr.DirectoryStore(dataset_path)
                     cache = zarr.LRUStoreCache(store=store, max_size=2**38)
                     group = zarr.open(cache, "r")
-                    self.replay_buffer = ReplayBuffer.create_from_group(
-                        group
-                    )
+                    self.replay_buffer = ReplayBuffer.create_from_group(group)
                     print("Using lru cache")
                 else:
-                    self.replay_buffer = ReplayBuffer.create_from_path(
-                        dataset_path
-                    )
+                    self.replay_buffer = ReplayBuffer.create_from_path(dataset_path)
             else:
                 self.replay_buffer = ReplayBuffer.create_empty_zarr(
                     storage=zarr.DirectoryStore(path=dataset_path)
@@ -311,17 +310,20 @@ class TrajDataset:
         sample = self.sampler.sample_sequence(idx)
         # end_time = time.time()
         # print("Time used of sample:", end_time - start_time)
-        action_sub_keys = self.action_key.split('/')
-        action = sample
-        for key in action_sub_keys:
-            if isinstance(action, (dict, OrderedDict)):
-                try:
-                    action = action[key]
-                except:
-                    print("Action key not found:", key)
-                    import ipdb; ipdb.set_trace()
-        sample["action"] = action
-        del sample[action_sub_keys[0]]
+        action_sub_keys = self.action_key.split("/")
+        if len(action_sub_keys) > 1 or action_sub_keys[0] != "action":
+            action = sample
+            for key in action_sub_keys:
+                if isinstance(action, (dict, OrderedDict)):
+                    try:
+                        action = action[key]
+                    except:
+                        print("Action key not found:", key)
+                        import ipdb
+
+                        ipdb.set_trace()
+            sample["action"] = action
+            del sample[action_sub_keys[0]]
 
         # the full horizon is for the trajectory
         def recursive_horizon(data):
@@ -329,7 +331,11 @@ class TrajDataset:
                 if isinstance(val, (dict, OrderedDict)):
                     recursive_horizon(val)
                 else:
-                    if (key not in self.ignored_keys) and (key != "action") and (key != "action_is_pad"):
+                    if (
+                        (key not in self.ignored_keys)
+                        and (key != "action")
+                        and (key != "action_is_pad")
+                    ):
                         if key == "language":
                             data[key] = val
                         else:
@@ -337,7 +343,9 @@ class TrajDataset:
                     else:
                         if self.hist_action_cond:
                             if key in ["action", "action_is_pad"]:
-                                data[key] = val[: self.action_horizon] # including hist action
+                                data[key] = val[
+                                    : self.action_horizon
+                                ]  # including hist action
                         else:
                             if key in ["action", "action_is_pad"]:
                                 data[key] = val[
@@ -454,7 +462,7 @@ class TrajDataset:
         res = {"state": []}
         if isinstance(sample, (dict, OrderedDict)):
             res = sample
-            res['state'] = []
+            res["state"] = []
         for key in self.state_keys:
             if key in sample.keys():
                 if len(sample[key].shape) == 1:
@@ -471,18 +479,38 @@ class TrajDataset:
         if self.resize_img and "image" in sample.keys():
             for key, val in sample["image"].items():
                 # Image shape N, H, W, C
-                sample["image"][key] = resize_image_sequence(val, (self.img_size[0], self.img_size[1]))
+                sample["image"][key] = resize_image_sequence(
+                    val, (self.img_size[0], self.img_size[1])
+                )
         if self.resize_img and "depth" in sample.keys():
             for key, val in sample["depth"].items():
                 # Image shape N, H, W, C
-                sample["depth"][key] = resize_image_sequence(clip_depth(val), (self.img_size[0], self.img_size[1]))
-        if self.pose_transform is not None: # Last dim is gripper
-            if len(sample['action'].shape) == 2:
-                N, A = sample['action'].shape
-                sample['action'] = np.concatenate([self.pose_transform(sample['action'][..., :-1].reshape(-1, A-1)).reshape(N, -1), sample['action'][..., -1:]], axis=-1)
-            elif len(sample['action'].shape) == 3:
-                N, L, A = sample['action'].shape
-                sample['action'] = np.concatenate([self.pose_transform(sample['action'][..., :-1].reshape(-1, A-1)).reshape(N, L, -1), sample['action'][..., -1:]], axis=-1)
+                sample["depth"][key] = resize_image_sequence(
+                    clip_depth(val), (self.img_size[0], self.img_size[1])
+                )
+        if self.pose_transform is not None:  # Last dim is gripper
+            if len(sample["action"].shape) == 2:
+                N, A = sample["action"].shape
+                sample["action"] = np.concatenate(
+                    [
+                        self.pose_transform(
+                            sample["action"][..., :-1].reshape(-1, A - 1)
+                        ).reshape(N, -1),
+                        sample["action"][..., -1:],
+                    ],
+                    axis=-1,
+                )
+            elif len(sample["action"].shape) == 3:
+                N, L, A = sample["action"].shape
+                sample["action"] = np.concatenate(
+                    [
+                        self.pose_transform(
+                            sample["action"][..., :-1].reshape(-1, A - 1)
+                        ).reshape(N, L, -1),
+                        sample["action"][..., -1:],
+                    ],
+                    axis=-1,
+                )
             else:
                 raise ValueError(f"Invalid action shape: {sample['action'].shape}")
 
@@ -574,15 +602,14 @@ def delete_indices(
 def clip_depth(depth):
     valid_mask = np.logical_and(depth > 0.01, ~np.isnan(depth)) & (~np.isinf(depth))
     if valid_mask.sum() == 0:
-        Log.warn(
-            "No valid mask in the depth map of {}".format(self.depth_files[index])
-        )
+        Log.warn("No valid mask in the depth map of {}".format(self.depth_files[index]))
     if valid_mask.sum() != 0 and np.isnan(depth).sum() != 0:
         depth[np.isnan(depth)] = depth[valid_mask].max()
     if valid_mask.sum() != 0 and np.isinf(depth).sum() != 0:
         depth[np.isinf(depth)] = depth[valid_mask].max()
 
     return depth
+
 
 def resize_image_sequence(images, target_size):
     """
@@ -610,9 +637,7 @@ def resize_image_sequence(images, target_size):
 
     # Resize each image
     for i in range(N):
-        res = cv2.resize(
-            images[i], (new_W, new_H), interpolation=cv2.INTER_LINEAR
-        )
+        res = cv2.resize(images[i], (new_W, new_H), interpolation=cv2.INTER_LINEAR)
         if C == 1:
             output[i] = res[:, :, np.newaxis]
         else:
@@ -638,7 +663,7 @@ if __name__ == "__main__":
         use_disk=True,
         load_from_cache=True,
         use_lru_cache=True,
-        val_ratio=0.,
+        val_ratio=0.0,
         action_horizon=16,
         observation_horizon=3,
         horizon=18,
@@ -658,7 +683,9 @@ if __name__ == "__main__":
     # plt.legend()
     # plt.savefig("pos_visualization.png")
     # images = dataset.replay_buffer.data.obs.images.camera_0[73366:74103]
-    import ipdb; ipdb.set_trace()
+    import ipdb
+
+    ipdb.set_trace()
     # print(collections.Counter(dataset.replay_buffer.meta["episode_descriptions"]))
     # if "env_names" in dataset.replay_buffer.meta.keys():
     #     print(collections.Counter(dataset.replay_buffer.meta["env_names"]))

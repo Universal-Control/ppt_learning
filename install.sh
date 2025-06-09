@@ -10,8 +10,7 @@ cd subsampling
 python setup.py build_ext --inplace
 cd ..
 
-
-# # point transformer library. Necessary only if interested in Point Transformer and Stratified Transformer
+# point transformer library. Necessary only if interested in Point Transformer and Stratified Transformer
 cd pointops/
 python setup.py install
 cd ..

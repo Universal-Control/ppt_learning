@@ -16,16 +16,6 @@ network:
   action_dim : -1 # overwrite based on dataset
   temporal_agg: False # ACT-style temporal aggregation, not always work
 
-# head network (MLP, Diffusion, TransformerDecoder)
-# head:
-#     _target_: ppt_learning.models.policy_head.MLP
-#     input_dim: ${network.embed_dim}
-#     tanh_end: True # normalized action output
-#     output_dim: -1 # overwrite based on dataset
-#     widths: [512, 256]
-#     normalize_action: ${head.tanh_end}
-#     token_postprocessing: "mean"
-
 head:
   _target_: ppt_learning.models.policy_head.Diffusion
   input_dim: ${network.embed_dim} # concat = 11264
@@ -37,23 +27,13 @@ head:
   num_inference_steps: 10
   token_postprocessing: "mean" # "concat" # maxpool or meanpool the tokens
   hist_horizon: 0 # whether predicting the hist action
-  
-# head:
-#     _target_: ppt_learning.models.policy_head.TransformerDecoder
-#     token_dim: ${network.embed_dim}
-#     output_dim: -1 # overwrite based on dataset
-#     horizon: ${dataset.action_horizon}
-#     tanh_end: True
-#     normalize_action: ${head.tanh_end}
-#     token_postprocessing: ""
 
 stem:
-  modalities: ['state', 'pointcloud'] # no 'language'
+  modalities: ["state", "image"] # no 'language'
   modality_embed_dim: ${network.embed_dim}
   num_heads: 8 # num of heads in the trunk transformer
   dim_head: 32 # dim of head in the trunk transformer
   normalize_state: True # normalize state vectors 
-  # state_embedding_dim: 32 # dimension of positional encoding for state
   cross_attention: True # whether to use cross attention or not
 
   # used as perceiver io to unify token sizes for each modality
@@ -63,7 +43,7 @@ stem:
 
   image:
     _target_: ppt_learning.models.policy_stem.ResNet
-    resnet_model: 'resnet18'
+    resnet_model: "resnet18"
     output_dim: ${network.embed_dim}
     weights: "DEFAULT" # no weights para means no pre-trained weights are used.
     finetune: True
@@ -74,11 +54,3 @@ stem:
     input_dim: 0 # ovewrite based on the dataset
     output_dim: ${network.embed_dim}
     widths: [128, 256]
-
-  # language:
-  #   _target_: ppt_learning.models.policy_stem.TextEncoder
-  #   pretrained_model_name_or_path: "all-MiniLM-L6-v2" # https://www.sbert.net/docs/pretrained_models.html
-  #   modality_embed_dim: ${stem.modality_embed_dim}
-
-  # image: # camera
-  #   _target_: ppt_learning.models.policy_stem.VisionTransformer
