@@ -345,9 +345,29 @@ class SequenceSamplerLance:
         indices = list(range(buffer_start_idx, buffer_end_idx))
         row = self.lance_dataset.take(indices, columns=self.keys_in_disk)
         for key in self.keys_in_disk:
-            add_to_dict(result, key, np.stack(row[key].to_numpy()).reshape(-1, *self.shape_meta[key][1:]))
+            value = np.stack(row[key].to_numpy()).reshape(-1, *self.shape_meta[key][1:])
+            data = np.zeros(
+                shape=(self.sequence_length,) + value.shape[1:],
+                dtype=value.dtype,
+            )
+            if sample_start_idx > 0:
+                data[:sample_start_idx] = value[0]
+            if sample_end_idx < self.sequence_length:
+                data[sample_end_idx:] = value[-1]
+            data[sample_start_idx:sample_end_idx] = value
+            add_to_dict(result, key, data)
         for key in self.keys_in_memory:
-            add_to_dict(result, key, self.data_in_memory[key][indices])
+            value = self.data_in_memory[key][indices]
+            data = np.zeros(
+                shape=(self.sequence_length,) + value.shape[1:],
+                dtype=value.dtype,
+            )
+            if sample_start_idx > 0:
+                data[:sample_start_idx] = value[0]
+            if sample_end_idx < self.sequence_length:
+                data[sample_end_idx:] = value[-1]
+            data[sample_start_idx:sample_end_idx] = value
+            add_to_dict(result, key, data)
 
         result["language"] = eps_description
         result["obs_is_pad"] = np.zeros((self.sequence_length, 1), dtype=np.float32)

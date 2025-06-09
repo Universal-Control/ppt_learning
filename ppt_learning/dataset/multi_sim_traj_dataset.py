@@ -66,8 +66,6 @@ class MultiTrajDataset:
         pose_transform=None,
         **kwargs,
     ):
-        assert not isinstance(dataset_path, list), f"dataset_path must be a list, but got {type(dataset_path)}: {dataset_path}"
-
         self.dataset_name = domain
         self.rank = rank
         self.horizon = horizon

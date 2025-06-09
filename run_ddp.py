@@ -101,9 +101,7 @@ def run(rank: int, world_size: int, cfg: DictConfig):
     normalizer = None
     if not is_eval:
         cfg.dataset.dataset_path = (
-            cfg.get("dataset_path", "") + "/" + domain_list[0] + ".zarr"
-            if len(domain_list) == 1
-            else [cfg.get("dataset_path", "") + "/" + domain + ".zarr" for domain in domain_list]
+            [cfg.get("dataset_path", "") + "/" + domain + ".zarr" for domain in domain_list]
         )
         dataset = hydra.utils.instantiate(
             cfg.dataset,
