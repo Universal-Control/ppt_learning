@@ -6,6 +6,7 @@ import os
 import zarr
 import ipdb
 import argparse
+import time
 
 from ppt_learning.utils.replay_buffer import ReplayBuffer
 from ppt_learning.utils.sampler import SequenceSampler, get_val_mask
@@ -309,8 +310,7 @@ class TrajDataset:
         # import time
         # start_time = time.time()
         sample = self.sampler.sample_sequence(idx)
-        # end_time = time.time()
-        # print("Time used of sample:", end_time - start_time)
+        # print("Time used of sample:", time.time() - start_time)
         action_sub_keys = self.action_key.split('/')
         action = sample
         for key in action_sub_keys:
@@ -432,7 +432,6 @@ class TrajDataset:
                     sample["obs"]["pointcloud"][key] = val.reshape(
                         seq_len, num_points, -1
                     )
-
         self.flat_sample(sample)
 
         # if "pointcloud" in sample.keys():

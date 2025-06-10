@@ -6,6 +6,7 @@ import zarr
 import ipdb
 import lance
 import pickle
+import time
 
 from ppt_learning.utils.sampler import SequenceSamplerLance, get_val_mask, get_shape
 from ppt_learning.utils.normalizer import LinearNormalizer, SingleFieldLinearNormalizer
@@ -17,7 +18,7 @@ from ppt_learning.utils.pcd_utils import (
 
 from ppt_learning.paths import *
 from ppt_learning.utils.pcd_utils import BOUND
-from ppt_learning.dataset.sim_traj_dataset import resize_image_sequence
+from ppt_learning.dataset.sim_traj_dataset import resize_image_sequence, clip_depth
 
 class MultiTrajDatasetLance:
     """
@@ -45,7 +46,7 @@ class MultiTrajDatasetLance:
         observation_horizon=1,
         hist_action_cond=False,
         resize_img=True,
-        img_size=224,
+        img_size=(224,224),
         dataset_postfix="",
         dataset_encoder_postfix="",
         precompute_feat=False,
@@ -259,12 +260,12 @@ class MultiTrajDatasetLance:
             self.train_mask[idx] = ~self.val_mask[idx]
 
             # considering hyperparameters and masking
-            n_episodes = int(
+            n_samples = int(
                 self.data_ratio
                 * min(self.episode_cnt, self.lance_datasets[idx].count_rows())
             )
-            self.val_mask[idx][n_episodes:] = False
-            self.train_mask[idx][n_episodes:] = False
+            self.val_mask[idx][n_samples:] = False
+            self.train_mask[idx][n_samples:] = False
 
             # normalize and create sampler
             self.sampler[idx] = SequenceSamplerLance(
@@ -278,7 +279,7 @@ class MultiTrajDatasetLance:
                 keys_in_memory=self.keys_in_memory,
             )
             print(
-                f"{self.dataset_name[idx]} size: {len(self.sampler[idx])} episodes: {n_episodes} train: {self.train_mask[idx].sum()} eval: {self.val_mask[idx].sum()}"
+                f"{self.dataset_name[idx]} size: {len(self.sampler[idx])} episodes: {n_samples} train: {self.train_mask[idx].sum()} eval: {self.val_mask[idx].sum()}"
             )
 
         self.dataset_length = np.cumsum([len(sampler) for sampler in self.sampler])
@@ -399,11 +400,12 @@ class MultiTrajDatasetLance:
                     )
 
         self.flat_sample(sample)
-        self.transform(sample)
 
         # if "pointcloud" in sample.keys():
         #     assert sample["pointcloud"].shape[-1] == self.pcd_channels, f"pointcloud channel mismatch! expected {self.pcd_channels}, got {sample['pointcloud'].shape[-1]}"
         recursive_horizon(sample)
+
+        self.transform(sample)
 
         return {"domain": self.dataset_name, "data": sample}
 
@@ -426,7 +428,11 @@ class MultiTrajDatasetLance:
         if self.resize_img and "image" in sample.keys():
             for key, val in sample["image"].items():
                 # Image shape N, H, W, C
-                resize_image_sequence(val, (self.img_size, self.img_size))
+                sample["image"][key] = resize_image_sequence(val, (self.img_size[0], self.img_size[1]))
+        if self.resize_img and "depth" in sample.keys():
+            for key, val in sample["depth"].items():
+                # Image shape N, H, W, C
+                sample["depth"][key] = resize_image_sequence(clip_depth(val), (self.img_size[0], self.img_size[1]))
         if self.pose_transform is not None: # Last dim is gripper
             if len(sample['action'].shape) == 2:
                 N, A = sample['action'].shape
@@ -448,6 +454,9 @@ class MultiTrajDatasetLance:
 
         if "images" in sample.keys() and "image" not in sample.keys():
             sample["image"] = sample.pop("images")
+
+        if "depths" in sample.keys() and "depth" not in sample.keys():
+            sample["depth"] = sample.pop("depths")
 
         if not self.use_pcd:
             if "pointcloud" in sample.keys():
@@ -515,6 +524,7 @@ if __name__ == "__main__":
         pcdnet_pretrain_domain="scanobjectnn",
         # action_key="wbc_target/r"
     )
+    import ipdb; ipdb.set_trace()
 
     dataset.get_training_dataset(0.0, 1)
 
