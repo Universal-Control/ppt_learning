@@ -1,0 +1,38 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "debug dataset",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/opt/tiger/ppt_learning/ppt_learning/dataset/multi_sim_traj_dataset_lance.py",
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "/mnt/bn/robot-minghuan-debug/ppt_learning/ppt_learning/third_party/",
+            }
+        },
+        {
+            "name": "debug ddp lance",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/opt/tiger/ppt_learning/run_ddp_lance.py",
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "/mnt/bn/robot-minghuan-debug/ppt_learning/ppt_learning/third_party/",
+            }
+        },
+        {
+            "name": "debug ddp",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "/opt/tiger/ppt_learning/run_ddp.py",
+            "console": "integratedTerminal",
+            "env": {
+                "PYTHONPATH": "/mnt/bn/robot-minghuan-debug/ppt_learning/ppt_learning/third_party/",
+            }
+        }
+    ]
+}

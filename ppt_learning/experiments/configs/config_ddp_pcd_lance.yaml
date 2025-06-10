@@ -10,7 +10,7 @@ debug: False # Turn off to allow wandb logging
 suffix: "" # suffix for the experiment
 wb_tag: ${suffix}
 
-batch_size: 80 # batch size
+batch_size: 60 # batch size
 
 defaults:
   - env: isaacsim_lance # rlbench # gensim2
@@ -23,14 +23,14 @@ dataset:
   
 dataloader:
   batch_size: ${batch_size}
-  num_workers: 4
+  num_workers: 8
   pin_memory: true
   persistent_workers: true
   shuffle: true
   drop_last: true
 val_dataloader:
   batch_size: ${batch_size}
-  num_workers: 4
+  num_workers: 8
   shuffle: false
   pin_memory: true
   persistent_workers: true
