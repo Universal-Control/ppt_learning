@@ -68,7 +68,8 @@ def log_stat(
 
     info_log["max_gradient"].append(module_max_gradient(model))
     info_log["max_stem_gradient"].append(module_max_gradient(model.stems))
-    info_log["max_trunk_gradient"].append(module_max_gradient(model.trunk))
+    if hasattr(model, "trunk"):
+        info_log["max_trunk_gradient"].append(module_max_gradient(model.trunk))
     info_log["max_head_gradient"].append(module_max_gradient(model.heads))
     info_log["mean_param"].append(module_mean_param(model))
     info_log["batch_time"].append(time.time() - start_time)
