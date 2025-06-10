@@ -16,11 +16,11 @@ dataset:
   step_cnt: 30000 # total data transitions
   data_augmentation: False # data augmentation
   se3_augmentation: False # se3 augmentation
-  use_disk: True # use disk ins1tead of memory to store the data
+  use_disk: True # use disk instead of memory to store the data
   pad_before: ${dataset.observation_horizon} # padding before the episode
   data_ratio: 1 # only use a fraction of data
-  action_horizon: 16 # observation: (observation + action) is action horizon 
-  observation_horizon: 3 # before observation horizon is observation
+  action_horizon: 8 # observation: (observation + action) is action horizon 
+  observation_horizon: 1 # before observation horizon is observation
   precompute_feat: True # precompute features using pretrained models for stems
   image_encoder: "resnet" # which encoder to use as the pretrained model  
   dataset_encoder_postfix: "" # "_${dataset.image_encoder}" # another postfix
@@ -32,7 +32,7 @@ dataset:
   pcd_channels: 4 # 3 is pos, 4 is [pos, height], 5 is [pos, height, seg], 6 is [pos, color], 7 is [pos, color, height]
   action_key: "action"
   state_keys: ["tcp_position", "tcp_orientation", "joint_positions", "joint_velocities", "gripper_state"]
-  ignored_keys: ["joint_torques"]
+  ignored_keys: ["joint_torques", "intrs", "transforms", "depths"]
 
 # test
 rollout_runner:

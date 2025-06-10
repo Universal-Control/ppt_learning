@@ -24,3 +24,4 @@ ftfy
 chamferdist
 flatdict
 opencv-python
+albumentations

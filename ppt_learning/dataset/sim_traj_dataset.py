@@ -6,6 +6,7 @@ import os
 import zarr
 import ipdb
 import argparse
+import albumentations as A
 
 from ppt_learning.utils.replay_buffer import ReplayBuffer
 from ppt_learning.utils.sampler import SequenceSampler, get_val_mask
@@ -48,6 +49,8 @@ class TrajDataset:
         observation_horizon=1,
         hist_action_cond=False,
         resize_img=True,
+        augment_img=True,
+        img_augment_prob=0.7,
         img_size=(224, 224),
         dataset_postfix="",
         dataset_encoder_postfix="",
@@ -85,6 +88,7 @@ class TrajDataset:
         self.use_multiview = use_multiview
         self.normalize_state = normalize_state
         self.resize_img = resize_img
+        self.augment_img = augment_img
         self.img_size = img_size
         self.action_key = action_key
         self.hist_action_cond = hist_action_cond
@@ -127,8 +131,26 @@ class TrajDataset:
                 "initial_state",
                 "states",
                 "depths",
-            ]  # , "images", "color"]
-            # self.use_pcd = False
+            ]
+
+        if self.augment_img:
+            self.img_transform = A.Compose(
+                [
+                    A.OneOf(
+                        [
+                            A.GaussianBlur(
+                                blur_limit=(3, 7),
+                                sigma_limit=(0.1, 2),
+                                p=img_augment_prob,
+                            ),
+                            A.MotionBlur(p=img_augment_prob),
+                            A.Defocus(p=img_augment_prob),
+                            A.ColorJitter(p=img_augment_prob),
+                            A.GaussNoise(p=img_augment_prob),
+                        ],
+                    ),
+                ]
+            )
 
         self.voxelization = voxelization
         self.voxel_size = voxel_size
@@ -442,11 +464,11 @@ class TrajDataset:
                     )
 
         self.flat_sample(sample)
-        self.transform(sample)
 
         # if "pointcloud" in sample.keys():
         #     assert sample["pointcloud"].shape[-1] == self.pcd_channels, f"pointcloud channel mismatch! expected {self.pcd_channels}, got {sample['pointcloud'].shape[-1]}"
         recursive_horizon(sample)
+        self.transform(sample)
 
         return {"domain": self.dataset_name, "data": sample}
 
@@ -488,6 +510,10 @@ class TrajDataset:
                 sample["depth"][key] = resize_image_sequence(
                     clip_depth(val), (self.img_size[0], self.img_size[1])
                 )
+        if self.augment_img and "image" in sample.keys():
+            for key, val in sample["image"].items():
+                for step_idx in range(val.shape[0]):
+                    sample["image"][key][step_idx] = self.img_transform(image=val[step_idx])["image"]
         if self.pose_transform is not None:  # Last dim is gripper
             if len(sample["action"].shape) == 2:
                 N, A = sample["action"].shape

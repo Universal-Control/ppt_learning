@@ -20,6 +20,7 @@ defaults:
   - _self_
 
 dataset:
+  use_disk: False
   image_size: [224, 224]
 
 dataloader:

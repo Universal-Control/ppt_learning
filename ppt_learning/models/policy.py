@@ -74,9 +74,12 @@ class Policy(nn.Module):
     ):
         super().__init__()
         self.embed_dim = embed_dim
-        self.trunk = self._create_policy_trunk(
-            embed_dim, num_blocks, num_heads, **kwargs
-        )
+        if not no_trunk:
+            self.trunk = self._create_policy_trunk(
+                embed_dim, num_blocks, num_heads, **kwargs
+            )
+        else:
+            self.trunk = None
         self.stems = OrderedDict()
         self.heads = OrderedDict()
         self.normalizer = OrderedDict()  # normalizer
@@ -246,13 +249,14 @@ class Policy(nn.Module):
                 feature = feature + modality_embedding
                 # B x T x L x D
                 feature = self.process_time_embedding(feature)  # denote timesteps
-                feature = feature.reshape(feature.shape[0], -1, feature.shape[-1])
+            feature = feature.reshape(feature.shape[0], -1, feature.shape[-1])
             processed_features.append(feature)
 
         tokens = torch.cat(processed_features, dim=-2)
-        tokens = self.process_position_embedding(
-            tokens
-        )  # global position in the sequence
+        if not self.no_trunk:
+            tokens = self.process_position_embedding(
+                tokens
+            )  # global position in the sequence
 
         return tokens
 
@@ -531,10 +535,11 @@ class Policy(nn.Module):
         # stem pass
         feats = self.stem_process(domain, data)
 
-        for i in range(1, len(feats)):  # For debugging
-            assert (
-                feats[0].shape[-1] == feats[i].shape[-1]
-            ), "embedding dimension mismatch for each feature."
+        if not self.no_trunk:
+            for i in range(1, len(feats)):  # For debugging
+                assert (
+                    feats[0].shape[-1] == feats[i].shape[-1]
+                ), "embedding dimension mismatch for each feature."
 
         # combine tokens
         features = self.preprocess_tokens(feats)
@@ -580,13 +585,19 @@ class Policy(nn.Module):
 
     def load_trunk(self, path, postfix="_last", extension="pth"):
         """load the trunk part of the model"""
+        if self.no_trunk:
+            return
         self.trunk.load_state_dict(torch.load(path))
 
     def freeze_trunk(self):
+        if self.no_trunk:
+            return
         for param in self.trunk.parameters():
             param.requires_grad = False
 
     def unfreeze_trunk(self):
+        if self.no_trunk:
+            return
         for param in self.trunk.parameters():
             param.requires_grad = True
 
