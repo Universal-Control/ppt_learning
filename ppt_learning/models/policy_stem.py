@@ -72,7 +72,6 @@ class MLP(nn.Module):
         y = y.reshape(y.shape[0], 1, y.shape[-1])  # 1 is the number of token
         return y
 
-
 class DepthCNN(nn.Module):
     def __init__(self, output_dim, output_activation=None, num_channel=1):
         super().__init__()
@@ -117,6 +116,7 @@ class DepthCNN(nn.Module):
 
         return latent
 
+
 class ResNet(nn.Module):
     def __init__(
         self,
@@ -125,6 +125,8 @@ class ResNet(nn.Module):
         resnet_model="resnet18",
         num_of_copy=1,
         finetune=True,
+        rgb_only=True,
+        depth_only=False,
         **kwargs,
     ):
         super().__init__()
@@ -137,6 +139,10 @@ class ResNet(nn.Module):
         )
 
         pretrained_model = getattr(torchvision.models, resnet_model)(weights=weights)
+        if depth_only:
+            pretrained_model.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+
+        num_channels = 512 if resnet_model in ("resnet18", "resnet34") else 2048
         # by default we use a separate image encoder for each view in downstream evaluation
         self.num_of_copy = num_of_copy
         self.net = nn.Sequential(*list(pretrained_model.children())[:-2])
@@ -151,15 +157,20 @@ class ResNet(nn.Module):
                 ]
             )
 
+        self.rgb_only = rgb_only
+        self.depth_only = depth_only
+        assert not (self.rgb_only and self.depth_only), "rgb_only and depth_only cannot be both True"
+
         self.output_dim = output_dim
-        self.avgpool = nn.AvgPool2d(9, stride=1)
-        self.proj = nn.Linear(7 * 12 * 512, output_dim)
+
+        self.avgpool = nn.AvgPool2d(7, stride=1)
+        self.proj = nn.Linear(num_channels, output_dim)
 
     def forward(self, x):
         """
-        x: dict of cameras, each with B x T x H x W x C
+        x: dict of cameras, each with (B x T) x H x W x C
         """
-        x = torch.stack([*x.values()], dim=1)[..., :3]  # B x N x H x W x 3
+        x = torch.stack([*x.values()], dim=1)[..., :3]  # (B x N) x H x W x 3/1
         B, N, H, W, C = x.shape
         x = x.permute(0, 1, 4, 2, 3)
         # flatten first
@@ -183,7 +194,7 @@ class ResNet(nn.Module):
             feat = self.net(x)
 
         feat = self.avgpool(feat).contiguous()
-        feat = self.proj(feat.view(feat.shape[0], -1))  # (B * Ncam) x output_dim
+        feat = self.proj(feat.view(feat.shape[0], -1))  # (B * Ncam) x channel
         feat = feat.view(B, -1, feat.shape[-1])  # B,  Ncam x output_dim
 
         return feat
@@ -198,6 +209,8 @@ class ViT(nn.Module):
         patch_size=14,
         output_dim=512,
         num_of_copy=1,
+        rgb_only=True,
+        depth_only=False,
         finetune=False,
         **kwargs,
     ):
@@ -217,12 +230,20 @@ class ViT(nn.Module):
                 [nn.Sequential(*list(backbone.children())) for _ in range(num_of_copy)]
             )
 
+        self.rgb_only = rgb_only
+        self.depth_only = depth_only
+        assert not (self.rgb_only and self.depth_only), "rgb_only and depth_only cannot be both True"
+
         self.output_dim = output_dim
+
+        if self.depth_only: # TODO
+            self.net.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+
         self.proj = nn.Linear(384, output_dim)
 
     def forward(self, x):
         """
-        x: dict of B x T x H x W x 4
+        x: dict of (B x T) x H x W x 4
         """
         x = torch.stack([*x.values()], dim=0)[..., :3]  # N x B x H x W x 4
         x = x.permute(1, 0, 4, 2, 3)

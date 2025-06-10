@@ -19,7 +19,7 @@ from collections import deque
 import wandb
 import logging
 
-from ppt_learning.utils.utils import dict_apply, batchify, sample_pcd_data, unbatchify
+from ppt_learning.utils.learning import dict_apply, batchify, sample_pcd_data, unbatchify
 
 try:
     from ppt_learning.utils.video import save_video
@@ -152,7 +152,7 @@ def train(
         optimizer.zero_grad()
         domain_loss.backward()
         optimizer.step()
-        scheduler.step(epoch + batch_idx / epoch_size)
+        scheduler.step()
         train_step = len(train_loader) * epoch + batch_idx
 
         model_ = model.module if isinstance(model, DDP) else model

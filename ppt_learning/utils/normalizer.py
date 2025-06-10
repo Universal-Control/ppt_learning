@@ -5,7 +5,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 
-from ppt_learning.utils.utils import dict_apply
+from ppt_learning.utils.learning import dict_apply
 from ppt_learning.utils.dict_of_tensor_mixin import DictOfTensorMixin
 
 

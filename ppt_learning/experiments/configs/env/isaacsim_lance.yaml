@@ -1,7 +1,8 @@
 # @package _global_
 # dataset name to be loaded
 domains: 
-  one_camera_no_crop_642_no_yaw_lance
+  # one_camera_no_crop_642_no_yaw_lance
+  one_camera_no_crop_retry_place_642_no_yaw_lance
 save_interval: 50
 dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close
 
@@ -22,7 +23,7 @@ dataset:
   pad_before: ${dataset.observation_horizon} # padding before the episode
   data_ratio: 1 # only use a fraction of data
   action_horizon: 16 # observation: (observation + action) is action horizon 
-  observation_horizon: 3 # before observation horizon is observation
+  observation_horizon: 1 # before observation horizon is observation
   precompute_feat: True # precompute features using pretrained models for stems
   image_encoder: 'resnet' # which encoder to use as the pretrained model  
   dataset_encoder_postfix: "" # "_${dataset.image_encoder}" # another postfix

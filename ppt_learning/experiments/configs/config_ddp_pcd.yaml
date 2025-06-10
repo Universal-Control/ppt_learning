@@ -19,7 +19,7 @@ defaults:
   - _self_
 
 dataset:
-  ignored_keys: ["initial_state", "states", "depths", "images", "color", "abs_gripper_pos"]
+  ignored_keys: ["language", "initial_state", "states", "depths", "images", "color", "abs_gripper_pos", "wbc_target", "wbc_step", "last_action"]
   # use_lru_cache: false
   
 dataloader:

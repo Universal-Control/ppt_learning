@@ -8,7 +8,7 @@ network:
   drop_path: 0.0 # drop path in the trunk transformer
   use_modality_embedding: True
   token_postprocessing: ${head.token_postprocessing}
-  cross_stem_attention: False # use cross attention to combine state and action
+  cross_stem_attention: False # use cross attention to combine state and action, not used
   weight_init_style: 'pytorch' # weight init
   observation_horizon: ${dataset.observation_horizon}
   action_horizon: ${dataset.action_horizon}
@@ -32,7 +32,7 @@ head:
   output_dim: -1 # overwrite based on dataset
   horizon: ${dataset.action_horizon}
   normalize_action: True
-  down_dims: [512, 1024, 2048]
+  down_dims: [128, 256, 512]
   noise_scheduler_type: "DDIM"
   num_inference_steps: 10
   token_postprocessing: "mean" # "concat" # maxpool or meanpool the tokens
@@ -54,7 +54,7 @@ stem:
   dim_head: 32 # dim of head in the trunk transformer
   normalize_state: True # normalize state vectors 
   # state_embedding_dim: 32 # dimension of positional encoding for state
-  cross_attention: True # whether to use cross attention or not
+  cross_attention: True # whether to use perceiver cross attention or not
 
   # used as perceiver io to unify token sizes for each modality
   crossattn_latent:

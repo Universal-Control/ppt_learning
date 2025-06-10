@@ -32,6 +32,9 @@ def run(cfg):
     """
     This script runs through the train / test / eval loop. Assumes single task for now.
     """
+    # Register custom OmegaConf resolver for mathematical expressions
+    OmegaConf.register_new_resolver("eval", eval)
+    
     is_eval = cfg.train.total_epochs == 0
 
     device = "cuda"

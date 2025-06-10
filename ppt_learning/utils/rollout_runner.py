@@ -23,7 +23,7 @@ except RuntimeError:
     pass
 from multiprocessing import Process, Queue
 
-from ppt_learning.utils.utils import dict_apply
+from ppt_learning.utils.learning import dict_apply
 from ppt_learning.utils.video import videoLogger
 from ppt_learning.utils.pcd_utils import (
     visualize_point_cloud,
