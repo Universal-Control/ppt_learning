@@ -8,10 +8,10 @@ from torch.utils.data import DataLoader, RandomSampler
 
 from ppt_learning.utils.rollout_runner import preprocess_obs, update_pcd_transform
 from ppt_learning.real.real_robot_ur5 import RealRobot
-from ppt_learning.utils import utils, model_utils
+from ppt_learning.utils import learning, model_utils
 from ppt_learning.utils.warmup_lr_wrapper import WarmupLR
 from ppt_learning.utils.video import videoLogger
-from ppt_learning.utils.utils import dict_apply
+from ppt_learning.utils.learning import dict_apply
 from ppt_learning.paths import *
 
 import numpy as np
@@ -90,7 +90,7 @@ def run(cfg):
     cfg.head["output_dim"] = cfg.network["action_dim"] = 8
     cfg.stem.state["input_dim"] = 21
 
-    utils.save_args_hydra(cfg.output_dir, cfg)
+    learning.save_args_hydra(cfg.output_dir, cfg)
 
     print("cfg: ", cfg)
     print("output dir", cfg.output_dir)

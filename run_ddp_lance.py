@@ -17,7 +17,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from ppt_learning.utils import utils, model_utils
+from ppt_learning.utils import learning, model_utils
 from ppt_learning.utils.warmup_lr_wrapper import WarmupLR
 from ppt_learning.paths import *
 
@@ -144,7 +144,7 @@ def run(rank: int, world_size: int, cfg: DictConfig):
     # Ensure only rank 0 creates output directory
     if rank == 0:
         os.makedirs(cfg.output_dir, exist_ok=True)
-        utils.save_args_hydra(cfg.output_dir, cfg)
+        learning.save_args_hydra(cfg.output_dir, cfg)
     dist.barrier()  # Wait for rank 0 to create directory
 
     policy.init_domain_stem(domain, cfg.stem)
@@ -190,15 +190,18 @@ def run(rank: int, world_size: int, cfg: DictConfig):
     if rank == 0:
         print("cfg.train.pretrained_dir:", cfg.train.pretrained_dir)
 
-    opt = utils.get_optimizer(cfg.optimizer, policy)
-    sch = utils.get_scheduler(cfg.lr_scheduler, optimizer=opt)
+    total_steps = cfg.train.total_epochs * len(train_loader)
+    opt = learning.get_optimizer(cfg.optimizer, policy)
+    sch = learning.get_scheduler(cfg.lr_scheduler, opt, num_warmup_steps=cfg.warmup_lr.step, num_training_steps=total_steps)
 
-    sch = WarmupLR(
-        sch,
-        init_lr=cfg.warmup_lr.lr,
-        num_warmup=cfg.warmup_lr.step,
-        warmup_strategy="constant",
-    )
+    # sch = utils.get_scheduler(cfg.lr_scheduler, optimizer=opt)
+    # sch = WarmupLR(
+    #     sch,
+    #     init_lr=cfg.warmup_lr.lr,
+    #     num_warmup=cfg.warmup_lr.step,
+    #     warmup_strategy="constant",
+    # )
+    
     n_parameters = sum(p.numel() for p in policy.parameters() if p.requires_grad)
     if rank == 0:
         print(f"number of params (M): {n_parameters / 1.0e6:.2f}")

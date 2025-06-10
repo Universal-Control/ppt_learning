@@ -432,11 +432,11 @@ class MultiTrajDataset:
                     )
 
         self.flat_sample(sample)
-        self.transform(sample)
 
         # if "pointcloud" in sample.keys():
         #     assert sample["pointcloud"].shape[-1] == self.pcd_channels, f"pointcloud channel mismatch! expected {self.pcd_channels}, got {sample['pointcloud'].shape[-1]}"
         recursive_horizon(sample)
+        self.transform(sample)
 
         return {"domain": self.dataset_name, "data": sample}
 

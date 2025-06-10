@@ -13,7 +13,7 @@ from torch.utils import data
 from torchvision import transforms
 from torch.utils.data import DataLoader, RandomSampler
 
-from ppt_learning.utils import utils, model_utils
+from ppt_learning.utils import learning, model_utils
 from ppt_learning.utils.warmup_lr_wrapper import WarmupLR
 from ppt_learning.paths import *
 
@@ -110,7 +110,7 @@ def run(cfg):
         cfg.head["hist_horizon"] = cfg.dataset.observation_horizon
     cfg.head["output_dim"] = cfg.network["action_dim"] = action_dim
 
-    utils.save_args_hydra(cfg.output_dir, cfg)
+    learning.save_args_hydra(cfg.output_dir, cfg)
 
     print("cfg: ", cfg)
     print("output dir", cfg.output_dir)
@@ -152,15 +152,18 @@ def run(cfg):
         print("train from scratch")
 
     policy.to(device)
-    opt = utils.get_optimizer(cfg.optimizer, policy)
-    sch = utils.get_scheduler(cfg.lr_scheduler, optimizer=opt)
 
-    sch = WarmupLR(
-        sch,
-        init_lr=cfg.warmup_lr.lr,
-        num_warmup=cfg.warmup_lr.step,
-        warmup_strategy="constant",
-    )
+    total_steps = cfg.train.total_epochs * len(train_loader)
+    opt = learning.get_optimizer(cfg.optimizer, policy)
+    sch = learning.get_scheduler(cfg.lr_scheduler, opt, num_warmup_steps=cfg.warmup_lr.step, num_training_steps=total_steps)
+
+    # sch = utils.get_scheduler(cfg.lr_scheduler, optimizer=opt)
+    # sch = WarmupLR(
+    #     sch,
+    #     init_lr=cfg.warmup_lr.lr,
+    #     num_warmup=cfg.warmup_lr.step,
+    #     warmup_strategy="constant",
+    # )
     n_parameters = sum(p.numel() for p in policy.parameters() if p.requires_grad)
     print(f"number of params (M): {n_parameters / 1.0e6:.2f}")
 

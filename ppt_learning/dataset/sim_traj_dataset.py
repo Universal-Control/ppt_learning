@@ -434,11 +434,11 @@ class TrajDataset:
                     )
 
         self.flat_sample(sample)
-        self.transform(sample)
 
         # if "pointcloud" in sample.keys():
         #     assert sample["pointcloud"].shape[-1] == self.pcd_channels, f"pointcloud channel mismatch! expected {self.pcd_channels}, got {sample['pointcloud'].shape[-1]}"
         recursive_horizon(sample)
+        self.transform(sample)
 
         return {"domain": self.dataset_name, "data": sample}
 
@@ -633,7 +633,7 @@ if __name__ == "__main__":
 
     dataset = TrajDataset(
         domain="debug",
-        dataset_path="/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/put_bowl_in_microwave__520_collected_data_retry_random_x015_new_subtask_generated_1gpu.zarr",
+        dataset_path="/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/one_camera_no_crop_retry_place_642_no_yaw.zarr",
         from_empty=False,
         use_disk=True,
         load_from_cache=True,
@@ -647,6 +647,7 @@ if __name__ == "__main__":
         use_pcd=True,
         pcd_channels=4,
         pcdnet_pretrain_domain="scanobjectnn",
+        ignored_keys=["initial_state", "states", "images", "color", "abs_gripper_pos"]
         # action_key="wbc_target/r"
     )
     dataset.__getitem__(0)

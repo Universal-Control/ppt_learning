@@ -20,10 +20,10 @@ import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 import torch.nn.functional as F
 
-from ppt_learning.utils import utils, model_utils
+from ppt_learning.utils import learning, model_utils
 from ppt_learning.utils.warmup_lr_wrapper import WarmupLR
 from ppt_learning.paths import *
-from ppt_learning.utils.utils import dict_apply, batchify, sample_pcd_data, unbatchify
+from ppt_learning.utils.learning import dict_apply, batchify, sample_pcd_data, unbatchify
 
 import ray.train.torch
 from ray import train
@@ -253,7 +253,7 @@ def run(config):
     # Ensure only rank 0 creates output directory
     if rank == 0:
         os.makedirs(cfg.output_dir, exist_ok=True)
-        utils.save_args_hydra(cfg.output_dir, cfg)
+        learning.save_args_hydra(cfg.output_dir, cfg)
     dist.barrier()  # Wait for rank 0 to create directory
 
     policy.init_domain_stem(domain, cfg.stem)
@@ -299,7 +299,7 @@ def run(config):
     if rank == 0:
         print("cfg.train.pretrained_dir:", cfg.train.pretrained_dir)
 
-    opt = utils.get_optimizer(cfg.optimizer, policy)
+    opt = learning.get_optimizer(cfg.optimizer, policy)
     sch = utils.get_scheduler(cfg.lr_scheduler, optimizer=opt)
 
     sch = WarmupLR(
