@@ -6,6 +6,7 @@ import os
 import gc
 from tqdm import tqdm
 import zarr
+import copy
 
 from ppt_learning.utils.replay_buffer import ReplayBuffer
 from ppt_learning.paths import PPT_DIR
@@ -20,6 +21,7 @@ def create_indices(
     pad_after: int = 0,
     debug: bool = True,
     replay_idx: int = None,
+    obs: bool = False,
 ) -> np.ndarray:
     episode_mask.shape == episode_ends.shape
     pad_before = min(max(pad_before, 0), sequence_length - 1)
@@ -43,18 +45,28 @@ def create_indices(
 
         # range stops one idx before end
         for idx in range(min_start, max_start + 1):
-            buffer_start_idx = max(idx, 0) + start_idx
-            buffer_end_idx = min(idx + sequence_length, episode_length) + start_idx
+            buffer_start_idx = max(idx, 0) + start_idx # make sure all start idx is the same
+            if obs:
+                buffer_end_idx = min(idx + (pad_before+1), episode_length) + start_idx # pad_before+1 because we want to include the history
+            else:
+                buffer_end_idx = min(idx + sequence_length, episode_length) + start_idx
+
             start_offset = buffer_start_idx - (idx + start_idx)
-            end_offset = (idx + sequence_length + start_idx) - buffer_end_idx
-            sample_start_idx = 0 + start_offset
-            sample_end_idx = sequence_length - end_offset
+            if obs:
+                end_offset = (idx + (pad_before+1) + start_idx) - buffer_end_idx
+            else:
+                end_offset = (idx + sequence_length + start_idx) - buffer_end_idx
+            sample_start_idx = 0 + start_offset # make sure all start idx is the same
+            if obs:
+                sample_end_idx = (pad_before+1) - end_offset # pad_before+1 because we want to include the  history
+            else:
+                sample_end_idx = sequence_length - end_offset
             if debug:
                 assert start_offset >= 0
                 assert end_offset >= 0
                 assert (sample_end_idx - sample_start_idx) == (
                     buffer_end_idx - buffer_start_idx
-                )
+                ), f"start_offset: {start_offset}, end_offset: {end_offset}, sample_end_idx: {sample_end_idx}, sample_start_idx: {sample_start_idx}, buffer_end_idx: {buffer_end_idx}, buffer_start_idx: {buffer_start_idx}"
             if replay_idx is not None:
                 indices.append(
                     [
@@ -139,14 +151,6 @@ class SequenceSampler:
             episode_mask = np.ones(episode_ends.shape, dtype=bool)
 
         if np.any(episode_mask):
-            obs_indices = create_indices(
-                episode_ends,
-                episode_descriptions,
-                sequence_length=pad_before+1,
-                pad_before=pad_before,
-                pad_after=0,
-                episode_mask=episode_mask,
-            )
             act_indices = create_indices(
                 episode_ends,
                 episode_descriptions,
@@ -155,14 +159,24 @@ class SequenceSampler:
                 pad_after=pad_after,
                 episode_mask=episode_mask,
             )
+            obs_indices = create_indices(
+                episode_ends,
+                episode_descriptions,
+                sequence_length=sequence_length,
+                pad_before=pad_before,
+                pad_after=pad_after,
+                episode_mask=episode_mask,
+                obs=True,
+            )
         else:
             # raise ValueError("No episodes to sample from")
             obs_indices = np.zeros((0, 4), dtype=np.int64)
             act_indices = np.zeros((0, 4), dtype=np.int64)
 
         # (buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx)
-        self.obs_indices = obs_indices
         self.act_indices = act_indices
+        self.obs_indices = obs_indices
+
         self.keys = list(keys)  # prevent OmegaConf list performance problem
         self.sequence_length = sequence_length
         self.replay_buffer = replay_buffer
@@ -334,10 +348,11 @@ class SequenceSamplerLance:
             obs_indices = create_indices(
                 episode_ends,
                 episode_descriptions,
-                sequence_length=pad_before+1,
+                sequence_length=sequence_length,
                 pad_before=pad_before,
                 pad_after=0,
                 episode_mask=episode_mask,
+                obs=True,
             )
             act_indices = create_indices(
                 episode_ends,
