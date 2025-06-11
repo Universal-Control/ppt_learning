@@ -121,7 +121,6 @@ class SequenceSampler:
         key_first_k=dict(),
         episode_mask: Optional[np.ndarray] = None,
         ignored_keys=[],
-        action_key="",
     ):
         """
         key_first_k: dict str: int
@@ -139,15 +138,7 @@ class SequenceSampler:
             episode_mask = np.ones(episode_ends.shape, dtype=bool)
 
         if np.any(episode_mask):
-            obs_indices = create_indices(
-                episode_ends,
-                episode_descriptions,
-                sequence_length=pad_before+1,
-                pad_before=pad_before,
-                pad_after=0,
-                episode_mask=episode_mask,
-            )
-            act_indices = create_indices(
+            indices = create_indices(
                 episode_ends,
                 episode_descriptions,
                 sequence_length=sequence_length,
@@ -156,69 +147,38 @@ class SequenceSampler:
                 episode_mask=episode_mask,
             )
         else:
-            # raise ValueError("No episodes to sample from")
-            obs_indices = np.zeros((0, 4), dtype=np.int64)
-            act_indices = np.zeros((0, 4), dtype=np.int64)
+            indices = np.zeros((0, 4), dtype=np.int64)
 
         # (buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx)
-        self.obs_indices = obs_indices
-        self.act_indices = act_indices
+        self.indices = indices
         self.keys = list(keys)  # prevent OmegaConf list performance problem
         self.sequence_length = sequence_length
         self.replay_buffer = replay_buffer
         self.key_first_k = key_first_k
         self.ignored_keys = ignored_keys
-        self.action_key = action_key
 
     def __len__(self):
-        return len(self.act_indices)
+        return len(self.indices)
 
     def sample_sequence(self, idx):
         (
-            obs_eps_i,
-            obs_buffer_start_idx,
-            obs_buffer_end_idx,
-            obs_sample_start_idx,
-            obs_sample_end_idx,
-            obs_eps_description,
-        ) = self.obs_indices[idx]
-
-        (
-            act_eps_i,
-            act_buffer_start_idx,
-            act_buffer_end_idx,
-            act_sample_start_idx,
-            act_sample_end_idx,
-            act_eps_description,
-        ) = self.act_indices[idx]
-
+            eps_i,
+            buffer_start_idx,
+            buffer_end_idx,
+            sample_start_idx,
+            sample_end_idx,
+            eps_description,
+        ) = self.indices[idx]
         result = dict()
 
         def recursive_sample(data, target_dict):
-            
             for key, input_arr in data.items():
                 if key in self.ignored_keys:
                     continue
-
                 if isinstance(input_arr, (dict, OrderedDict, zarr.Group)):
                     target_dict[key] = {}
                     recursive_sample(input_arr, target_dict[key])
                 else:
-                    if key == self.action_key:
-                        eps_i = act_eps_i
-                        buffer_start_idx = act_buffer_start_idx
-                        buffer_end_idx = act_buffer_end_idx
-                        sample_start_idx = act_sample_start_idx
-                        sample_end_idx = act_sample_end_idx
-                        eps_description = act_eps_description
-                    else:
-                        eps_i = obs_eps_i
-                        buffer_start_idx = obs_buffer_start_idx
-                        buffer_end_idx = obs_buffer_end_idx
-                        sample_start_idx = obs_sample_start_idx
-                        sample_end_idx = obs_sample_end_idx
-                        eps_description = obs_eps_description
-
                     # performance optimization, avoid small allocation if possible
                     if key not in self.key_first_k:
                         sample = input_arr[buffer_start_idx:buffer_end_idx]
@@ -259,218 +219,16 @@ class SequenceSampler:
 
         recursive_sample(self.replay_buffer, result)
 
-        result["language"] = obs_eps_description
+        result["language"] = eps_description
         result["obs_is_pad"] = np.zeros((self.sequence_length, 1), dtype=np.float32)
         result["action_is_pad"] = np.zeros((self.sequence_length, 1), dtype=np.float32)
 
-        if act_sample_start_idx > 0:
-            result["obs_is_pad"][:obs_sample_start_idx] = True
-            result["action_is_pad"][:act_sample_start_idx] = True
+        if sample_start_idx > 0:
+            result["obs_is_pad"][:sample_start_idx] = True
+            result["action_is_pad"][:sample_start_idx] = True
 
-        if act_sample_end_idx < self.sequence_length:
-            result["obs_is_pad"][obs_sample_end_idx:] = True
-            result["action_is_pad"][act_sample_end_idx:] = True
-
-        return result
-
-def check_key(key, ignored_keys):
-    for ignored_key in ignored_keys:
-        if ignored_key in key:
-            return False
-    return True
-
-def get_shape(keys, shape_meta):
-    shape = shape_meta
-    key_lst = keys.split("/")
-    for key in key_lst:
-        shape = shape[key]
-    return shape
-
-def add_to_dict(d, keys, data):
-    key_lst = keys.split("/")
-    for key in key_lst[:-1]:
-        if key not in d:
-            d[key] = {}
-        d = d[key]
-    d[key_lst[-1]] = data
-
-class SequenceSamplerLance:
-    def __init__(
-        self,
-        lance_data_path: str,
-        sequence_length: int,
-        lance_dataset = None,
-        pad_before: int = 0,
-        pad_after: int = 0,
-        keys=None,
-        keys_in_memory:list = None,
-        episode_mask: Optional[np.ndarray] = None,
-        ignored_keys=[],
-        action_key="",
-    ):
-        """
-        key_first_k: dict str: int
-            Only take first k data from these keys (to improve perf)
-        """
-        import lance
-        import pickle
-        super().__init__()
-        assert sequence_length >= 1
-        if lance_dataset is not None:
-            self.lance_dataset = lance_dataset
-        else:
-            self.lance_dataset = lance.dataset(os.path.join(lance_data_path, "data.lance"))            
-        with open(os.path.join(lance_data_path, "meta_info.pkl"), "rb") as f:
-            self.meta_info = pickle.load(f)
-        if keys is None:
-            keys = self.lance_dataset.schema.names
-
-        episode_ends = self.meta_info["meta"]["episode_ends"]
-        episode_descriptions = self.meta_info["meta"]["episode_descriptions"]
-        if episode_mask is None:
-            episode_mask = np.ones(episode_ends.shape, dtype=bool)
-
-        if np.any(episode_mask):
-            obs_indices = create_indices(
-                episode_ends,
-                episode_descriptions,
-                sequence_length=pad_before+1,
-                pad_before=pad_before,
-                pad_after=0,
-                episode_mask=episode_mask,
-            )
-            act_indices = create_indices(
-                episode_ends,
-                episode_descriptions,
-                sequence_length=sequence_length,
-                pad_before=pad_before,
-                pad_after=pad_after,
-                episode_mask=episode_mask,
-            )
-        else:
-            # raise ValueError("No episodes to sample from")
-            obs_indices = np.zeros((0, 4), dtype=np.int64)
-            act_indices = np.zeros((0, 4), dtype=np.int64)
-
-        # (buffer_start_idx, buffer_end_idx, sample_start_idx, sample_end_idx)
-        self.obs_indices = obs_indices
-        self.act_indices = act_indices
-        self.keys = list(keys)  # prevent OmegaConf list performance problem
-        self.sequence_length = sequence_length
-        if keys_in_memory is None:
-            keys_in_memory = []
-        self.keys_in_memory = keys_in_memory
-        self.ignored_keys = ignored_keys
-        new_keys = []
-        raw_shape_meta = self.meta_info["shape_meta"]
-        self.shape_meta = {}
-        for key in keys:
-            if key == "row_id":
-                continue
-            if check_key(key, ignored_keys):
-                new_keys.append(key)
-                self.shape_meta[key] = get_shape(key, raw_shape_meta)
-        self.keys_in_disk = [key for key in self.keys if (key not in self.keys_in_memory) and check_key(key, ignored_keys) and key != "row_id"]
-        self.load_key_in_memory()
-        self.keys = new_keys
-        self.action_key = action_key
-
-
-    def __len__(self):
-        return len(self.act_indices)
-
-    def load_key_in_memory(self):
-        tmp_data_in_memory = self.lance_dataset.to_table(columns=self.keys_in_memory)
-        self.data_in_memory = {}
-        for key in self.keys_in_memory:
-            self.data_in_memory[key] = np.stack(tmp_data_in_memory[key].to_numpy()).reshape(*self.shape_meta[key])
-
-    def sample_sequence(self, idx):
-        (
-            obs_eps_i,
-            obs_buffer_start_idx,
-            obs_buffer_end_idx,
-            obs_sample_start_idx,
-            obs_sample_end_idx,
-            obs_eps_description,
-        ) = self.obs_indices[idx]
-
-        (
-            act_eps_i,
-            act_buffer_start_idx,
-            act_buffer_end_idx,
-            act_sample_start_idx,
-            act_sample_end_idx,
-            act_eps_description,
-        ) = self.act_indices[idx]
-        result = dict()
-
-        for key in self.keys_in_disk:
-            if key == self.action_key:
-                eps_i = act_eps_i
-                buffer_start_idx = act_buffer_start_idx
-                buffer_end_idx = act_buffer_end_idx
-                sample_start_idx = act_sample_start_idx
-                sample_end_idx = act_sample_end_idx
-                eps_description = act_eps_description
-            else:
-                eps_i = obs_eps_i
-                buffer_start_idx = obs_buffer_start_idx
-                buffer_end_idx = obs_buffer_end_idx
-                sample_start_idx = obs_sample_start_idx
-                sample_end_idx = obs_sample_end_idx
-                eps_description = obs_eps_description
-   
-            indices = list(range(buffer_start_idx, buffer_end_idx))
-            row = self.lance_dataset.take(indices, columns=self.keys_in_disk)
-            value = np.stack(row[key].to_numpy()).reshape(-1, *self.shape_meta[key][1:])
-            data = np.zeros(
-                shape=(self.sequence_length,) + value.shape[1:],
-                dtype=value.dtype,
-            )
-            if sample_start_idx > 0:
-                data[:sample_start_idx] = value[0]
-            if sample_end_idx < self.sequence_length:
-                data[sample_end_idx:] = value[-1]
-            data[sample_start_idx:sample_end_idx] = value
-            add_to_dict(result, key, data)
-        for key in self.keys_in_memory:
-            if key == self.action_key:
-                eps_i = act_eps_i
-                buffer_start_idx = act_buffer_start_idx
-                buffer_end_idx = act_buffer_end_idx
-                sample_start_idx = act_sample_start_idx
-                sample_end_idx = act_sample_end_idx
-                eps_description = act_eps_description
-            else:
-                eps_i = obs_eps_i
-                buffer_start_idx = obs_buffer_start_idx
-                buffer_end_idx = obs_buffer_end_idx
-                sample_start_idx = obs_sample_start_idx
-                sample_end_idx = obs_sample_end_idx
-                eps_description = obs_eps_description
-            value = self.data_in_memory[key][indices]
-            data = np.zeros(
-                shape=(self.sequence_length,) + value.shape[1:],
-                dtype=value.dtype,
-            )
-            if sample_start_idx > 0:
-                data[:sample_start_idx] = value[0]
-            if sample_end_idx < self.sequence_length:
-                data[sample_end_idx:] = value[-1]
-            data[sample_start_idx:sample_end_idx] = value
-            add_to_dict(result, key, data)
-
-        result["language"] = obs_eps_description
-        result["obs_is_pad"] = np.zeros((self.sequence_length, 1), dtype=np.float32)
-        result["action_is_pad"] = np.zeros((self.sequence_length, 1), dtype=np.float32)
-
-        if act_sample_start_idx > 0:
-            result["obs_is_pad"][:obs_sample_start_idx] = True
-            result["action_is_pad"][:act_sample_start_idx] = True
-
-        if act_sample_end_idx < self.sequence_length:
-            result["obs_is_pad"][obs_sample_end_idx:] = True
-            result["action_is_pad"][act_sample_end_idx:] = True
+        if sample_end_idx < self.sequence_length:
+            result["obs_is_pad"][sample_end_idx:] = True
+            result["action_is_pad"][sample_end_idx:] = True
 
         return result
