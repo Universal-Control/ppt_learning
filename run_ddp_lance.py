@@ -17,7 +17,7 @@ import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
 
-from ppt_learning.utils import utils, model_utils
+from ppt_learning.utils import learning, model_utils
 from ppt_learning.utils.warmup_lr_wrapper import WarmupLR
 from ppt_learning.paths import *
 
@@ -25,7 +25,7 @@ sys.path.append(f"{PPT_DIR}/third_party/")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 from ppt_learning import train_test
-
+from lance.torch.data import get_safe_loader
 
 def get_dataloader(dataset, seed, rank, world_size, **kwargs):
 
@@ -36,24 +36,28 @@ def get_dataloader(dataset, seed, rank, world_size, **kwargs):
     )
 
     # Create DataLoader with the sampler
-    dataloader = DataLoader(
-        dataset, **kwargs, sampler=sampler, multiprocessing_context="spawn"
+    dataloader = get_safe_loader(
+        dataset, **kwargs, sampler=sampler
     )
 
     return dataloader
 
 
-def run(rank: int, world_size: int, cfg: DictConfig):
+def run(local_rank: int, world_size: int, cfg: DictConfig, node_rank: int = 0):
     """
     This script runs through the train / test / eval loop. Assumes single task for now.
     """
+    # Compute global rank
+    gpus_per_node = torch.cuda.device_count()
+    rank = node_rank * gpus_per_node + local_rank
+
     # Initialize DDP process group
     dist.init_process_group(backend="nccl", rank=rank, world_size=world_size)
-    torch.cuda.set_device(rank)
+    torch.cuda.set_device(local_rank)
 
     is_eval = cfg.train.total_epochs == 0
 
-    device = torch.device(f"cuda:{rank}")
+    device = torch.device(f"cuda:{local_rank}")
     domain_list = [d.strip() for d in cfg.domains.split(",")]
     
     domain = cfg.get("dataset_path", "debug").split("/")[-1] # domain_list[0] if len(domain_list) == 1 else "_".join(domain_list)
@@ -89,8 +93,6 @@ def run(rank: int, world_size: int, cfg: DictConfig):
     cfg.dataset.horizon = (
         cfg.dataset.observation_horizon + cfg.dataset.action_horizon - 1
     )
-    cfg.dataset.pad_before -= 1
-    cfg.dataset.pad_after -= 1
     cfg.dataset.domain = domain
 
     seed = cfg.seed
@@ -144,7 +146,7 @@ def run(rank: int, world_size: int, cfg: DictConfig):
     # Ensure only rank 0 creates output directory
     if rank == 0:
         os.makedirs(cfg.output_dir, exist_ok=True)
-        utils.save_args_hydra(cfg.output_dir, cfg)
+        learning.save_args_hydra(cfg.output_dir, cfg)
     dist.barrier()  # Wait for rank 0 to create directory
 
     policy.init_domain_stem(domain, cfg.stem)
@@ -190,15 +192,18 @@ def run(rank: int, world_size: int, cfg: DictConfig):
     if rank == 0:
         print("cfg.train.pretrained_dir:", cfg.train.pretrained_dir)
 
-    opt = utils.get_optimizer(cfg.optimizer, policy)
-    sch = utils.get_scheduler(cfg.lr_scheduler, optimizer=opt)
+    total_steps = cfg.train.total_epochs * len(train_loader)
+    opt = learning.get_optimizer(cfg.optimizer, policy)
+    sch = learning.get_scheduler(cfg.lr_scheduler, opt, num_warmup_steps=cfg.warmup_lr.step, num_training_steps=total_steps)
 
-    sch = WarmupLR(
-        sch,
-        init_lr=cfg.warmup_lr.lr,
-        num_warmup=cfg.warmup_lr.step,
-        warmup_strategy="constant",
-    )
+    # sch = utils.get_scheduler(cfg.lr_scheduler, optimizer=opt)
+    # sch = WarmupLR(
+    #     sch,
+    #     init_lr=cfg.warmup_lr.lr,
+    #     num_warmup=cfg.warmup_lr.step,
+    #     warmup_strategy="constant",
+    # )
+
     n_parameters = sum(p.numel() for p in policy.parameters() if p.requires_grad)
     if rank == 0:
         print(f"number of params (M): {n_parameters / 1.0e6:.2f}")
@@ -258,7 +263,7 @@ def filter_ddp_args():
     """Filter out DDP-specific arguments to avoid Hydra conflicts."""
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--local_rank", type=int, default=0)
-    parser.add_argument("--model", type=str, default="pcd") # ["pcd", "rgb", "PCD"])
+    parser.add_argument("--model", type=str, default="depth") # ["pcd", "rgb", "depth"])
     parser.add_argument("--suffix", type=str, default="debug")
     args, remaining = parser.parse_known_args()
     sys.argv = [sys.argv[0]] + remaining
@@ -274,6 +279,8 @@ def main():
         cfg = compose(config_name=f"config_ddp_{model_type}_lance")
 
     # Resolve any remaining interpolations
+    # Register custom OmegaConf resolver for mathematical expressions
+    OmegaConf.register_new_resolver("eval", eval)
     cfg = OmegaConf.to_container(cfg, resolve=True)
     cfg = OmegaConf.create(cfg)  # Convert back to DictConfig
 
@@ -284,13 +291,20 @@ def main():
         cfg.output_dir = os.path.join("outputs", model_type, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
     cfg.wb_tag = cfg.suffix if len(cfg.suffix) else "default"
 
-    # Determine world size (number of GPUs)
-    world_size = torch.cuda.device_count()
+    # Get world size and rank from environment variables
+    world_size = int(os.environ.get('WORLD_SIZE', 1)) * torch.cuda.device_count()
+    rank = int(os.environ.get('RANK', 0))
+    local_rank = int(os.environ.get('LOCAL_RANK', 0))
+    node_rank = int(os.environ.get('RANK', 0))
+
     if world_size < 1:
         raise RuntimeError("No GPUs available for DDP training.")
 
     # Spawn DDP processes
-    mp.spawn(run, args=(world_size, cfg), nprocs=world_size, join=True)
+    if world_size > 1:
+        mp.spawn(run, args=(world_size, cfg, node_rank), nprocs=torch.cuda.device_count(), join=True)
+    else:
+        run(local_rank, world_size, cfg)
 
 
 if __name__ == "__main__":

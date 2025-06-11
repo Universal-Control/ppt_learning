@@ -11,20 +11,20 @@ env_names: [
 debug: False # Turn off to allow wandb logging
 suffix: "debug" # suffix for the experiment
 
-batch_size: 50
+batch_size: 80
 
 defaults:
   - env: isaacsim # rlbench # gensim2
-  - network: pcd
+  - network: depth
   - datasetsize: all
   - _self_
 
 dataset:
-  ignored_keys: ["initial_state", "states", "depths", "images", "color", "abs_gripper_pos"]
+  ignored_keys: ["language", "initial_state", "states", "images", "color", "abs_gripper_pos", "pointcloud", "wbc_target", "wbc_step", "last_action"]
   
 dataloader:
   batch_size: ${batch_size}
-  num_workers: 4
+  num_workers: 8
   pin_memory: true
   persistent_workers: true
   shuffle: true
@@ -48,11 +48,12 @@ optimizer:
 warmup_lr:
   lr: 1.0e-03
   step: 500
-lr_scheduler:
-  _target_: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts
-  T_0: 6
-  T_mult: 15
-  eta_min: 1.0e-08
+lr_scheduler: "cosine"
+# lr_scheduler:
+#   _target_: torch.optim.lr_scheduler.CosineAnnealingWarmRestarts
+#   T_0: 6
+#   T_mult: 15
+#   eta_min: 1.0e-08
 train:
   total_epochs: 250  # maximum training epochs before termination. usually set as maximum
   total_iters: 100000000 # maximum training steps before termination

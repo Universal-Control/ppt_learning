@@ -6,6 +6,7 @@ import os
 import zarr
 import ipdb
 import argparse
+import time
 
 from ppt_learning.utils.replay_buffer import ReplayBuffer
 from ppt_learning.utils.sampler import SequenceSampler, get_val_mask
@@ -282,6 +283,7 @@ class TrajDataset:
             pad_after=self.pad_after,
             episode_mask=self.train_mask,
             ignored_keys=self.ignored_keys,
+            action_key=self.action_key,
         )
         print(
             f"{self.dataset_path} size: {len(self.sampler)} episodes: {n_episodes} train: {self.train_mask.sum()} eval: {self.val_mask.sum()}"
@@ -309,8 +311,7 @@ class TrajDataset:
         # import time
         # start_time = time.time()
         sample = self.sampler.sample_sequence(idx)
-        # end_time = time.time()
-        # print("Time used of sample:", end_time - start_time)
+        # print("Time used of sample:", time.time() - start_time)
         action_sub_keys = self.action_key.split('/')
         action = sample
         for key in action_sub_keys:
@@ -432,13 +433,13 @@ class TrajDataset:
                     sample["obs"]["pointcloud"][key] = val.reshape(
                         seq_len, num_points, -1
                     )
-
         self.flat_sample(sample)
-        self.transform(sample)
 
         # if "pointcloud" in sample.keys():
         #     assert sample["pointcloud"].shape[-1] == self.pcd_channels, f"pointcloud channel mismatch! expected {self.pcd_channels}, got {sample['pointcloud'].shape[-1]}"
         recursive_horizon(sample)
+
+        self.transform(sample)
 
         return {"domain": self.dataset_name, "data": sample}
 
@@ -475,7 +476,7 @@ class TrajDataset:
         if self.resize_img and "depth" in sample.keys():
             for key, val in sample["depth"].items():
                 # Image shape N, H, W, C
-                sample["depth"][key] = resize_image_sequence(clip_depth(val), (self.img_size[0], self.img_size[1]))
+                sample["depth"][key] = resize_image_sequence(clip_depth(val), (self.img_size[0], self.img_size[1]), interp=cv2.INTER_NEAREST)
         if self.pose_transform is not None: # Last dim is gripper
             if len(sample['action'].shape) == 2:
                 N, A = sample['action'].shape
@@ -584,7 +585,7 @@ def clip_depth(depth):
 
     return depth
 
-def resize_image_sequence(images, target_size):
+def resize_image_sequence(images, target_size, interp=cv2.INTER_AREA):
     """
     Resize an image sequence using OpenCV
 
@@ -611,7 +612,7 @@ def resize_image_sequence(images, target_size):
     # Resize each image
     for i in range(N):
         res = cv2.resize(
-            images[i], (new_W, new_H), interpolation=cv2.INTER_LINEAR
+            images[i], (new_W, new_H), interpolation=interp
         )
         if C == 1:
             output[i] = res[:, :, np.newaxis]
@@ -633,7 +634,7 @@ if __name__ == "__main__":
 
     dataset = TrajDataset(
         domain="debug",
-        dataset_path="/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/put_bowl_in_microwave__520_collected_data_retry_random_x015_new_subtask_generated_1gpu.zarr",
+        dataset_path="/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/one_camera_no_crop_retry_place_642_no_yaw.zarr",
         from_empty=False,
         use_disk=True,
         load_from_cache=True,
@@ -647,6 +648,7 @@ if __name__ == "__main__":
         use_pcd=True,
         pcd_channels=4,
         pcdnet_pretrain_domain="scanobjectnn",
+        ignored_keys=["initial_state", "states", "images", "color", "abs_gripper_pos"]
         # action_key="wbc_target/r"
     )
     dataset.__getitem__(0)

@@ -18,13 +18,13 @@ import torch.nn as nn
 import numpy as np
 
 from ppt_learning.utils.normalizer import LinearNormalizer, SingleFieldLinearNormalizer
-from ppt_learning.utils.utils import batchify, unbatchify
+from ppt_learning.utils.learning import batchify, unbatchify
 from ppt_learning.models.transformer import (
     MultiheadAttention,
     SimpleTransformer,
     CrossAttention,
 )
-from ppt_learning.utils.utils import (
+from ppt_learning.utils.learning import (
     dict_apply,
     get_sinusoid_encoding_table,
     EinOpsRearrange,
@@ -74,9 +74,10 @@ class Policy(nn.Module):
     ):
         super().__init__()
         self.embed_dim = embed_dim
-        self.trunk = self._create_policy_trunk(
-            embed_dim, num_blocks, num_heads, **kwargs
-        )
+        if not no_trunk:
+            self.trunk = self._create_policy_trunk(
+                embed_dim, num_blocks, num_heads, **kwargs
+            )
         self.stems = OrderedDict()
         self.heads = OrderedDict()
         self.normalizer = OrderedDict()  # normalizer
@@ -239,20 +240,21 @@ class Policy(nn.Module):
         """
         processed_features = []
         for idx, (modality, feature) in enumerate(zip(self.modalities, features)):
-            if self.use_modality_embedding:
+            if (not self.no_trunk) and self.use_modality_embedding:
                 modality_embedding = self.modalities_tokens[modality].repeat(
                     (*feature.shape[:-1], 1)
                 )
                 feature = feature + modality_embedding
                 # B x T x L x D
                 feature = self.process_time_embedding(feature)  # denote timesteps
-                feature = feature.reshape(feature.shape[0], -1, feature.shape[-1])
+            feature = feature.reshape(feature.shape[0], -1, feature.shape[-1])
             processed_features.append(feature)
 
         tokens = torch.cat(processed_features, dim=-2)
-        tokens = self.process_position_embedding(
-            tokens
-        )  # global position in the sequence
+        if not self.no_trunk:
+            tokens = self.process_position_embedding(
+                tokens
+            )  # global position in the sequence
 
         return tokens
 
@@ -542,7 +544,7 @@ class Policy(nn.Module):
         # trunk pass
         if not self.no_trunk:
             features = self.trunk(features)
-
+        
         # pooling the features
         features = self.postprocess_tokens(features, feats)
 
@@ -580,13 +582,16 @@ class Policy(nn.Module):
 
     def load_trunk(self, path, postfix="_last", extension="pth"):
         """load the trunk part of the model"""
+        assert not self.no_trunk, "Cannot load trunk when no_trunk is True."
         self.trunk.load_state_dict(torch.load(path))
 
     def freeze_trunk(self):
+        assert not self.no_trunk, "Cannot freeze trunk when no_trunk is True."
         for param in self.trunk.parameters():
             param.requires_grad = False
 
     def unfreeze_trunk(self):
+        assert not self.no_trunk, "Cannot unfreeze trunk when no_trunk is True."
         for param in self.trunk.parameters():
             param.requires_grad = True
 

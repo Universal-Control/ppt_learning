@@ -9,7 +9,7 @@ import hydra
 
 from .diffusion import DiffusionConditionalUnet1d
 from ppt_learning.utils.model_utils import *
-from ppt_learning.utils.utils import get_sinusoid_encoding_table
+from ppt_learning.utils.learning import get_sinusoid_encoding_table
 from ppt_learning.models.peract import DenseBlock
 
 

@@ -3,10 +3,10 @@ import os, sys
 import hydra
 import torch
 
-from ppt_learning.utils import utils
+from ppt_learning.utils import learning
 from ppt_learning.utils.warmup_lr_wrapper import WarmupLR
 
-from ppt_learning.utils.utils import dict_apply
+from ppt_learning.utils.learning import dict_apply
 from ppt_learning.paths import *
 
 import numpy as np
@@ -52,7 +52,7 @@ def run(cfg):
     if is_eval:
         output_dir += "-eval"
     cfg.output_dir = output_dir
-    utils.save_args_hydra(cfg.output_dir, cfg)
+    learning.save_args_hydra(cfg.output_dir, cfg)
 
     print("cfg: ", cfg)
     print("output dir", cfg.output_dir)

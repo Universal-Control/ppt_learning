@@ -14,16 +14,16 @@ dataset:
   dataset_path: "" # TO be filled
   horizon: -1 # horizon for each dataset sample. should be action_horizon+observation_horizon-1 and will be replaced
   val_ratio: 0. # the train-validation ratio
-  pad_after: ${dataset.action_horizon} # padding after the episode
+  pad_after: ${eval:'${dataset.action_horizon} - 1'} # padding after the episode
   episode_cnt: 100 # total episodes
   step_cnt: 30000 # total data transitions
   data_augmentation: False # data augmentation
   se3_augmentation: False # se3 augmentation
   use_disk: True # use disk ins1tead of memory to store the data
-  pad_before: ${dataset.observation_horizon} # padding before the episode
+  pad_before: ${eval:'${dataset.observation_horizon} - 1'} # padding before the episode
   data_ratio: 1 # only use a fraction of data
   action_horizon: 16 # observation: (observation + action) is action horizon 
-  observation_horizon: 3 # before observation horizon is observation
+  observation_horizon: 1 # before observation horizon is observation
   precompute_feat: True # precompute features using pretrained models for stems
   image_encoder: 'resnet' # which encoder to use as the pretrained model  
   dataset_encoder_postfix: "" # "_${dataset.image_encoder}" # another postfix

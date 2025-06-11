@@ -19,7 +19,7 @@ from collections import deque
 import wandb
 import logging
 
-from ppt_learning.utils.utils import dict_apply, batchify, sample_pcd_data, unbatchify
+from ppt_learning.utils.learning import dict_apply, batchify, sample_pcd_data, unbatchify
 
 try:
     from ppt_learning.utils.video import save_video
@@ -68,7 +68,8 @@ def log_stat(
 
     info_log["max_gradient"].append(module_max_gradient(model))
     info_log["max_stem_gradient"].append(module_max_gradient(model.stems))
-    info_log["max_trunk_gradient"].append(module_max_gradient(model.trunk))
+    if hasattr(model, "trunk"):
+        info_log["max_trunk_gradient"].append(module_max_gradient(model.trunk))
     info_log["max_head_gradient"].append(module_max_gradient(model.heads))
     info_log["mean_param"].append(module_mean_param(model))
     info_log["batch_time"].append(time.time() - start_time)
@@ -152,7 +153,7 @@ def train(
         optimizer.zero_grad()
         domain_loss.backward()
         optimizer.step()
-        scheduler.step(epoch + batch_idx / epoch_size)
+        scheduler.step()
         train_step = len(train_loader) * epoch + batch_idx
 
         model_ = model.module if isinstance(model, DDP) else model

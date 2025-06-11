@@ -66,8 +66,6 @@ class MultiTrajDataset:
         pose_transform=None,
         **kwargs,
     ):
-        assert not isinstance(dataset_path, list), f"dataset_path must be a list, but got {type(dataset_path)}: {dataset_path}"
-
         self.dataset_name = domain
         self.rank = rank
         self.horizon = horizon
@@ -272,6 +270,7 @@ class MultiTrajDataset:
                 pad_after=self.pad_after,
                 episode_mask=self.train_mask[idx],
                 ignored_keys=self.ignored_keys,
+                action_key=self.action_key,
             )
             print(
                 f"{self.dataset_name[idx]} size: {len(self.sampler[idx])} episodes: {n_episodes} train: {self.train_mask[idx].sum()} eval: {self.val_mask[idx].sum()}"
@@ -432,11 +431,11 @@ class MultiTrajDataset:
                     )
 
         self.flat_sample(sample)
-        self.transform(sample)
 
         # if "pointcloud" in sample.keys():
         #     assert sample["pointcloud"].shape[-1] == self.pcd_channels, f"pointcloud channel mismatch! expected {self.pcd_channels}, got {sample['pointcloud'].shape[-1]}"
         recursive_horizon(sample)
+        self.transform(sample)
 
         return {"domain": self.dataset_name, "data": sample}
 
@@ -466,7 +465,11 @@ class MultiTrajDataset:
         if self.resize_img and "image" in sample.keys():
             for key, val in sample["image"].items():
                 # Image shape N, H, W, C
-                resize_image_sequence(val, (self.img_size, self.img_size))
+                sample["image"][key] = resize_image_sequence(val, (self.img_size[0], self.img_size[1]))
+        if self.resize_img and "depth" in sample.keys():
+            for key, val in sample["depth"].items():
+                # Image shape N, H, W, C
+                sample["depth"][key] = resize_image_sequence(clip_depth(val), (self.img_size[0], self.img_size[1]), interp=cv2.INTER_NEAREST)
         if self.pose_transform is not None: # Last dim is gripper
             if len(sample['action'].shape) == 2:
                 N, A = sample['action'].shape

@@ -5,9 +5,7 @@ trimesh
 einops
 hydra-core
 wandb
-transformers
 tqdm
-sentence_transformers 
 open3d
 tabulate
 zarr
@@ -24,3 +22,6 @@ ftfy
 chamferdist
 flatdict
 opencv-python
+transformers
+sentence_transformers
+diffusers

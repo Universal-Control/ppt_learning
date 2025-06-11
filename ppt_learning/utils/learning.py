@@ -14,16 +14,22 @@ from PIL import Image
 from types import SimpleNamespace
 import numpy as np
 from collections import OrderedDict
-from transformers import CLIPProcessor, CLIPModel, AutoTokenizer, CLIPTextConfig
-from transformers import CLIPTextModel, CLIPVisionModel, AutoProcessor
+import einops
 
 import gc
 import hydra
 
 from transformers import T5Tokenizer, T5Model
-import einops
-from ppt_learning.utils.logging_utils import module_max_gradient, log_results
+from transformers import CLIPProcessor, CLIPModel, AutoTokenizer, CLIPTextConfig
+from transformers import CLIPTextModel, CLIPVisionModel, AutoProcessor
 from transformers import AutoImageProcessor, Dinov2Model
+
+from diffusers.optimization import (
+    Union, SchedulerType, Optional,
+    Optimizer, TYPE_TO_SCHEDULER_FUNCTION
+)
+
+from ppt_learning.utils.logging_utils import module_max_gradient, log_results
 
 try:
     import pytorch3d.ops as torch3d_ops
@@ -34,6 +40,7 @@ try:
     from openpoints.models.layers import furthest_point_sample
 except:
     print("openpoints not installed")
+
 
 # global model cache
 clip_model = None
@@ -494,3 +501,46 @@ def get_resnet_embeddings(image, per_token=False, device="cuda"):
     output = resnet_model.net(image_th)  # 1 x 512 x 7 x 7
     output = output.reshape(1, 512, -1).transpose(1, 2)
     return output.detach().cpu().numpy()
+
+
+def get_scheduler(
+    name: Union[str, SchedulerType],
+    optimizer: Optimizer,
+    num_warmup_steps: Optional[int] = None,
+    num_training_steps: Optional[int] = None,
+    **kwargs
+):
+    """
+    Added kwargs vs diffuser's original implementation
+
+    Unified API to get any scheduler from its name.
+
+    Args:
+        name (`str` or `SchedulerType`):
+            The name of the scheduler to use.
+        optimizer (`torch.optim.Optimizer`):
+            The optimizer that will be used during training.
+        num_warmup_steps (`int`, *optional*):
+            The number of warmup steps to do. This is not required by all schedulers (hence the argument being
+            optional), the function will raise an error if it's unset and the scheduler type requires it.
+        num_training_steps (`int``, *optional*):
+            The number of training steps to do. This is not required by all schedulers (hence the argument being
+            optional), the function will raise an error if it's unset and the scheduler type requires it.
+    """
+    name = SchedulerType(name)
+    schedule_func = TYPE_TO_SCHEDULER_FUNCTION[name]
+    if name == SchedulerType.CONSTANT:
+        return schedule_func(optimizer, **kwargs)
+
+    # All other schedulers require `num_warmup_steps`
+    if num_warmup_steps is None:
+        raise ValueError(f"{name} requires `num_warmup_steps`, please provide that argument.")
+
+    if name == SchedulerType.CONSTANT_WITH_WARMUP:
+        return schedule_func(optimizer, num_warmup_steps=num_warmup_steps, **kwargs)
+
+    # All other schedulers require `num_training_steps`
+    if num_training_steps is None:
+        raise ValueError(f"{name} requires `num_training_steps`, please provide that argument.")
+
+    return schedule_func(optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=num_training_steps, **kwargs)

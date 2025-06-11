@@ -6,6 +6,7 @@ model:
   NAME: BaseCls
   encoder_args:
     NAME: PointNextEncoder
+    sampler: 'random' # We do not need fps
     blocks: [1, 1, 1, 1, 1, 1]
     strides: [1, 2, 2, 2, 2, 1]
     width: 32

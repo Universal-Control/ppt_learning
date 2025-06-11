@@ -12,6 +12,7 @@ import torch
 from torch.utils import data
 from torchvision import transforms
 from torch.utils.data import DataLoader, RandomSampler
+import lightning as L
 
 from ppt_learning.utils import learning, model_utils
 from ppt_learning.utils.warmup_lr_wrapper import WarmupLR
@@ -34,7 +35,7 @@ def run(cfg):
     """
     # Register custom OmegaConf resolver for mathematical expressions
     OmegaConf.register_new_resolver("eval", eval)
-
+    
     is_eval = cfg.train.total_epochs == 0
 
     device = "cuda"
@@ -106,6 +107,8 @@ def run(cfg):
         action_dim = dataset.action_dim
         state_dim = dataset.state_dim
 
+    total_steps = cfg.train.total_epochs * len(train_loader)
+
     # initialize policy
     if cfg.dataset.get("hist_action_cond", False):
         cfg.head["hist_horizon"] = cfg.dataset.observation_horizon
@@ -124,6 +127,11 @@ def run(cfg):
     # optimizer and scheduler
     policy.finalize_modules()
     print("cfg.train.pretrained_dir:", cfg.train.pretrained_dir)
+
+    # opt = learning.get_optimizer(cfg.optimizer, policy)
+    # sch = learning.get_scheduler(cfg.lr_scheduler, opt, num_warmup_steps=cfg.warmup_lr.step, num_training_steps=total_steps)
+    # policy.opt = opt
+    # policy.scheduler = sch
 
     loaded_epoch = -1
     if len(cfg.train.pretrained_dir) > 0:
@@ -154,10 +162,6 @@ def run(cfg):
 
     policy.to(device)
 
-    total_steps = cfg.train.total_epochs * len(train_loader)
-    opt = learning.get_optimizer(cfg.optimizer, policy)
-    sch = learning.get_scheduler(cfg.lr_scheduler, opt, num_warmup_steps=cfg.warmup_lr.step, num_training_steps=total_steps)
-
     # sch = utils.get_scheduler(cfg.lr_scheduler, optimizer=opt)
     # sch = WarmupLR(
     #     sch,
@@ -170,50 +174,10 @@ def run(cfg):
 
     if not is_eval:
         # train / test loop
-        pbar = trange(
-            loaded_epoch + 1, loaded_epoch + 1 + cfg.train.total_epochs, position=0
-        )
-        for epoch in pbar:
-            train_stats = train_test.train(
-                cfg.log_interval,
-                policy,
-                device,
-                train_loader,
-                opt,
-                sch,
-                epoch,
-                pcd_npoints=pcd_num_points,
-                in_channels=dataset.pcd_channels,
-                debug=cfg.debug,
-                epoch_size=cfg.train.epoch_iters
-            )
-            test_loss = train_test.test(
-                policy,
-                device,
-                test_loader,
-                epoch,
-                pcd_npoints=pcd_num_points,
-                in_channels=dataset.pcd_channels,
-                debug=cfg.debug,
-            )
-            train_steps = (epoch + 1) * len(train_loader)
-
-            # Save the policy every epoch
-            if epoch % cfg.save_interval == 0:
-                policy_path = os.path.join(cfg.output_dir, f"model_{epoch}.pth")
-            else:
-                policy_path = os.path.join(cfg.output_dir, f"model.pth")
-            policy.save(policy_path)
-            if "loss" in train_stats:
-                pbar.set_description(
-                    f"Steps: {train_steps}. Train loss: {train_stats['loss']:.4f}. Test loss: {test_loss:.4f}"
-                )
-
-            if train_steps > cfg.train.total_iters:
-                break
+        trainer = L.Trainer(max_epochs=10, num_nodes=1, devices=1)
+        trainer.fit(model=policy, train_dataloaders=train_loader)
 
         policy.save(policy_path)
-        pbar.close()
 
     # Evaluate jointly trained policy
     if cfg.parallel_eval:
