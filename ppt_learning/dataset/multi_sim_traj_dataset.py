@@ -270,6 +270,7 @@ class MultiTrajDataset:
                 pad_after=self.pad_after,
                 episode_mask=self.train_mask[idx],
                 ignored_keys=self.ignored_keys,
+                action_key=self.action_key,
             )
             print(
                 f"{self.dataset_name[idx]} size: {len(self.sampler[idx])} episodes: {n_episodes} train: {self.train_mask[idx].sum()} eval: {self.val_mask[idx].sum()}"
