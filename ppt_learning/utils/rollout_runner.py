@@ -454,6 +454,19 @@ def _recursive_flat_env_dim(obs: dict):
             flatted_dict[k] = v[0]
     return flatted_dict
 
+def clip_depth(depth):
+    valid_mask = np.logical_and(depth > 0.01, ~np.isnan(depth)) & (~np.isinf(depth))
+    if valid_mask.sum() == 0:
+        Log.warn(
+            "No valid mask in the depth map of {}".format(self.depth_files[index])
+        )
+    if valid_mask.sum() != 0 and np.isnan(depth).sum() != 0:
+        depth[np.isnan(depth)] = depth[valid_mask].max()
+    if valid_mask.sum() != 0 and np.isinf(depth).sum() != 0:
+        depth[np.isinf(depth)] = depth[valid_mask].max()
+
+    return depth
+
 
 class IsaacEnvRolloutRunner:
     def __init__(
@@ -478,6 +491,7 @@ class IsaacEnvRolloutRunner:
         max_timestep=1200,
         warmup_step=10,
         hist_action_cond=False,
+        tar_size=(224,224),
         **kwargs,
     ):
         try:
@@ -582,6 +596,9 @@ class IsaacEnvRolloutRunner:
 
     def _isaac_obs_wrapper(self, obs):
         ppt_obs = {}
+        ppt_obs["depth"] = {}
+        for key in obs["policy_infer"]["depths"]:
+            ppt_obs["depth"][key] = cv2.resize(clip_depth(obs["policy_infer"]["depths"]), self.tar_size, interpolation=cv2.INTER_NEAREST)
         ppt_obs["pointcloud"] = {
             "color": obs["policy_infer"]["pointcloud"][..., 1],
             "pos": obs["policy_infer"]["pointcloud"][..., 0],
