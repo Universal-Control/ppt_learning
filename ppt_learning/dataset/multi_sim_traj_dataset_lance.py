@@ -7,6 +7,7 @@ import ipdb
 import lance
 import pickle
 import time
+import cv2
 
 from ppt_learning.utils.sampler import SequenceSamplerLance, get_val_mask, get_shape
 from ppt_learning.utils.normalizer import LinearNormalizer, SingleFieldLinearNormalizer
