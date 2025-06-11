@@ -93,8 +93,6 @@ def run(local_rank: int, world_size: int, cfg: DictConfig, node_rank: int = 0):
     cfg.dataset.horizon = (
         cfg.dataset.observation_horizon + cfg.dataset.action_horizon - 1
     )
-    cfg.dataset.pad_before -= 1
-    cfg.dataset.pad_after -= 1
     cfg.dataset.domain = domain
 
     seed = cfg.seed

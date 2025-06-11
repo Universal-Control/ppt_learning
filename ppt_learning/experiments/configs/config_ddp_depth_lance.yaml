@@ -1,5 +1,5 @@
 seed: 42
-output_dir: outputs/pcd/${now:%Y-%m-%d_%H-%M-%S}
+output_dir: outputs/depth/${now:%Y-%m-%d_%H-%M-%S}
 log_interval: 10
 script_name: ''
 parallel_eval: false

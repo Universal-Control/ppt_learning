@@ -94,8 +94,6 @@ def run(local_rank: int, world_size: int, cfg: DictConfig, node_rank: int = 0):
     cfg.dataset.horizon = (
         cfg.dataset.observation_horizon + cfg.dataset.action_horizon - 1
     )
-    cfg.dataset.pad_before -= 1
-    cfg.dataset.pad_after -= 1
     cfg.dataset.domain = domain
 
     seed = cfg.seed
@@ -268,7 +266,7 @@ def filter_ddp_args():
     """Filter out DDP-specific arguments to avoid Hydra conflicts."""
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--local_rank", type=int, default=0)
-    parser.add_argument("--model", type=str, default="pcd") # ["pcd", "rgb", "PCD"])
+    parser.add_argument("--model", type=str, default="depth") # ["pcd", "rgb", "PCD"])
     parser.add_argument("--suffix", type=str, default="")
     args, remaining = parser.parse_known_args()
     sys.argv = [sys.argv[0]] + remaining
@@ -286,7 +284,7 @@ def main():
     # Resolve any remaining interpolations
     # Register custom OmegaConf resolver for mathematical expressions
     OmegaConf.register_new_resolver("eval", eval)
-    
+
     cfg = OmegaConf.to_container(cfg, resolve=True)
     cfg = OmegaConf.create(cfg)  # Convert back to DictConfig
 

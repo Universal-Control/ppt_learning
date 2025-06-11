@@ -283,6 +283,7 @@ class TrajDataset:
             pad_after=self.pad_after,
             episode_mask=self.train_mask,
             ignored_keys=self.ignored_keys,
+            action_key=self.action_key,
         )
         print(
             f"{self.dataset_path} size: {len(self.sampler)} episodes: {n_episodes} train: {self.train_mask.sum()} eval: {self.val_mask.sum()}"
@@ -437,6 +438,7 @@ class TrajDataset:
         # if "pointcloud" in sample.keys():
         #     assert sample["pointcloud"].shape[-1] == self.pcd_channels, f"pointcloud channel mismatch! expected {self.pcd_channels}, got {sample['pointcloud'].shape[-1]}"
         recursive_horizon(sample)
+
         self.transform(sample)
 
         return {"domain": self.dataset_name, "data": sample}
@@ -474,7 +476,7 @@ class TrajDataset:
         if self.resize_img and "depth" in sample.keys():
             for key, val in sample["depth"].items():
                 # Image shape N, H, W, C
-                sample["depth"][key] = resize_image_sequence(clip_depth(val), (self.img_size[0], self.img_size[1]))
+                sample["depth"][key] = resize_image_sequence(clip_depth(val), (self.img_size[0], self.img_size[1]), interp=cv2.INTER_NEAREST)
         if self.pose_transform is not None: # Last dim is gripper
             if len(sample['action'].shape) == 2:
                 N, A = sample['action'].shape
@@ -583,7 +585,7 @@ def clip_depth(depth):
 
     return depth
 
-def resize_image_sequence(images, target_size):
+def resize_image_sequence(images, target_size, interp=cv2.INTER_AREA):
     """
     Resize an image sequence using OpenCV
 
@@ -610,7 +612,7 @@ def resize_image_sequence(images, target_size):
     # Resize each image
     for i in range(N):
         res = cv2.resize(
-            images[i], (new_W, new_H), interpolation=cv2.INTER_LINEAR
+            images[i], (new_W, new_H), interpolation=interp
         )
         if C == 1:
             output[i] = res[:, :, np.newaxis]
