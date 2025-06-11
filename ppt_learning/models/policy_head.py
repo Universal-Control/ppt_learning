@@ -323,7 +323,7 @@ class Diffusion(nn.Module):
         self,
         batch_size: int,
         global_cond: Optional[Tensor] = None,
-        local_cond: Optional[Tensor] = None, # impainting the past trajectory
+        local_cond: Optional[Tensor] = None, # inpainting the past trajectory
         generator: Optional[torch.Generator] = None,
     ) -> Tensor:
         device = next(iter(self.parameters())).device

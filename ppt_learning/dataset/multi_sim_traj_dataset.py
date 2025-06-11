@@ -18,6 +18,7 @@ from ppt_learning.paths import *
 from ppt_learning.utils.pcd_utils import BOUND
 from ppt_learning.dataset.sim_traj_dataset import resize_image_sequence
 
+
 class MultiTrajDataset:
     """
     Multiple single Dataset class that converts simulation data into trajectory data.
@@ -66,7 +67,9 @@ class MultiTrajDataset:
         pose_transform=None,
         **kwargs,
     ):
-        assert not isinstance(dataset_path, list), f"dataset_path must be a list, but got {type(dataset_path)}: {dataset_path}"
+        assert not isinstance(
+            dataset_path, list
+        ), f"dataset_path must be a list, but got {type(dataset_path)}: {dataset_path}"
 
         self.dataset_name = domain
         self.rank = rank
@@ -106,7 +109,9 @@ class MultiTrajDataset:
         self.bounds = BOUND
 
         if not hist_action_cond:
-            assert self.horizon == self.observation_horizon + self.action_horizon - 1, "Check if your horizon is right"
+            assert (
+                self.horizon == self.observation_horizon + self.action_horizon - 1
+            ), "Check if your horizon is right"
 
         self.state_keys = state_keys
         if state_keys is None:
@@ -115,7 +120,7 @@ class MultiTrajDataset:
                 "eef_quat",
                 "joint_pos",
                 "joint_vel",
-                "normalized_gripper_pos"
+                "normalized_gripper_pos",
             ]
         self.ignored_keys = ignored_keys
         if ignored_keys is None:
@@ -123,7 +128,7 @@ class MultiTrajDataset:
                 "initial_state",
                 "states",
                 "depths",
-            ] # , "images", "color"]
+            ]  # , "images", "color"]
             # self.use_pcd = False
 
         self.voxelization = voxelization
@@ -133,15 +138,16 @@ class MultiTrajDataset:
         if pose_transform is not None:
             if pose_transform == "quat_to_pose":
                 from ppt_learning.utils.pose_utils import quat_to_pose
+
                 self.pose_transform = quat_to_pose
             else:
                 raise NotImplementedError("Pose transform function not assigned!")
-        
+
         self.update_pcd_transform()
 
         self.dataset_path = dataset_path
         self.replay_buffer = [None] * len(dataset_path)
-        # self.sample_ratio = [1.0] * len(dataset_path) # Not used for now 
+        # self.sample_ratio = [1.0] * len(dataset_path) # Not used for now
 
         for idx, single_dpath in enumerate(dataset_path):
             load_from_cache = os.path.exists(single_dpath) and load_from_cache
@@ -154,7 +160,9 @@ class MultiTrajDataset:
                 if load_from_cache:
                     if use_lru_cache:
                         store = zarr.DirectoryStore(single_dpath)
-                        cache = zarr.LRUStoreCache(store=store, max_size=2**(38-len(dataset_path)))
+                        cache = zarr.LRUStoreCache(
+                            store=store, max_size=2 ** (38 - len(dataset_path))
+                        )
                         group = zarr.open(cache, "r")
                         self.replay_buffer[idx] = ReplayBuffer.create_from_group(
                             group,
@@ -163,7 +171,7 @@ class MultiTrajDataset:
                     else:
                         self.replay_buffer[idx] = ReplayBuffer.create_from_path(
                             single_dpath,
-                    )
+                        )
                 else:
                     self.replay_buffer[idx] = ReplayBuffer.create_empty_zarr(
                         storage=zarr.DirectoryStore(path=single_dpath)
@@ -272,6 +280,7 @@ class MultiTrajDataset:
                 pad_after=self.pad_after,
                 episode_mask=self.train_mask[idx],
                 ignored_keys=self.ignored_keys,
+                action_key=self.action_key,
             )
             print(
                 f"{self.dataset_name[idx]} size: {len(self.sampler[idx])} episodes: {n_episodes} train: {self.train_mask[idx].sum()} eval: {self.val_mask[idx].sum()}"
@@ -279,7 +288,9 @@ class MultiTrajDataset:
 
         self.dataset_length = np.cumsum([len(sampler) for sampler in self.sampler])
         self.dataset_length = np.insert(self.dataset_length, 0, 0)
-        self.dataset_episodes = [0] + [self.replay_buffer[idx].n_episodes for idx in range(len(self.replay_buffer))]
+        self.dataset_episodes = [0] + [
+            self.replay_buffer[idx].n_episodes for idx in range(len(self.replay_buffer))
+        ]
 
     def get_validation_dataset(self):
         val_set = [None] * len(self.replay_buffer)
@@ -293,6 +304,8 @@ class MultiTrajDataset:
                 pad_before=self.pad_before,
                 pad_after=self.pad_after,
                 episode_mask=self.val_mask[idx],
+                ignored_keys=self.ignored_keys,
+                action_key=self.action_key,
             )
             val_set[idx].train_mask = self.val_mask[idx]
         return val_set
@@ -305,8 +318,8 @@ class MultiTrajDataset:
         dataset_idx = np.searchsorted(self.dataset_length, idx, side="right") - 1
         idx = idx - self.dataset_length[dataset_idx]
         sample = self.sampler[dataset_idx].sample_sequence(idx)
-        
-        action_sub_keys = self.action_key.split('/')
+
+        action_sub_keys = self.action_key.split("/")
         action = sample
         for key in action_sub_keys:
             if isinstance(action, (dict, OrderedDict)):
@@ -314,7 +327,9 @@ class MultiTrajDataset:
                     action = action[key]
                 except:
                     print("Action key not found:", key)
-                    import ipdb; ipdb.set_trace()
+                    import ipdb
+
+                    ipdb.set_trace()
         sample["action"] = action
         del sample[action_sub_keys[0]]
 
@@ -449,7 +464,7 @@ class MultiTrajDataset:
         res = {"state": []}
         if isinstance(sample, (dict, OrderedDict)):
             res = sample
-            res['state'] = []
+            res["state"] = []
         for key in self.state_keys:
             if key in sample.keys():
                 if len(sample[key].shape) == 1:
@@ -467,13 +482,29 @@ class MultiTrajDataset:
             for key, val in sample["image"].items():
                 # Image shape N, H, W, C
                 resize_image_sequence(val, (self.img_size, self.img_size))
-        if self.pose_transform is not None: # Last dim is gripper
-            if len(sample['action'].shape) == 2:
-                N, A = sample['action'].shape
-                sample['action'] = np.concatenate([self.pose_transform(sample['action'][..., :-1].reshape(-1, A-1)).reshape(N, -1), sample['action'][..., -1:]], axis=-1)
-            elif len(sample['action'].shape) == 3:
-                N, L, A = sample['action'].shape
-                sample['action'] = np.concatenate([self.pose_transform(sample['action'][..., :-1].reshape(-1, A-1)).reshape(N, L, -1), sample['action'][..., -1:]], axis=-1)
+        if self.pose_transform is not None:  # Last dim is gripper
+            if len(sample["action"].shape) == 2:
+                N, A = sample["action"].shape
+                sample["action"] = np.concatenate(
+                    [
+                        self.pose_transform(
+                            sample["action"][..., :-1].reshape(-1, A - 1)
+                        ).reshape(N, -1),
+                        sample["action"][..., -1:],
+                    ],
+                    axis=-1,
+                )
+            elif len(sample["action"].shape) == 3:
+                N, L, A = sample["action"].shape
+                sample["action"] = np.concatenate(
+                    [
+                        self.pose_transform(
+                            sample["action"][..., :-1].reshape(-1, A - 1)
+                        ).reshape(N, L, -1),
+                        sample["action"][..., -1:],
+                    ],
+                    axis=-1,
+                )
             else:
                 raise ValueError(f"Invalid action shape: {sample['action'].shape}")
 
@@ -544,7 +575,7 @@ if __name__ == "__main__":
         use_disk=True,
         load_from_cache=True,
         use_lru_cache=True,
-        val_ratio=0.,
+        val_ratio=0.0,
         action_horizon=16,
         observation_horizon=3,
         horizon=18,
