@@ -454,17 +454,18 @@ def _recursive_flat_env_dim(obs: dict):
             flatted_dict[k] = v[0]
     return flatted_dict
 
-def clip_depth(depth):
-    valid_mask = np.logical_and(depth > 0.01, ~np.isnan(depth)) & (~np.isinf(depth))
-    if valid_mask.sum() == 0:
-        Log.warn(
-            "No valid mask in the depth map of {}".format(self.depth_files[index])
-        )
-    if valid_mask.sum() != 0 and np.isnan(depth).sum() != 0:
-        depth[np.isnan(depth)] = depth[valid_mask].max()
-    if valid_mask.sum() != 0 and np.isinf(depth).sum() != 0:
-        depth[np.isinf(depth)] = depth[valid_mask].max()
 
+def clip_depth(depth):
+    # depth: torch.Tensor or np.ndarray
+    if isinstance(depth, np.ndarray):
+        depth = torch.from_numpy(depth)
+    valid_mask = (depth > 0.01) & (~torch.isnan(depth)) & (~torch.isinf(depth))
+    if valid_mask.sum() == 0:
+        print("No valid mask in the depth map")
+    if valid_mask.sum() != 0 and torch.isnan(depth).sum() != 0:
+        depth[torch.isnan(depth)] = depth[valid_mask].max()
+    if valid_mask.sum() != 0 and torch.isinf(depth).sum() != 0:
+        depth[torch.isinf(depth)] = depth[valid_mask].max()
     return depth
 
 
@@ -495,8 +496,7 @@ class IsaacEnvRolloutRunner:
         **kwargs,
     ):
         try:
-            assert obs_mode == "pointcloud"
-            import os
+            self.obs_mode = obs_mode
             self.task_name = task_name
             self.save_video = save_video
             self.max_timestep = max_timestep
@@ -513,6 +513,7 @@ class IsaacEnvRolloutRunner:
                     from ppt_learning.utils.pose_utils import pose_to_quat
                     self.pose_transform = pose_to_quat
             self.hist_action_cond = hist_action_cond
+            self.tar_size = tar_size
                                         
             self.random_reset = random_reset
             self.collision_pred = collision_pred
@@ -525,6 +526,7 @@ class IsaacEnvRolloutRunner:
                     "eef_quat",
                     "joint_pos",
                     "joint_vel",
+                    "normalized_gripper_pos"
                 ]
             self.pcd_aug = lambda x: randomly_drop_point(add_gaussian_noise(x))
 
@@ -559,6 +561,8 @@ class IsaacEnvRolloutRunner:
             env_cfg.terminations.success = None
             
             env_cfg.seed = seed
+            if hasattr(env_cfg, "mimic_events"):
+                delattr(env_cfg, "mimic_events")
 
             if world_size > 1:
                 env_cfg.sim.device = f'cuda:{rank}'
@@ -596,13 +600,33 @@ class IsaacEnvRolloutRunner:
 
     def _isaac_obs_wrapper(self, obs):
         ppt_obs = {}
-        ppt_obs["depth"] = {}
-        for key in obs["policy_infer"]["depths"]:
-            ppt_obs["depth"][key] = cv2.resize(clip_depth(obs["policy_infer"]["depths"]), self.tar_size, interpolation=cv2.INTER_NEAREST)
-        ppt_obs["pointcloud"] = {
-            "color": obs["policy_infer"]["pointcloud"][..., 1],
-            "pos": obs["policy_infer"]["pointcloud"][..., 0],
-        }
+        if self.obs_mode == "depth":
+            ppt_obs["depth"] = {}
+            for key in obs["depths"]:
+                depth_tensor = clip_depth(obs["depths"][key]) # [1, H, W, 1]
+                # Ensure shape is [N, C, H, W] for interpolation
+                if depth_tensor.ndim == 4:
+                    # [1, H, W, 1] -> [1, 1, H, W]
+                    depth_tensor = depth_tensor.permute(0, 3, 1, 2)
+                elif depth_tensor.ndim == 3:
+                    # [H, W, 1] -> [1, 1, H, W]
+                    depth_tensor = depth_tensor.permute(2, 0, 1).unsqueeze(0)
+                elif depth_tensor.ndim == 2:
+                    # [H, W] -> [1, 1, H, W]
+                    depth_tensor = depth_tensor.unsqueeze(0).unsqueeze(0)
+                depth_tensor = torch.nn.functional.interpolate(
+                    depth_tensor,
+                    size=self.tar_size,
+                    mode="nearest"
+                )
+                # Back to [1, H, W, 1]
+                depth_tensor = depth_tensor.permute(0, 2, 3, 1)
+                ppt_obs["depth"][key] = depth_tensor
+        elif self.obs_mode == "pointcloud":
+            ppt_obs["pointcloud"] = {
+                "color": obs["policy_infer"]["pointcloud"][..., 1],
+                "pos": obs["policy_infer"]["pointcloud"][..., 0],
+            }
         
         ppt_obs = _recursive_flat_env_dim(ppt_obs)
         ppt_obs["state"] = self.get_state(obs["policy"])
