@@ -575,8 +575,8 @@ def delete_indices(
 def clip_depth(depth):
     valid_mask = np.logical_and(depth > 0.01, ~np.isnan(depth)) & (~np.isinf(depth))
     if valid_mask.sum() == 0:
-        Log.warn(
-            "No valid mask in the depth map of {}".format(self.depth_files[index])
+        print(
+            "No valid mask in the depth map"
         )
     if valid_mask.sum() != 0 and np.isnan(depth).sum() != 0:
         depth[np.isnan(depth)] = depth[valid_mask].max()
