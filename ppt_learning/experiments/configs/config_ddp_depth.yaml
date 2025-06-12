@@ -11,7 +11,7 @@ debug: False # Turn off to allow wandb logging
 suffix: "" # suffix for the experiment
 wb_tag: ${suffix}
 
-batch_size: 256 # batch size
+batch_size: 512 # batch size
 
 defaults:
   - env: isaacsim # rlbench # gensim2

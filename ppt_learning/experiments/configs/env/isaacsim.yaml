@@ -1,9 +1,9 @@
 # @package _global_
 # dataset name to be loaded
 domains:
-  one_camera_no_crop_retry_place_642_no_yaw
-  #, one_camera_no_crop_642_no_yaw
-save_interval: 50
+  one_camera_no_crop_retry_place_610
+  # one_camera_retry_place_610_no_yaw
+save_interval: 10
 dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close
 
 # dataset config
