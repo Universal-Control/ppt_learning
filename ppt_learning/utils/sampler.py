@@ -350,7 +350,7 @@ class SequenceSamplerLance:
                 episode_descriptions,
                 sequence_length=sequence_length,
                 pad_before=pad_before,
-                pad_after=0,
+                pad_after=pad_after,
                 episode_mask=episode_mask,
                 obs=True,
             )

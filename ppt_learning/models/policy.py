@@ -14,7 +14,9 @@ from typing import Dict
 import hydra
 
 import torch
+from torch import optim
 import torch.nn as nn
+import lightning as L
 import numpy as np
 
 from ppt_learning.utils.normalizer import LinearNormalizer, SingleFieldLinearNormalizer
@@ -49,7 +51,7 @@ def merge_act(actions_for_curr_step, t, k=0.01):
     return raw_action
 
 
-class Policy(nn.Module):
+class Policy(L.LightningModule):
     """The stem / trunk / head separation for each policy, which
     respectively consumes low-level, mid-level, high-level representations.
     Different from the the pretraining code, this class should support arbitrary
@@ -96,7 +98,7 @@ class Policy(nn.Module):
 
         self.num_envs = num_envs
 
-        if self.use_modality_embedding:
+        if (not self.no_trunk) and self.use_modality_embedding:
             self.modalities_tokens = OrderedDict()
 
     def init_domain_stem(self, domain_name, stem_spec):
@@ -131,7 +133,7 @@ class Policy(nn.Module):
                     self.stems[cur_name + "_attend_" + modality] = CrossAttention(
                         self.embed_dim, heads=self.stem_spec.num_heads, dim_head=self.stem_spec.dim_head
                     )  # query_dim
-                if self.use_modality_embedding:
+                if (not self.no_trunk) and self.use_modality_embedding:
                     self.modalities_tokens[modality] = nn.Parameter(
                         torch.zeros(1, 1, stem_spec.modality_embed_dim)
                     )
@@ -159,7 +161,7 @@ class Policy(nn.Module):
                 self.crossattn_modalities_latents
             )
 
-        if self.use_modality_embedding:
+        if (not self.no_trunk) and self.use_modality_embedding:
             self.modalities_tokens = nn.ParameterDict(self.modalities_tokens)
 
     def _create_policy_trunk(
@@ -562,6 +564,21 @@ class Policy(nn.Module):
         # postprocess
         action = self.postprocess_actions(domain, action)
         return action.unsqueeze(1)
+
+    def training_step(self, batch):
+        # training_step defines the train loop.
+        # it is independent of forward
+        batch["data"] = batchify(batch["data"], exclude=["action"])
+        output = self.forward_train(batch)
+        loss = output["loss"]
+        # Logging to TensorBoard (if installed) by default
+        # self.log("train_loss", loss)
+        return loss
+
+    def configure_optimizers(self):
+        optimizer = optim.Adam(self.parameters(), lr=1e-3)
+        return optimizer
+        # return self.opt, self.scheduler
 
     def device(self):
         """get the current device of the model"""
