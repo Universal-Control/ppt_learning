@@ -7,6 +7,7 @@ import zarr
 import ipdb
 import argparse
 import time
+import albumentations as A
 
 from ppt_learning.utils.replay_buffer import ReplayBuffer
 from ppt_learning.utils.sampler import SequenceSampler, get_val_mask
@@ -36,8 +37,6 @@ class TrajDataset:
         mode="train",
         episode_cnt=10,
         step_cnt=100,
-        data_augmentation=False,
-        se3_augmentation=False,  # pcd in roboframe do not need this (gensim2 & rlbench)
         data_ratio=1,
         use_disk=False,
         horizon=4,
@@ -50,6 +49,11 @@ class TrajDataset:
         hist_action_cond=False,
         resize_img=True,
         img_size=(224,224),
+        augment_pcd=False,
+        se3_augmentation=False,  # pcd in roboframe do not need this (gensim2 & rlbench)
+        augment_img=True,
+        augment_depth=True,
+        img_augment_prob=0.7,
         dataset_postfix="",
         dataset_encoder_postfix="",
         precompute_feat=False,
@@ -69,6 +73,7 @@ class TrajDataset:
         state_keys=None,
         action_key="actions",
         pose_transform=None,
+        norm_depth=False,
         **kwargs,
     ):
         self.rank = rank
@@ -76,7 +81,7 @@ class TrajDataset:
         self.horizon = horizon
         self.pad_before = pad_before
         self.pad_after = pad_after
-        self.data_augmentation = data_augmentation
+        self.augment_pcd = augment_pcd
         self.episode_cnt = episode_cnt
         self.step_cnt = step_cnt
         self.action_horizon = action_horizon
@@ -107,9 +112,52 @@ class TrajDataset:
         self.pcd_num_points = None
         self.se3_augmentation = se3_augmentation
         self.bounds = BOUND
+        self.norm_depth = norm_depth
+        self.warp_func = None
+        self.augment_img = augment_img
+        self.augment_depth = augment_depth
+        self.img_transform = None
+        if norm_depth:
+            self.warp_func = WarpMinMax()
 
         if not hist_action_cond:
             assert self.horizon == self.observation_horizon + self.action_horizon - 1, "Check if your horizon is right"
+
+        if augment_img:
+            self.img_transform = A.Compose(
+                [
+                    A.OneOf(
+                        [
+                            A.GaussianBlur(
+                                blur_limit=(3, 7),
+                                sigma_limit=(0.1, 2),
+                                p=img_augment_prob,
+                            ),
+                            A.MotionBlur(p=img_augment_prob),
+                            A.Defocus(p=img_augment_prob),
+                            A.ColorJitter(p=img_augment_prob),
+                            A.GaussNoise(p=img_augment_prob),
+                        ],
+                    ),
+                ]
+            )
+        if augment_depth:
+            # random translate / random affine
+            self.depth_transform = A.Compose(
+                [
+                    A.OneOf(
+                        [
+                            A.ShiftScaleRotate(
+                                shift_limit=0.15,
+                                scale_limit=0.1,
+                                rotate_limit=1,
+                                p=img_augment_prob,
+                            ),
+                        ],
+                    ),
+                ]
+            )
+            
 
         self.state_keys = state_keys
         if state_keys is None:
@@ -313,16 +361,17 @@ class TrajDataset:
         sample = self.sampler.sample_sequence(idx)
         # print("Time used of sample:", time.time() - start_time)
         action_sub_keys = self.action_key.split('/')
-        action = sample
-        for key in action_sub_keys:
-            if isinstance(action, (dict, OrderedDict)):
-                try:
-                    action = action[key]
-                except:
-                    print("Action key not found:", key)
-                    import ipdb; ipdb.set_trace()
-        sample["action"] = action
-        del sample[action_sub_keys[0]]
+        if len(action_sub_keys) > 1 or action_sub_keys[0] != "action":
+            action = sample
+            for key in action_sub_keys:
+                if isinstance(action, (dict, OrderedDict)):
+                    try:
+                        action = action[key]
+                    except:
+                        print("Action key not found:", key)
+                        import ipdb; ipdb.set_trace()
+            sample["action"] = action
+            del sample[action_sub_keys[0]]
 
         # the full horizon is for the trajectory
         def recursive_horizon(data):
@@ -389,7 +438,7 @@ class TrajDataset:
                 for cam_idx in range(camera_nums):
                     del sample["obs"]["pointcloud"][f"camera_{cam_idx}"]
 
-            if self.data_augmentation:
+            if self.augment_pcd:
                 sample["obs"]["pointcloud"]["pos"] = self.pcd_aug(
                     sample["obs"]["pointcloud"]["pos"]
                 )
@@ -477,6 +526,16 @@ class TrajDataset:
             for key, val in sample["depth"].items():
                 # Image shape N, H, W, C
                 sample["depth"][key] = resize_image_sequence(clip_depth(val), (self.img_size[0], self.img_size[1]), interp=cv2.INTER_NEAREST)
+                if self.norm_depth:
+                    sample["depth"][key] = self.warp_func.warp(sample["depth"][key], sample["depth"][key])
+        if self.augment_depth and "depth" in sample.keys():
+            for key, val in sample["depth"].items():
+                for step_idx in range(val.shape[0]):
+                    sample["depth"][key][step_idx] = self.depth_transform(image=val[step_idx])["image"]
+        if self.augment_img and "image" in sample.keys():
+            for key, val in sample["image"].items():
+                for step_idx in range(val.shape[0]):
+                    sample["image"][key][step_idx] = self.img_transform(image=val[step_idx])["image"]
         if self.pose_transform is not None: # Last dim is gripper
             if len(sample['action'].shape) == 2:
                 N, A = sample['action'].shape
@@ -571,6 +630,31 @@ def delete_indices(
 
             # remove start_idx:end_idx in replay.data
 
+class WarpMinMax:
+    EPS = 1e-3
+    def warp(self, depth, reference, **kwargs):
+        depth_min, depth_max = (
+            reference.reshape(depth.shape[0], -1).min(1, keepdims=True)[0],
+            reference.reshape(depth.shape[0], -1).max(1, keepdims=True)[0],
+        )
+        if ((depth_max - depth_min) < self.EPS).any():
+            depth_max[(depth_max - depth_min) < self.EPS] = (
+                depth_min[(depth_max - depth_min) < self.EPS] + self.EPS
+            )
+        return (depth - depth_min[:, None, None]) / (depth_max - depth_min)[
+            :, None, None
+        ]
+
+    def unwarp(self, depth, reference, **kwargs):
+        depth_min, depth_max = (
+            reference.reshape(depth.shape[0], -1).min(1, keepdims=True)[0],
+            reference.reshape(depth.shape[0], -1).max(1, keepdims=True)[0],
+        )
+        if ((depth_max - depth_min) < self.EPS).any():
+            depth_max[(depth_max - depth_min) < self.EPS] = (
+                depth_min[(depth_max - depth_min) < self.EPS] + self.EPS
+            )
+        return depth * (depth_max - depth_min)[:, None, None] + depth_min[:, None, None]
 
 def clip_depth(depth):
     valid_mask = np.logical_and(depth > 0.01, ~np.isnan(depth)) & (~np.isinf(depth))
@@ -634,7 +718,7 @@ if __name__ == "__main__":
 
     dataset = TrajDataset(
         domain="debug",
-        dataset_path="/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/one_camera_no_crop_retry_place_642_no_yaw.zarr",
+        dataset_path="/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/one_camera_crop_613_no_yaw.zarr",
         from_empty=False,
         use_disk=True,
         load_from_cache=True,
@@ -648,7 +732,7 @@ if __name__ == "__main__":
         use_pcd=True,
         pcd_channels=4,
         pcdnet_pretrain_domain="scanobjectnn",
-        ignored_keys=["initial_state", "states", "images", "color", "abs_gripper_pos"]
+        ignored_keys=["initial_state", "states", "images", "color", "abs_gripper_pos"],
         # action_key="wbc_target/r"
     )
     dataset.__getitem__(0)

@@ -21,7 +21,9 @@ defaults:
 
 dataset:
   ignored_keys: ["language", "initial_state", "states", "images", "color", "abs_gripper_pos", "pointcloud", "wbc_target", "wbc_step", "last_action"]
-  
+  norm_depth: False
+  augment_depth: True
+
 dataloader:
   batch_size: ${batch_size}
   num_workers: 15
