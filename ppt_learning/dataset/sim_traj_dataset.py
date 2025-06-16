@@ -110,13 +110,14 @@ class TrajDataset:
         self.pcd_transform = None
         self.pcdnet_pretrain_domain = pcdnet_pretrain_domain
         self.pcd_num_points = None
-        self.se3_augmentation = se3_augmentation
         self.bounds = BOUND
-        self.norm_depth = norm_depth
-        self.warp_func = None
+        self.se3_augmentation = se3_augmentation
         self.augment_img = augment_img
         self.augment_depth = augment_depth
         self.img_transform = None
+        self.depth_transform = None
+        self.norm_depth = norm_depth
+        self.warp_func = None
         if norm_depth:
             self.warp_func = WarpMinMax()
 
@@ -158,7 +159,6 @@ class TrajDataset:
                 ]
             )
             
-
         self.state_keys = state_keys
         if state_keys is None:
             self.state_keys = [

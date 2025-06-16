@@ -31,8 +31,6 @@ class MultiTrajDataset:
         mode="train",
         episode_cnt=10,
         step_cnt=100,
-        data_augmentation=False,
-        se3_augmentation=False,  # pcd in roboframe do not need this (gensim2 & rlbench)
         data_ratio=1,
         use_disk=False,
         horizon=4,
@@ -44,7 +42,11 @@ class MultiTrajDataset:
         observation_horizon=1,
         hist_action_cond=False,
         resize_img=True,
-        img_size=224,
+        augment_pcd=False,
+        se3_augmentation=False,  # pcd in roboframe do not need this (gensim2 & rlbench)
+        augment_img=True,
+        augment_depth=True,
+        img_augment_prob=0.7,
         dataset_postfix="",
         dataset_encoder_postfix="",
         precompute_feat=False,
@@ -64,6 +66,7 @@ class MultiTrajDataset:
         state_keys=None,
         action_key="actions",
         pose_transform=None,
+        norm_depth=False,
         **kwargs,
     ):
         self.dataset_name = domain
@@ -71,8 +74,6 @@ class MultiTrajDataset:
         self.horizon = horizon
         self.pad_before = pad_before
         self.pad_after = pad_after
-        self.data_augmentation = data_augmentation
-        self.se3_augmentation = se3_augmentation
         self.episode_cnt = episode_cnt
         self.step_cnt = step_cnt
         self.action_horizon = action_horizon
@@ -102,9 +103,54 @@ class MultiTrajDataset:
         self.pcdnet_pretrain_domain = pcdnet_pretrain_domain
         self.pcd_num_points = None
         self.bounds = BOUND
+        self.se3_augmentation = se3_augmentation
+        self.augment_img = augment_img
+        self.augment_depth = augment_depth
+        self.img_transform = None
+        self.depth_transform = None
+        self.norm_depth = norm_depth
+        self.warp_func = None
+        if norm_depth:
+            self.warp_func = WarpMinMax()
 
         if not hist_action_cond:
             assert self.horizon == self.observation_horizon + self.action_horizon - 1, "Check if your horizon is right"
+
+        if augment_img:
+            self.img_transform = A.Compose(
+                [
+                    A.OneOf(
+                        [
+                            A.GaussianBlur(
+                                blur_limit=(3, 7),
+                                sigma_limit=(0.1, 2),
+                                p=img_augment_prob,
+                            ),
+                            A.MotionBlur(p=img_augment_prob),
+                            A.Defocus(p=img_augment_prob),
+                            A.ColorJitter(p=img_augment_prob),
+                            A.GaussNoise(p=img_augment_prob),
+                        ],
+                    ),
+                ]
+            )
+            
+        if augment_depth:
+            # random translate / random affine
+            self.depth_transform = A.Compose(
+                [
+                    A.OneOf(
+                        [
+                            A.ShiftScaleRotate(
+                                shift_limit=0.15,
+                                scale_limit=0.1,
+                                rotate_limit=1,
+                                p=img_augment_prob,
+                            ),
+                        ],
+                    ),
+                ]
+            )
 
         self.state_keys = state_keys
         if state_keys is None:
@@ -306,16 +352,17 @@ class MultiTrajDataset:
         sample = self.sampler[dataset_idx].sample_sequence(idx)
         
         action_sub_keys = self.action_key.split('/')
-        action = sample
-        for key in action_sub_keys:
-            if isinstance(action, (dict, OrderedDict)):
-                try:
-                    action = action[key]
-                except:
-                    print("Action key not found:", key)
-                    import ipdb; ipdb.set_trace()
-        sample["action"] = action
-        del sample[action_sub_keys[0]]
+        if len(action_sub_keys) > 1 or action_sub_keys[0] != "action":
+            action = sample
+            for key in action_sub_keys:
+                if isinstance(action, (dict, OrderedDict)):
+                    try:
+                        action = action[key]
+                    except:
+                        print("Action key not found:", key)
+                        import ipdb; ipdb.set_trace()
+            sample["action"] = action
+            del sample[action_sub_keys[0]]
 
         # the full horizon is for the trajectory
         def recursive_horizon(data):
@@ -470,6 +517,16 @@ class MultiTrajDataset:
             for key, val in sample["depth"].items():
                 # Image shape N, H, W, C
                 sample["depth"][key] = resize_image_sequence(clip_depth(val), (self.img_size[0], self.img_size[1]), interp=cv2.INTER_NEAREST)
+                if self.norm_depth:
+                    sample["depth"][key] = self.warp_func.warp(sample["depth"][key], sample["depth"][key])
+        if self.augment_depth and "depth" in sample.keys():
+            for key, val in sample["depth"].items():
+                for step_idx in range(val.shape[0]):
+                    sample["depth"][key][step_idx] = self.depth_transform(image=val[step_idx])["image"]
+        if self.augment_img and "image" in sample.keys():
+            for key, val in sample["image"].items():
+                for step_idx in range(val.shape[0]):
+                    sample["image"][key][step_idx] = self.img_transform(image=val[step_idx])["image"]
         if self.pose_transform is not None: # Last dim is gripper
             if len(sample['action'].shape) == 2:
                 N, A = sample['action'].shape
