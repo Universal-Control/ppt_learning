@@ -261,8 +261,8 @@ class Diffusion(nn.Module):
         self,
         input_dim,  # condition
         output_dim,  # action dim
-        horizon, # number of steps to predict
-        hist_horizon = 0, 
+        horizon,  # number of steps to predict
+        hist_horizon=0,
         noise_scheduler_type: str = "DDPM",
         num_train_timesteps: int = 100,
         beta_schedule: str = "squaredcos_cap_v2",
@@ -289,7 +289,7 @@ class Diffusion(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.hist_horizon = hist_horizon
-        self.horizon = horizon # default as future horizon
+        self.horizon = horizon  # default as future horizon
         self.do_mask_loss_for_padding = do_mask_loss_for_padding
 
         self.unet = DiffusionConditionalUnet1d(
@@ -323,18 +323,21 @@ class Diffusion(nn.Module):
         self,
         batch_size: int,
         global_cond: Optional[Tensor] = None,
-        local_cond: Optional[Tensor] = None, # inpainting the past trajectory
+        local_cond: Optional[Tensor] = None,  # inpainting the past trajectory
         generator: Optional[torch.Generator] = None,
     ) -> Tensor:
         device = next(iter(self.parameters())).device
         dtype = next(iter(self.parameters())).dtype
 
         # Sample prior.
-        sample = torch.randn(
-            size=(batch_size, self.horizon, self.output_dim),
-            dtype=dtype,
-            device=device,
-            generator=generator,
+        sample = (
+            torch.randn(
+                size=(batch_size, self.horizon, self.output_dim),
+                dtype=dtype,
+                device=device,
+                generator=generator,
+            )
+            * 0.5
         )
         self.noise_scheduler.set_timesteps(self.num_inference_steps)
         # if self.hist_horizon > 0 and local_cond is not None:
@@ -350,7 +353,7 @@ class Diffusion(nn.Module):
             )
             # Compute previous sample: x_t -> x_t-1
             sample = self.noise_scheduler.step(
-                model_output, t, sample, generator=generator
+                model_output, t, sample, generator=generator, eta=0.5
             ).prev_sample
         return sample
 
@@ -364,7 +367,9 @@ class Diffusion(nn.Module):
         """
         batch_size = x.shape[0]
         # run sampling
-        samples = self.conditional_sample(batch_size, global_cond=x, local_cond=local_cond)
+        samples = self.conditional_sample(
+            batch_size, global_cond=x, local_cond=local_cond
+        )
 
         # Currently all future aactions
         # # `horizon` steps worth of actions (from the first observation).
@@ -395,7 +400,7 @@ class Diffusion(nn.Module):
         # if self.hist_horizon > 0 and local_cond is not None:
         #     # impaint the past trajectory
         #     noisy_trajectory[..., : self.hist_horizon-1, :] = local_cond[..., : self.hist_horizon-1, :]
-            
+
         # Run the denoising network (that might denoise the trajectory, or attempt to predict the noise).
         pred = self.unet(noisy_trajectory, timesteps, global_cond=x)
 
@@ -407,9 +412,13 @@ class Diffusion(nn.Module):
             pass  # =target
         else:
             raise ValueError(f"Unsupported prediction type {self.prediction_type}")
-        
-        if False: # self.hist_horizon > 0 and local_cond is not None:
-            loss = F.mse_loss(pred[..., self.hist_horizon-1:, :], target[..., self.hist_horizon-1:, :], reduction="none")
+
+        if False:  # self.hist_horizon > 0 and local_cond is not None:
+            loss = F.mse_loss(
+                pred[..., self.hist_horizon - 1 :, :],
+                target[..., self.hist_horizon - 1 :, :],
+                reduction="none",
+            )
         else:
             loss = F.mse_loss(pred, target, reduction="none")
 
@@ -424,13 +433,19 @@ class Diffusion(nn.Module):
 
         return loss.mean()
 
-    def forward(self, x: Tensor, target: Optional[Tensor] = None, local_cond: Optional[Tensor] = None, **kwargs):
+    def forward(
+        self,
+        x: Tensor,
+        target: Optional[Tensor] = None,
+        local_cond: Optional[Tensor] = None,
+        **kwargs,
+    ):
         if target is None:
             return self.generate_actions(x, local_cond)
 
         # if local_cond is None and self.hist_horizon > 0:
         #     local_cond = target[..., : self.hist_horizon-1, :]
-        
+
         """Run the batch through the model and compute the loss for training or validation."""
         loss = self.compute_loss(x, target=target, local_cond=local_cond)
         return {"loss": loss}

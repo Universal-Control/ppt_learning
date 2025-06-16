@@ -1,8 +1,8 @@
 # @package _global_
 # dataset name to be loaded
-domains: 20250609_235953.cartesian
+domains: 20250613_223439.cartesian
 save_interval: 50
-dataset_path: /home/bytedance/zhengbang/ManiUniCon/data/picktwobowls/red
+dataset_path: "/media/bytedance/Extreme SSD/zbzhu/data/picktwobowls/both_250613_fixed"
 
 # dataset config
 dataset:

@@ -2,7 +2,7 @@
 network:
   # trunk transformer config
   _target_: ppt_learning.models.policy.Policy
-  embed_dim: 64
+  embed_dim: 128
   num_blocks: 4 # num of blocks in the trunk transformer 
   num_heads: 8 # num of heads in the trunk transformer
   drop_path: 0.0 # drop path in the trunk transformer
@@ -19,7 +19,8 @@ network:
 
 head:
   _target_: ppt_learning.models.policy_head.Diffusion
-  input_dim: 192 # concat = 11264
+  # input_dim: 192 # single step without history, embed_dim = 64
+  input_dim: 384 # single step without history, embed_dim = 128
   output_dim: -1 # overwrite based on dataset
   horizon: ${dataset.action_horizon}
   normalize_action: True

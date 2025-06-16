@@ -303,6 +303,7 @@ class TrajDataset:
             pad_after=self.pad_after,
             episode_mask=self.train_mask,
             ignored_keys=self.ignored_keys,
+            action_key=self.action_key,
         )
         print(
             f"{self.dataset_path} size: {len(self.sampler)} episodes: {n_episodes} train: {self.train_mask.sum()} eval: {self.val_mask.sum()}"
@@ -318,6 +319,8 @@ class TrajDataset:
             pad_before=self.pad_before,
             pad_after=self.pad_after,
             episode_mask=self.val_mask,
+            ignored_keys=self.ignored_keys,
+            action_key=self.action_key,
         )
         val_set.train_mask = self.val_mask
         return val_set

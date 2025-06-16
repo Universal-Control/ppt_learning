@@ -157,8 +157,10 @@ def run(cfg):
         print("train from scratch")
 
     policy.to(device)
+
+    total_steps = cfg.train.total_epochs * len(train_loader)
     opt = utils.get_optimizer(cfg.optimizer, policy)
-    sch = utils.get_scheduler(cfg.lr_scheduler, optimizer=opt)
+    sch = utils.get_scheduler(cfg.lr_scheduler, opt, num_warmup_steps=cfg.warmup_lr.step, num_training_steps=total_steps)
 
     sch = WarmupLR(
         sch,
