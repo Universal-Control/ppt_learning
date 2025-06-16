@@ -10,7 +10,7 @@ debug: False # Turn off to allow wandb logging
 suffix: "" # suffix for the experiment
 wb_tag: ${suffix}
 
-batch_size: 128 # batch size
+batch_size: 512 # batch size
 
 defaults:
   - env: isaacsim_lance # rlbench # gensim2
@@ -20,6 +20,8 @@ defaults:
 
 dataset:
   ignored_keys: ["language", "initial_state", "states", "images", "color", "abs_gripper_pos", "pointcloud", "wbc_target", "wbc_step", "last_action"]
+  norm_depth: False
+  augment_depth: True
   
 dataloader:
   batch_size: ${batch_size}
