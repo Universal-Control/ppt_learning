@@ -8,6 +8,7 @@ import lance
 import pickle
 import time
 import cv2
+import albumentations as A
 
 from ppt_learning.utils.sampler import SequenceSamplerLance, get_val_mask, get_shape
 from ppt_learning.utils.normalizer import LinearNormalizer, SingleFieldLinearNormalizer
@@ -71,6 +72,7 @@ class MultiTrajDatasetLance:
         action_key="actions",
         pose_transform=None,
         keys_in_memory=None,
+        norm_depth=False,
         **kwargs,
     ):
         self.dataset_name = domain
