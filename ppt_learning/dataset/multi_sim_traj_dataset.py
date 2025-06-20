@@ -43,6 +43,7 @@ class MultiTrajDataset:
         observation_horizon=1,
         hist_action_cond=False,
         resize_img=True,
+        img_size=(224,224),
         augment_pcd=False,
         se3_augmentation=False,  # pcd in roboframe do not need this (gensim2 & rlbench)
         augment_img=True,
@@ -159,7 +160,7 @@ class MultiTrajDataset:
                 "eef_pos",
                 "eef_quat",
                 "joint_pos",
-                "joint_vel",
+                # "joint_vel",
                 "normalized_gripper_pos"
             ]
         self.ignored_keys = ignored_keys
@@ -199,7 +200,7 @@ class MultiTrajDataset:
                 if load_from_cache:
                     if use_lru_cache:
                         store = zarr.DirectoryStore(single_dpath)
-                        cache = zarr.LRUStoreCache(store=store, max_size=2**(38-len(dataset_path)))
+                        cache = zarr.LRUStoreCache(store=store, max_size=2**(39-len(dataset_path)))
                         group = zarr.open(cache, "r")
                         self.replay_buffer[idx] = ReplayBuffer.create_from_group(
                             group,
@@ -371,26 +372,23 @@ class MultiTrajDataset:
                 if isinstance(val, (dict, OrderedDict)):
                     recursive_horizon(val)
                 else:
-                    if (key not in ["action", "actions"]) and (key != "action_is_pad"):
+                    if (key not in self.ignored_keys) and (key != "action") and (key != "action_is_pad"):
                         if key == "language":
                             data[key] = val
                         else:
                             data[key] = val[: self.observation_horizon]
                     else:
-                        if key in ["action", "actions"]:
-                            data["action"] = val[
-                                self.observation_horizon
-                                - 1 : self.action_horizon
-                                + self.observation_horizon
-                                - 1
-                            ]
-                        elif key == "action_is_pad":
-                            data["action_is_pad"] = val[
-                                self.observation_horizon
-                                - 1 : self.action_horizon
-                                + self.observation_horizon
-                                - 1
-                            ]
+                        if self.hist_action_cond:
+                            if key in ["action", "action_is_pad"]:
+                                data[key] = val[: self.action_horizon] # including hist action
+                        else:
+                            if key in ["action", "action_is_pad"]:
+                                data[key] = val[
+                                    self.observation_horizon
+                                    - 1 : self.action_horizon
+                                    + self.observation_horizon
+                                    - 1
+                                ]
 
         if self.use_pcd:
             if "pointcloud" not in sample["obs"]:
@@ -407,12 +405,12 @@ class MultiTrajDataset:
                             intrinsic_matrix=self.replay_buffer.meta["camera_info"][
                                 f"camera_{cam_idx}"
                             ]["intrinsics"][0],
-                            position=self.replay_buffer.meta["camera_info"][
-                                f"camera_{cam_idx}"
-                            ]["extrinsics"][0, :3],
-                            orientation=self.replay_buffer.meta["camera_info"][
-                                f"camera_{cam_idx}"
-                            ]["extrinsics"][0, 3:],
+                            # position=self.replay_buffer.meta["camera_info"][
+                            #     f"camera_{cam_idx}"
+                            # ]["extrinsics"][0, :3],
+                            # orientation=self.replay_buffer.meta["camera_info"][
+                            #     f"camera_{cam_idx}"
+                            # ]["extrinsics"][0, 3:],
                         )
                     )
                 camera_nums = len(sample["obs"]["pointcloud"])
@@ -549,6 +547,9 @@ class MultiTrajDataset:
 
         if "images" in sample.keys() and "image" not in sample.keys():
             sample["image"] = sample.pop("images")
+
+        if "depths" in sample.keys() and "depth" not in sample.keys():
+            sample["depth"] = sample.pop("depths")
 
         if not self.use_pcd:
             if "pointcloud" in sample.keys():

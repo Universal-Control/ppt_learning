@@ -149,11 +149,17 @@ class TrajDataset:
                     A.OneOf(
                         [
                             A.ShiftScaleRotate(
-                                shift_limit=0.15,
-                                scale_limit=0.1,
-                                rotate_limit=1,
+                                shift_limit=0.25,
+                                scale_limit=0.2,
+                                rotate_limit=2,
                                 p=img_augment_prob,
                             ),
+                            # A.ShiftScaleRotate(
+                            #     shift_limit=0.15,
+                            #     scale_limit=0.1,
+                            #     rotate_limit=1,
+                            #     p=img_augment_prob,
+                            # ),
                         ],
                     ),
                 ]
@@ -165,7 +171,7 @@ class TrajDataset:
                 "eef_pos",
                 "eef_quat",
                 "joint_pos",
-                "joint_vel",
+                # "joint_vel",
                 "normalized_gripper_pos"
             ]
         self.ignored_keys = ignored_keys
@@ -202,7 +208,7 @@ class TrajDataset:
             if load_from_cache:
                 if use_lru_cache:
                     store = zarr.DirectoryStore(dataset_path)
-                    cache = zarr.LRUStoreCache(store=store, max_size=2**38)
+                    cache = zarr.LRUStoreCache(store=store, max_size=2**32)
                     group = zarr.open(cache, "r")
                     self.replay_buffer = ReplayBuffer.create_from_group(
                         group

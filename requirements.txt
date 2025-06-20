@@ -24,4 +24,5 @@ flatdict
 opencv-python
 transformers
 sentence_transformers
-diffusers
+albumentations
+matplotlib
