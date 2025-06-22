@@ -1,10 +1,10 @@
 # @package _global_
 # dataset name to be loaded
 domains:
-  one_camera_only_depths_618_no_yaw # , one_camera_only_depths_618_no_yaw2
-  # one_camera_depths_618_no_yaw
+  # one_camera_only_depths_618_no_yaw, one_camera_only_depths_618_no_yaw2
+  621_x7_new_camera_pos
 save_interval: 10
-dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close # 
+dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/arxx7_picktoothpasteputincup # ur5_put_bowl_in_microwave_and_close
 
 # dataset config
 dataset:

@@ -5,6 +5,7 @@ import os
 import zarr
 import ipdb
 import albumentations as A
+import cv2
 
 from ppt_learning.utils.replay_buffer import ReplayBuffer
 from ppt_learning.utils.sampler import SequenceSampler, get_val_mask
@@ -17,7 +18,7 @@ from ppt_learning.utils.pcd_utils import (
 
 from ppt_learning.paths import *
 from ppt_learning.utils.pcd_utils import BOUND
-from ppt_learning.dataset.sim_traj_dataset import resize_image_sequence
+from ppt_learning.dataset.sim_traj_dataset import resize_image_sequence, clip_depth, WarpMinMax
 
 class MultiTrajDataset:
     """

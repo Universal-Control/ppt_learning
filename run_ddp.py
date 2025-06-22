@@ -1,4 +1,5 @@
 import os, sys
+import glob
 from typing import Union
 
 import hydra
@@ -26,6 +27,19 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 from ppt_learning import train_test
 
+
+def remove_old_checkpoints(output_dir, k):
+    """
+    Remove the oldest checkpoints to keep only the last k checkpoints.
+    """
+    # Get all checkpoint files
+    checkpoint_files = sorted(glob.glob(os.path.join(output_dir, "model_*.pth")), key=os.path.getmtime)
+    
+    # Remove the oldest checkpoints if there are more than k
+    while len(checkpoint_files) > k:
+        oldest_checkpoint = checkpoint_files.pop(0)
+        os.remove(oldest_checkpoint)
+        print(f"Removed old checkpoint: {oldest_checkpoint}")
 
 def get_dataloader(dataset, seed, rank, world_size, **kwargs):
 
@@ -160,7 +174,7 @@ def run(local_rank: int, world_size: int, cfg: DictConfig, node_rank: int = 0):
 
     loaded_epoch = -1
     if len(cfg.train.pretrained_dir) > 0:
-        if "pth" in cfg.train.pretrained_dir:
+        if ".pth" in cfg.train.pretrained_dir:
             assert os.path.exists(
                 cfg.train.pretrained_dir
             ), "Pretrained model not found"
@@ -241,6 +255,10 @@ def run(local_rank: int, world_size: int, cfg: DictConfig, node_rank: int = 0):
                 else:
                     policy_path = os.path.join(cfg.output_dir, f"model.pth")
                 policy.module.save(policy_path)
+
+                # Get the number of checkpoints to keep from config
+                k = cfg.train.get('last_k_checkpoints', 5)  # Default to 5 if not set
+                remove_old_checkpoints(cfg.output_dir, k)
 
             if rank == 0 and "loss" in train_stats:
                 pbar.set_description(

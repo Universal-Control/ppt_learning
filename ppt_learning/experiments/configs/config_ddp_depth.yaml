@@ -66,3 +66,4 @@ train:
   # pretrained_dir: "/mnt/bn/robot-minghuan-debug/ppt_learning/outputs/depth/2025-06-19_21-02-17/ur5_put_bowl_in_microwave_and_close/one_camera_618_no_yaw_randomaffine_moreaug" # pretrained model path
   pretrained_dir: "" # pretrained model path
   freeze_trunk: False # whether to freeze the trunk during finetuning
+  last_k_checkpoints: 5 # number of last checkpoints to keep

@@ -233,7 +233,7 @@ def run(local_rank: int, world_size: int, cfg: DictConfig, node_rank: int = 0):
 
             # Save policy (only rank 0)
             if rank == 0:
-                if epoch % cfg.save_interval == 0:
+                if epoch > 400 and epoch % cfg.save_interval == 0:
                     policy_path = os.path.join(cfg.output_dir, f"model_{epoch}.pth")
                 else:
                     policy_path = os.path.join(cfg.output_dir, f"model.pth")
