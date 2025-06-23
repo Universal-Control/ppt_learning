@@ -6,6 +6,7 @@ from torch.nn import MultiheadAttention
 from typing import Dict, Optional, Any
 from collections import OrderedDict
 import hydra
+import random
 
 from .diffusion import DiffusionConditionalUnet1d
 from ppt_learning.utils.model_utils import *
@@ -278,6 +279,9 @@ class Diffusion(nn.Module):
         n_groups: int = 8,
         use_film_scale_modulation: bool = True,
         do_mask_loss_for_padding: bool = False,
+        random_impaint: bool = False,
+        min_impaint_horizon: int = 0,
+        max_impaint_horizon: int = 8,
         **kwargs,
     ):
         from .diffusion import _make_noise_scheduler
@@ -291,6 +295,9 @@ class Diffusion(nn.Module):
         self.hist_horizon = hist_horizon
         self.horizon = horizon # default as future horizon
         self.do_mask_loss_for_padding = do_mask_loss_for_padding
+        self.random_impaint = random_impaint
+        self.min_impaint_horizon = min_impaint_horizon
+        self.max_impaint_horizon = max_impaint_horizon
 
         self.unet = DiffusionConditionalUnet1d(
             output_dim=output_dim,
@@ -378,6 +385,9 @@ class Diffusion(nn.Module):
 
     def compute_loss(self, x, target, local_cond, **kwargs) -> Tensor:
         trajectory = target
+        hist_horizon = self.hist_horizon
+        if self.random_impaint:
+            hist_horizon = random.randint(self.min_impaint_horizon, self.max_impaint_horizon)
 
         # Forward diffusion.
         # Sample noise to add to the trajectory.
@@ -392,9 +402,9 @@ class Diffusion(nn.Module):
         # Add noise to the clean trajectories according to the noise magnitude at each timestep.
         noisy_trajectory = self.noise_scheduler.add_noise(trajectory, eps, timesteps)
 
-        # if self.hist_horizon > 0 and local_cond is not None:
-        #     # impaint the past trajectory
-        #     noisy_trajectory[..., : self.hist_horizon-1, :] = local_cond[..., : self.hist_horizon-1, :]
+        if hist_horizon > 0 and local_cond is not None:
+            # impaint the past trajectory
+            noisy_trajectory[..., : hist_horizon-1, :] = local_cond[..., : hist_horizon-1, :]
             
         # Run the denoising network (that might denoise the trajectory, or attempt to predict the noise).
         pred = self.unet(noisy_trajectory, timesteps, global_cond=x)
@@ -408,8 +418,8 @@ class Diffusion(nn.Module):
         else:
             raise ValueError(f"Unsupported prediction type {self.prediction_type}")
         
-        if False: # self.hist_horizon > 0 and local_cond is not None:
-            loss = F.mse_loss(pred[..., self.hist_horizon-1:, :], target[..., self.hist_horizon-1:, :], reduction="none")
+        if hist_horizon > 0 and local_cond is not None:
+            loss = F.mse_loss(pred[..., hist_horizon-1:, :], target[..., hist_horizon-1:, :], reduction="none")
         else:
             loss = F.mse_loss(pred, target, reduction="none")
 
@@ -428,8 +438,8 @@ class Diffusion(nn.Module):
         if target is None:
             return self.generate_actions(x, local_cond)
 
-        # if local_cond is None and self.hist_horizon > 0:
-        #     local_cond = target[..., : self.hist_horizon-1, :]
+        if local_cond is None and (self.hist_horizon > 0 or self.random_impaint):
+            local_cond = target.clone()
         
         """Run the batch through the model and compute the loss for training or validation."""
         loss = self.compute_loss(x, target=target, local_cond=local_cond)
