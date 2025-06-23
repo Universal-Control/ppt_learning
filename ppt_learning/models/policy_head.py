@@ -332,6 +332,7 @@ class Diffusion(nn.Module):
         global_cond: Optional[Tensor] = None,
         local_cond: Optional[Tensor] = None, # impainting the past trajectory
         generator: Optional[torch.Generator] = None,
+        hist_horizon: Optional[int] = None,
     ) -> Tensor:
         device = next(iter(self.parameters())).device
         dtype = next(iter(self.parameters())).dtype
@@ -344,9 +345,10 @@ class Diffusion(nn.Module):
             generator=generator,
         )
         self.noise_scheduler.set_timesteps(self.num_inference_steps)
-        # if self.hist_horizon > 0 and local_cond is not None:
-        #     # local cond the past trajectory
-        #     sample[..., : self.hist_horizon-1, :] = local_cond[..., : self.hist_horizon-1, :]
+        hist_horizon = self.hist_horizon if hist_horizon is None else hist_horizon
+        if hist_horizon > 0 and local_cond is not None:
+            # local cond the past trajectory
+            sample[..., : hist_horizon, :] = local_cond[..., : hist_horizon, :]
 
         for t in self.noise_scheduler.timesteps:
             # Predict model output.
@@ -361,7 +363,7 @@ class Diffusion(nn.Module):
             ).prev_sample
         return sample
 
-    def generate_actions(self, x, local_cond) -> Tensor:
+    def generate_actions(self, x, local_cond, hist_horizon) -> Tensor:
         """
         This function expects `batch` to have (at least):
         {
@@ -371,7 +373,7 @@ class Diffusion(nn.Module):
         """
         batch_size = x.shape[0]
         # run sampling
-        samples = self.conditional_sample(batch_size, global_cond=x, local_cond=local_cond)
+        samples = self.conditional_sample(batch_size, global_cond=x, local_cond=local_cond, hist_horizon=hist_horizon)
 
         # Currently all future aactions
         # # `horizon` steps worth of actions (from the first observation).
@@ -404,8 +406,8 @@ class Diffusion(nn.Module):
 
         if hist_horizon > 0 and local_cond is not None:
             # impaint the past trajectory
-            noisy_trajectory[..., : hist_horizon-1, :] = local_cond[..., : hist_horizon-1, :]
-            
+            noisy_trajectory[..., : hist_horizon, :] = local_cond[..., : hist_horizon, :]
+
         # Run the denoising network (that might denoise the trajectory, or attempt to predict the noise).
         pred = self.unet(noisy_trajectory, timesteps, global_cond=x)
 
@@ -417,9 +419,9 @@ class Diffusion(nn.Module):
             pass  # =target
         else:
             raise ValueError(f"Unsupported prediction type {self.prediction_type}")
-        
+
         if hist_horizon > 0 and local_cond is not None:
-            loss = F.mse_loss(pred[..., hist_horizon-1:, :], target[..., hist_horizon-1:, :], reduction="none")
+            loss = F.mse_loss(pred[..., hist_horizon:, :], target[..., hist_horizon:, :], reduction="none")
         else:
             loss = F.mse_loss(pred, target, reduction="none")
 
@@ -434,9 +436,16 @@ class Diffusion(nn.Module):
 
         return loss.mean()
 
-    def forward(self, x: Tensor, target: Optional[Tensor] = None, local_cond: Optional[Tensor] = None, **kwargs):
+    def forward(
+        self,
+        x: Tensor,
+        target: Optional[Tensor] = None,
+        local_cond: Optional[Tensor] = None,
+        hist_horizon: Optional[int] = None,
+        **kwargs,
+    ):
         if target is None:
-            return self.generate_actions(x, local_cond)
+            return self.generate_actions(x, local_cond, hist_horizon)
 
         if local_cond is None and (self.hist_horizon > 0 or self.random_impaint):
             local_cond = target.clone()
