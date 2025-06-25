@@ -494,7 +494,7 @@ class TrajDataset:
         #     assert sample["pointcloud"].shape[-1] == self.pcd_channels, f"pointcloud channel mismatch! expected {self.pcd_channels}, got {sample['pointcloud'].shape[-1]}"
         recursive_horizon(sample)
 
-        self.transform(sample)
+        self.transform(sample, idx)
 
         return {"domain": self.dataset_name, "data": sample}
 
@@ -523,7 +523,7 @@ class TrajDataset:
 
         return res["state"]
 
-    def transform(self, sample):
+    def transform(self, sample, idx):
         if self.resize_img and "image" in sample.keys():
             for key, val in sample["image"].items():
                 # Image shape N, H, W, C
@@ -531,7 +531,10 @@ class TrajDataset:
         if self.resize_img and "depth" in sample.keys():
             for key, val in sample["depth"].items():
                 # Image shape N, H, W, C
-                sample["depth"][key] = resize_image_sequence(clip_depth(val), (self.img_size[0], self.img_size[1]), interp=cv2.INTER_NEAREST)
+                clippped_depth, _ = clip_depth(val)
+                if not _:
+                    print(f"Invalid depth at {idx}")
+                sample["depth"][key] = resize_image_sequence(clippped_depth, (self.img_size[0], self.img_size[1]), interp=cv2.INTER_NEAREST)
                 if self.norm_depth:
                     sample["depth"][key] = self.warp_func.warp(sample["depth"][key], sample["depth"][key])
         if self.augment_depth and "depth" in sample.keys():
@@ -663,17 +666,19 @@ class WarpMinMax:
         return depth * (depth_max - depth_min)[:, None, None] + depth_min[:, None, None]
 
 def clip_depth(depth):
+    res = True
     valid_mask = np.logical_and(depth > 0.01, ~np.isnan(depth)) & (~np.isinf(depth))
     if valid_mask.sum() == 0:
         print(
             "No valid mask in the depth map"
         )
+        res = False
     if valid_mask.sum() != 0 and np.isnan(depth).sum() != 0:
         depth[np.isnan(depth)] = depth[valid_mask].max()
     if valid_mask.sum() != 0 and np.isinf(depth).sum() != 0:
         depth[np.isinf(depth)] = depth[valid_mask].max()
 
-    return depth
+    return depth, res
 
 def resize_image_sequence(images, target_size, interp=cv2.INTER_AREA):
     """

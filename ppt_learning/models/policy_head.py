@@ -404,7 +404,7 @@ class Diffusion(nn.Module):
 
         if hist_horizon > 0 and local_cond is not None:
             # impaint the past trajectory
-            noisy_trajectory[..., : hist_horizon-1, :] = local_cond[..., : hist_horizon-1, :]
+            noisy_trajectory[..., : hist_horizon, :] = local_cond[..., : hist_horizon, :]
             
         # Run the denoising network (that might denoise the trajectory, or attempt to predict the noise).
         pred = self.unet(noisy_trajectory, timesteps, global_cond=x)
@@ -419,7 +419,7 @@ class Diffusion(nn.Module):
             raise ValueError(f"Unsupported prediction type {self.prediction_type}")
         
         if hist_horizon > 0 and local_cond is not None:
-            loss = F.mse_loss(pred[..., hist_horizon-1:, :], target[..., hist_horizon-1:, :], reduction="none")
+            loss = F.mse_loss(pred[..., hist_horizon:, :], target[..., hist_horizon:, :], reduction="none")
         else:
             loss = F.mse_loss(pred, target, reduction="none")
 

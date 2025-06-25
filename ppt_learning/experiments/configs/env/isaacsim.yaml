@@ -1,7 +1,7 @@
 # @package _global_
 # dataset name to be loaded
 domains:
-  one_camera_crop_616_no_yaw_620
+  one_camera_higher_624_slow
   # one_camera_only_depths_618_no_yaw, one_camera_only_depths_618_no_yaw2
   # 621_x7_new_camera_pos
 save_interval: 10
@@ -10,8 +10,8 @@ dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_
 
 # dataset config
 dataset:
-  _target_: ppt_learning.dataset.multi_sim_traj_dataset.MultiTrajDataset
-  # _target_: ppt_learning.dataset.sim_traj_dataset.TrajDataset
+  # _target_: ppt_learning.dataset.multi_sim_traj_dataset.MultiTrajDataset
+  _target_: ppt_learning.dataset.sim_traj_dataset.TrajDataset
   domain: "isaacsim"
   dataset_path: "" # TO be filled
   horizon: -1 # horizon for each dataset sample. should be action_horizon+observation_horizon-1 and will be replaced

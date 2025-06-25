@@ -19,17 +19,19 @@ defaults:
   - datasetsize: all
   - _self_
 
-# domains: 622_x7_depth_small
-# save_interval: 10
-# dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/arxx7_picktoothpasteputincup
+domains: 624_x7_depth_small_change_obs, 624_x7_depth_small_change_obs2
+save_interval: 10
+dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/arxx7_picktoothpasteputincup
 
 dataset:
+  _target_: ppt_learning.dataset.multi_sim_traj_dataset.MultiTrajDataset
   ignored_keys: ["language", "initial_state", "states", "images", "color", "abs_gripper_pos", "pointcloud", "wbc_target", "wbc_step", "last_action"]
   norm_depth: false
   augment_depth: true
   use_lru_cache: true
   action_horizon: 16 # observation: (observation + action) is action horizon 
   observation_horizon: 1 # before observation horizon is observation
+  state_keys: ["base_vel", "left_arm_joint_pos", "right_arm_joint_pos", "lift_pos", "eef_pos_l", "eef_quat_l", "eef_pos_r", "eef_quat_r", "left_normalized_gripper_pos", "right_normalized_gripper_pos"]
 
 dataloader:
   batch_size: ${batch_size}

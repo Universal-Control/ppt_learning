@@ -516,7 +516,10 @@ class MultiTrajDataset:
         if self.resize_img and "depth" in sample.keys():
             for key, val in sample["depth"].items():
                 # Image shape N, H, W, C
-                sample["depth"][key] = resize_image_sequence(clip_depth(val), (self.img_size[0], self.img_size[1]), interp=cv2.INTER_NEAREST)
+                clippped_depth, _ = clip_depth(val)
+                if not _:
+                    print(f"Invalid depth at {idx}")
+                sample["depth"][key] = resize_image_sequence(clippped_depth, (self.img_size[0], self.img_size[1]), interp=cv2.INTER_NEAREST)
                 if self.norm_depth:
                     sample["depth"][key] = self.warp_func.warp(sample["depth"][key], sample["depth"][key])
         if self.augment_depth and "depth" in sample.keys():
