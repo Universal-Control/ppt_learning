@@ -524,7 +524,7 @@ class Policy(L.LightningModule):
         self.train_mode = True
         return self(batch["domain"][0], batch["data"])
 
-    def forward(self, domain, data):
+    def forward(self, domain, data, head_kwargs: dict = {}):
         """main forward pass of the combined policy.
         :param batch: data
         :return: action"""
@@ -553,10 +553,10 @@ class Policy(L.LightningModule):
         # head pass
         if self.train_mode:
             action = self.heads[domain](
-                features, target=data["action"], action_is_pad=data.get("action_is_pad", None)
+                features, target=data["action"], action_is_pad=data.get("action_is_pad", None), **head_kwargs
             )
         else:
-            action = self.heads[domain](features)
+            action = self.heads[domain](features, **head_kwargs)
 
         if isinstance(action, (dict, OrderedDict)):  # That should be losses
             return action
