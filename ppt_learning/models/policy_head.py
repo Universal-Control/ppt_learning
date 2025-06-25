@@ -406,7 +406,7 @@ class Diffusion(nn.Module):
 
         if hist_horizon > 0 and local_cond is not None:
             # impaint the past trajectory
-            noisy_trajectory[..., : hist_horizon-1, :] = local_cond[..., : hist_horizon-1, :]
+            noisy_trajectory[..., : hist_horizon, :] = local_cond[..., : hist_horizon, :]
             
         # Run the denoising network (that might denoise the trajectory, or attempt to predict the noise).
         pred = self.unet(noisy_trajectory, timesteps, global_cond=x)
