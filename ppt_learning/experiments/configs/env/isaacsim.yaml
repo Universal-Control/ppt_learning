@@ -1,7 +1,8 @@
 # @package _global_
 # dataset name to be loaded
 domains:
-  one_camera_higher_624_slow
+  one_camera_higher_627_close_faster
+  # one_camera_higher_624_slow
   # one_camera_only_depths_618_no_yaw, one_camera_only_depths_618_no_yaw2
   # 621_x7_new_camera_pos
 save_interval: 10
