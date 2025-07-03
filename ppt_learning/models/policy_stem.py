@@ -205,7 +205,7 @@ class ViT(nn.Module):
 
     def __init__(
         self,
-        model_name,
+        model_name="dinov2_vits14",
         patch_size=14,
         output_dim=512,
         num_of_copy=1,
@@ -217,7 +217,7 @@ class ViT(nn.Module):
         super(ViT, self).__init__(**kwargs)
 
         self.num_of_copy = num_of_copy
-        backbone = torch.hub.load("facebookresearch/dinov2", model_name)
+        backbone = torch.hub.load("facebookresearch/dinov2", model_name, skip_validation=True)
 
         self.net = backbone
         self.patch_size = patch_size
@@ -236,20 +236,21 @@ class ViT(nn.Module):
 
         self.output_dim = output_dim
 
-        if self.depth_only: # TODO
-            self.net.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+        if self.depth_only:
+            self.net.patch_embed.proj = nn.Conv2d(1, 384, kernel_size=(14, 14), stride=(14, 14))
 
         self.proj = nn.Linear(384, output_dim)
 
     def forward(self, x):
         """
-        x: dict of (B x T) x H x W x 4
+        x: dict of (B x T) x H x W x 4 or (B x T) x H x W x 1
         """
-        x = torch.stack([*x.values()], dim=0)[..., :3]  # N x B x H x W x 4
-        x = x.permute(1, 0, 4, 2, 3)
+        x = torch.stack([*x.values()], dim=1)[..., :3]  # N x B x H x W x 4 or N x B x H x W x 1
+        B, N, H, W, C = x.shape
+        x = x.permute(0, 1, 4, 2, 3)
         # flatten first
-        B, N, D, H, W = x.shape
-        x = x.reshape(len(x), -1, 3, H, W)
+        x = x.reshape(len(x), -1, C, H, W)
+
         if self.num_of_copy > 1:
             # separate encoding for each view
             out = []
@@ -266,7 +267,7 @@ class ViT(nn.Module):
                 out.append(net(input))
             feat = torch.stack(out, dim=1).contiguous()
         else:
-            x = x.reshape(-1, 3, H, W)
+            x = x.reshape(-1, C, H, W)
             x = transforms.Pad(
                 (
                     (self.patch_size - W % self.patch_size) // 2,

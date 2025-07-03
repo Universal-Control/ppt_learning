@@ -5,6 +5,18 @@
     "version": "0.2.0",
     "configurations": [
         {
+            "name": "Train Depth ViT",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "run.py",
+            "console": "integratedTerminal",
+            "args": [
+                "--config-name",
+                "ppt_learning/experiments/configs/config_ddp_depth_vit_ur5_microwave.yaml",
+                "debug=True",
+            ]
+        },
+        {
             "name": "debug dataset",
             "type": "debugpy",
             "request": "launch",

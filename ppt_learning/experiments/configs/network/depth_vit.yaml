@@ -1,0 +1,80 @@
+# @package _global_
+network:
+  # trunk transformer config
+  _target_: ppt_learning.models.policy.Policy
+  embed_dim: 64
+  no_trunk: true
+  num_blocks: 2 # num of blocks in the trunk transformer 
+  num_heads: 4 # num of heads in the trunk transformer
+  drop_path: 0.0 # drop path in the trunk transformer
+  use_modality_embedding: True
+  token_postprocessing: ${head.token_postprocessing}
+  cross_stem_attention: False # use cross attention to combine state and action
+  weight_init_style: 'pytorch' # weight init
+  observation_horizon: ${dataset.observation_horizon}
+  action_horizon: ${dataset.action_horizon}
+  openloop_steps: 4
+  action_dim : -1 # overwrite based on dataset
+  temporal_agg: False # ACT-style temporal aggregation, not always work
+
+# head network (MLP, Diffusion, TransformerDecoder)
+# head:
+#     _target_: ppt_learning.models.policy_head.MLP
+#     input_dim: ${network.embed_dim}
+#     tanh_end: True # normalized action output
+#     output_dim: -1 # overwrite based on dataset
+#     widths: [512, 256]
+#     normalize_action: ${head.tanh_end}
+#     token_postprocessing: "mean"
+
+head:
+  _target_: ppt_learning.models.policy_head.Diffusion
+  input_dim: ${eval:'2 * ${network.embed_dim}'}
+  output_dim: -1 # overwrite based on dataset
+  horizon: ${dataset.action_horizon}
+  normalize_action: True
+  down_dims: [128, 256, 512]
+  noise_scheduler_type: "DDIM"
+  num_inference_steps: 10
+  token_postprocessing: "concat" # maxpool or meanpool the tokens
+  hist_horizon: 0 # whether predicting the hist action
+    
+# head:
+#     _target_: ppt_learning.models.policy_head.TransformerDecoder
+#     token_dim: ${network.embed_dim}
+#     output_dim: -1 # overwrite based on dataset
+#     horizon: ${dataset.action_horizon}
+#     tanh_end: True
+#     normalize_action: ${head.tanh_end}
+#     token_postprocessing: ""
+
+stem:
+  modalities: ['state', 'depth'] # no 'language'
+  modality_embed_dim: ${network.embed_dim}
+  normalize_state: True # normalize state vectors 
+  num_heads: 4 # num of heads in the perceiver transformer
+  dim_head: 16 # dim of head in the perceiver transformer
+  # state_embedding_dim: 32 # dimension of positional encoding for state
+  cross_attention: False # whether to use perceiver cross attention or not
+
+  # used as perceiver io to unify token sizes for each modality
+  crossattn_latent:
+    state: 1
+    depth: 1
+
+  depth:
+    _target_: ppt_learning.models.policy_stem.ViT
+    model_name: 'dinov2_vits14'
+    patch_size: 14
+    output_dim: ${network.embed_dim}
+    num_of_copy: 1
+    finetune: True
+    depth_only: true
+    rgb_only: false
+
+  # implement tokenization for state
+  state:
+    _target_: ppt_learning.models.policy_stem.MLP
+    input_dim: 0 # ovewrite based on the dataset
+    output_dim: ${network.embed_dim}
+    widths: [64, 128]
