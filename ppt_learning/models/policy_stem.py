@@ -217,7 +217,8 @@ class ViT(nn.Module):
         super(ViT, self).__init__(**kwargs)
 
         self.num_of_copy = num_of_copy
-        backbone = torch.hub.load("facebookresearch/dinov2", model_name, skip_validation=True)
+        # backbone = torch.hub.load("facebookresearch/dinov2", model_name, skip_validation=True)
+        backbone = torch.hub.load("/mnt/bn/robot-minghuan-debug/dinov2/facebookresearch_dinov2_main", model_name, skip_validation=True, source="local")
 
         self.net = backbone
         self.patch_size = patch_size
@@ -249,6 +250,7 @@ class ViT(nn.Module):
         B, N, H, W, C = x.shape
         x = x.permute(0, 1, 4, 2, 3)
         # flatten first
+        # import ipdb; ipdb.set_trace()
         x = x.reshape(len(x), -1, C, H, W)
 
         if self.num_of_copy > 1:
