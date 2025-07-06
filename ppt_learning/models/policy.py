@@ -546,7 +546,7 @@ class Policy(L.LightningModule):
         # trunk pass
         if not self.no_trunk:
             features = self.trunk(features)
-        
+
         # pooling the features
         features = self.postprocess_tokens(features, feats)
 

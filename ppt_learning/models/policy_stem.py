@@ -257,23 +257,25 @@ class ViT(nn.Module):
             iter_num = min(self.num_of_copy, x.shape[1])
             for idx in range(iter_num):
                 input = x[:, idx]
-                input = transforms.Pad(
-                    (
-                        (self.patch_size - W % self.patch_size) // 2,
-                        (self.patch_size - H % self.patch_size) // 2,
-                    )
-                )(input)
+                if W % self.patch_size != 0 or H % self.patch_size != 0:
+                    input = transforms.Pad(
+                        (
+                            (self.patch_size - W % self.patch_size) // 2,
+                            (self.patch_size - H % self.patch_size) // 2,
+                        )
+                    )(input)
                 net = self.net[idx]
                 out.append(net(input))
             feat = torch.stack(out, dim=1).contiguous()
         else:
             x = x.reshape(-1, C, H, W)
-            x = transforms.Pad(
-                (
-                    (self.patch_size - W % self.patch_size) // 2,
-                    (self.patch_size - H % self.patch_size) // 2,
-                )
-            )(x)
+            if W % self.patch_size != 0 or H % self.patch_size != 0:
+                x = transforms.Pad(
+                    (
+                        (self.patch_size - W % self.patch_size) // 2,
+                        (self.patch_size - H % self.patch_size) // 2,
+                    )
+                )(x)
             feat = self.net(x).contiguous()
 
         feat = self.proj(feat.view(feat.shape[0], -1))  # (B * Ncam) x 512
