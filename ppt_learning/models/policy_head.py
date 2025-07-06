@@ -348,7 +348,7 @@ class Diffusion(nn.Module):
         hist_horizon = self.hist_horizon if hist_horizon is None else hist_horizon
         if hist_horizon > 0 and local_cond is not None:
             # local cond the past trajectory
-            sample[..., : hist_horizon, :] = local_cond[..., : hist_horizon, :]
+            sample[..., : hist_horizon, :-1] = local_cond[..., : hist_horizon, :-1]
 
         for t in self.noise_scheduler.timesteps:
             # Predict model output.
