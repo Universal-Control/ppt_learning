@@ -150,7 +150,7 @@ class TrajDataset:
                         [
                             A.ShiftScaleRotate(
                                 shift_limit=0.25,
-                                scale_limit=0.2,
+                                scale_limit=0.05,
                                 rotate_limit=2,
                                 p=img_augment_prob,
                             ),
@@ -729,7 +729,7 @@ if __name__ == "__main__":
 
     dataset = TrajDataset(
         domain="debug",
-        dataset_path="/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/one_camera_crop_613_no_yaw.zarr",
+        dataset_path="/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/one_camera_higher_627_close_faster.zarr",
         from_empty=False,
         use_disk=True,
         load_from_cache=True,

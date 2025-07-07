@@ -179,12 +179,6 @@ def run(cfg):
 
         policy.save(policy_path)
 
-    # Evaluate jointly trained policy
-    if cfg.parallel_eval:
-        total_success = train_test.eval_policy_parallel(policy, cfg)
-    else:
-        total_success = train_test.eval_policy_sequential(policy, cfg)
-
     print("saved results to:", cfg.output_dir)
     # save the results
     utils.log_results(cfg, total_success)

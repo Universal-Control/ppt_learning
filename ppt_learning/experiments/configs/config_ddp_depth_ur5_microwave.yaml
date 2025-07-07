@@ -19,7 +19,7 @@ defaults:
   - datasetsize: all
   - _self_
 
-domains: one_camera_higher_629_close_faster_with_lim2
+domains: one_camera_higher_72_retry_clear_history
 save_interval: 10
 
 dataset:

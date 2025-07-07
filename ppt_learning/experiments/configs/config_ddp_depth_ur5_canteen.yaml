@@ -19,7 +19,7 @@ defaults:
   - datasetsize: all
   - _self_
 
-domains: one_camera_higher_72_random_low_plate
+domains: one_camera_higher_75_high_arm_240p # one_camera_higher_72_random_low_plate, one_camera_higher_72_random_low_plate2
 save_interval: 10
 dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_clean_plate
 

@@ -51,7 +51,7 @@ def get_dataloader(dataset, seed, rank, world_size, **kwargs):
 
     # Create DataLoader with the sampler
     dataloader = DataLoader(
-        dataset, **kwargs, sampler=sampler, multiprocessing_context="fork"
+        dataset, **kwargs, sampler=sampler# , multiprocessing_context="fork"
     )
 
     return dataloader
@@ -67,8 +67,13 @@ def run(local_rank: int, world_size: int, cfg: DictConfig, node_rank: int = 0):
 
     # Initialize DDP process group
     print(f"Process {rank} initialized with world size {world_size}")
-    dist.init_process_group(backend="nccl", rank=rank, world_size=world_size)
+
     torch.cuda.set_device(local_rank)
+    dist.init_process_group(
+        backend="nccl",
+        rank=rank,
+        world_size=world_size,
+    )
 
     is_eval = cfg.train.total_epochs == 0
 
@@ -85,7 +90,8 @@ def run(local_rank: int, world_size: int, cfg: DictConfig, node_rank: int = 0):
             tags=[cfg.wb_tag],
             config=OmegaConf.to_container(cfg, resolve=True),
             reinit=False,
-            resume="allow",
+            # resume="allow",
+            resume="must",
         )
         print("wandb url:", wandb.run.get_url())
 

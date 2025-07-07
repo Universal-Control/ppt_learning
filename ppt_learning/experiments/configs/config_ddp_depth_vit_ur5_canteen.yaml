@@ -11,7 +11,7 @@ debug: False # Turn off to allow wandb logging
 suffix: "" # suffix for the experiment
 wb_tag: ${suffix}
 
-batch_size: 256 # batch size
+batch_size: 128 # batch size
 
 defaults:
   - env: isaacsim # rlbench # gensim2
@@ -19,11 +19,12 @@ defaults:
   - datasetsize: all
   - _self_
 
-domains: one_camera_higher_74_random_low_plate
+domains: one_camera_higher_74_random_low_plate, one_camera_higher_74_random_low_plate2
 save_interval: 10
+dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_clean_plate
 
 dataset:
-  # _target_: ppt_learning.dataset.multi_sim_traj_dataset.MultiTrajDataset
+  _target_: ppt_learning.dataset.multi_sim_traj_dataset.MultiTrajDataset
   ignored_keys: ["language", "initial_state", "states", "images", "color", "abs_gripper_pos", "pointcloud", "wbc_target", "wbc_step", "last_action"]
   norm_depth: false
   augment_depth: true
