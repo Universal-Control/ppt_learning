@@ -1,5 +1,6 @@
 import torch.nn as nn
 import torch
+import torch.nn.functional as F
 from torch import Tensor
 from torch.nn import MultiheadAttention
 
@@ -447,6 +448,155 @@ class Diffusion(nn.Module):
         #     local_cond = target[..., : self.hist_horizon-1, :]
 
         """Run the batch through the model and compute the loss for training or validation."""
+        loss = self.compute_loss(x, target=target, local_cond=local_cond)
+        return {"loss": loss}
+
+
+class FlowMatching(nn.Module):
+    """
+    Flow Matching policy head based on Pi0 implementation.
+    Uses continuous time flow matching instead of discrete diffusion steps.
+    """
+
+    def __init__(
+        self,
+        input_dim,  # condition
+        output_dim,  # action dim
+        horizon,  # number of steps to predict
+        hist_horizon=0,
+        num_inference_steps: int = 10,
+        flow_step_embed_dim: int = 128,
+        down_dims=(512, 1024, 2048),
+        kernel_size: int = 5,
+        n_groups: int = 8,
+        use_film_scale_modulation: bool = True,
+        do_mask_loss_for_padding: bool = False,
+        **kwargs,
+    ):
+        """Flow Matching policy head"""
+        super().__init__()
+
+        self.input_dim = input_dim
+        self.output_dim = output_dim
+        self.hist_horizon = hist_horizon
+        self.horizon = horizon
+        self.num_inference_steps = num_inference_steps
+        self.do_mask_loss_for_padding = do_mask_loss_for_padding
+
+        # Use the same UNet architecture as diffusion
+        self.unet = DiffusionConditionalUnet1d(
+            output_dim=output_dim,
+            global_cond_dim=input_dim,
+            diffusion_step_embed_dim=flow_step_embed_dim,
+            down_dims=down_dims,
+            kernel_size=kernel_size,
+            n_groups=n_groups,
+            use_film_scale_modulation=use_film_scale_modulation,
+            min_period=4e-3,
+            max_period=4.0,
+        )
+
+    def conditional_sample(
+        self,
+        batch_size: int,
+        global_cond: Optional[Tensor] = None,
+        local_cond: Optional[Tensor] = None,
+        generator: Optional[torch.Generator] = None,
+    ) -> Tensor:
+        """Sample actions using Flow Matching ODE solver."""
+        device = next(iter(self.parameters())).device
+        dtype = next(iter(self.parameters())).dtype
+
+        # Sample from noise distribution (t=1)
+        noise = torch.randn(
+            size=(batch_size, self.horizon, self.output_dim),
+            dtype=dtype,
+            device=device,
+            generator=generator,
+        )
+
+        # Flow Matching uses t=1 (noise) to t=0 (target) convention
+        dt = -1.0 / self.num_inference_steps
+        x_t = noise
+        time = torch.ones(batch_size, device=device, dtype=dtype)
+
+        # ODE solver loop
+        for step in range(self.num_inference_steps):
+            # Predict velocity field
+            model_output = self.unet(
+                x_t,
+                torch.full(x_t.shape[:1], step, dtype=torch.long, device=x_t.device),
+                global_cond=global_cond,
+            )
+
+            # Update using Euler method: x_{t+dt} = x_t + dt * v_t
+            x_t = x_t + dt * model_output
+            time = time + dt
+
+        return x_t
+
+    def generate_actions(self, x, local_cond) -> Tensor:
+        """Generate actions using Flow Matching."""
+        batch_size = x.shape[0]
+        samples = self.conditional_sample(
+            batch_size, global_cond=x, local_cond=local_cond
+        )
+        return samples
+
+    def compute_loss(self, x, target, local_cond, **kwargs) -> Tensor:
+        """Compute Flow Matching loss."""
+        trajectory = target
+        batch_size = trajectory.shape[0]
+
+        # Sample random time from Beta(1.5, 1) distribution, scaled to [0.001, 1.0]
+        time = (
+            torch.distributions.Beta(1.5, 1.0)
+            .sample((batch_size,))
+            .to(trajectory.device)
+        )
+        time = time * 0.999 + 0.001
+
+        # Sample noise
+        noise = torch.randn(trajectory.shape, device=trajectory.device)
+
+        # Compute noisy trajectory: x_t = t * noise + (1-t) * trajectory
+        time_expanded = time.view(batch_size, 1, 1)
+        x_t = time_expanded * noise + (1 - time_expanded) * trajectory
+
+        # Compute target velocity field: u_t = noise - trajectory
+        u_t = noise - trajectory
+
+        # Predict velocity field
+        pred = self.unet(
+            x_t,
+            time,
+            global_cond=x,
+        )
+
+        # Compute MSE loss between predicted and target velocity fields
+        loss = F.mse_loss(pred, u_t, reduction="none")
+
+        # Mask loss wherever the action is padded with copies
+        if (
+            self.do_mask_loss_for_padding
+            and ("action_is_pad" in kwargs)
+            and (kwargs["action_is_pad"] is not None)
+        ):
+            in_episode_bound = ~kwargs["action_is_pad"]
+            loss = loss * in_episode_bound.unsqueeze(-1)
+
+        return loss.mean()
+
+    def forward(
+        self,
+        x: Tensor,
+        target: Optional[Tensor] = None,
+        local_cond: Optional[Tensor] = None,
+        **kwargs,
+    ):
+        if target is None:
+            return self.generate_actions(x, local_cond)
+
         loss = self.compute_loss(x, target=target, local_cond=local_cond)
         return {"loss": loss}
 

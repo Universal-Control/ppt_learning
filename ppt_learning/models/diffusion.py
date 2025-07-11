@@ -69,18 +69,62 @@ def _replace_submodules(
 
 
 class DiffusionSinusoidalPosEmb(nn.Module):
-    """1D sinusoidal positional embeddings as in Attention is All You Need."""
+    """Configurable 1D sinusoidal positional embeddings similar to posemb_sincos.
 
-    def __init__(self, dim: int):
+    This version allows customizing the frequency range while maintaining the same
+    interface as DiffusionSinusoidalPosEmb. When using the default parameters
+    (min_period=1.0, max_period=10000.0), it produces identical results to the
+    original DiffusionSinusoidalPosEmb.
+
+    Examples:
+        # Default behavior (identical to original)
+        pos_emb = DiffusionSinusoidalPosEmb(128)
+
+        # Custom frequency range for different applications
+        pos_emb = DiffusionSinusoidalPosEmb(128, min_period=0.1, max_period=1000.0)
+
+        # High-frequency focused embeddings
+        pos_emb = DiffusionSinusoidalPosEmb(128, min_period=0.01, max_period=100.0)
+
+        # Low-frequency focused embeddings
+        pos_emb = DiffusionSinusoidalPosEmb(128, min_period=10.0, max_period=100000.0)
+    """
+
+    def __init__(self, dim: int, min_period: float = 1.0, max_period: float = 10000.0):
         super().__init__()
+        if dim % 2 != 0:
+            raise ValueError(f"dim ({dim}) must be divisible by 2")
+
         self.dim = dim
+        self.min_period = min_period
+        self.max_period = max_period
+
+        # Pre-compute the frequency multipliers
+        half_dim = dim // 2
+        if min_period == 1.0 and max_period == 10000.0:
+            # Use exact same calculation as original for compatibility
+            emb = math.log(10000) / (half_dim - 1)
+            freq_multipliers = torch.exp(torch.arange(half_dim) * -emb)
+        else:
+            fraction = torch.linspace(0.0, 1.0, half_dim)
+            period = min_period * (max_period / min_period) ** fraction
+            freq_multipliers = (1.0 / period) * 2 * math.pi
+
+        self.register_buffer("freq_multipliers", freq_multipliers)
 
     def forward(self, x: Tensor) -> Tensor:
+        """
+        Args:
+            x: (B,) tensor of positions
+        Returns:
+            (B, dim) tensor of positional embeddings
+        """
         device = x.device
-        half_dim = self.dim // 2
-        emb = math.log(10000) / (half_dim - 1)
-        emb = torch.exp(torch.arange(half_dim, device=device) * -emb)
-        emb = x.unsqueeze(-1) * emb.unsqueeze(0)
+        # Move freq_multipliers to the same device as x if needed
+        freq_multipliers = self.freq_multipliers.to(device)
+
+        # Use same calculation as original for compatibility
+        emb = x.unsqueeze(-1) * freq_multipliers.unsqueeze(0)
         emb = torch.cat((emb.sin(), emb.cos()), dim=-1)
         return emb
 
@@ -114,6 +158,8 @@ class DiffusionConditionalUnet1d(nn.Module):
         global_cond_dim: int,
         output_dim: int,
         diffusion_step_embed_dim: int = 128,
+        min_period: float = 1.0,
+        max_period: float = 10000.0,
         down_dims=(512, 1024, 2048),
         kernel_size: int = 5,
         n_groups: int = 8,
@@ -123,7 +169,9 @@ class DiffusionConditionalUnet1d(nn.Module):
 
         # Encoder for the diffusion timestep.
         self.diffusion_step_encoder = nn.Sequential(
-            DiffusionSinusoidalPosEmb(diffusion_step_embed_dim),
+            DiffusionSinusoidalPosEmb(
+                diffusion_step_embed_dim, min_period=min_period, max_period=max_period
+            ),
             nn.Linear(diffusion_step_embed_dim, diffusion_step_embed_dim * 4),
             nn.Mish(),
             nn.Linear(diffusion_step_embed_dim * 4, diffusion_step_embed_dim),

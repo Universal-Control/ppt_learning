@@ -1,19 +1,16 @@
-import os, sys
-from typing import Union
-
+import os
+import sys
+import time
 import hydra
 from tqdm import trange
 
-import csv
 import wandb
 from omegaconf import OmegaConf
 
 import torch
 from torch.utils import data
-from torchvision import transforms
-from torch.utils.data import DataLoader, RandomSampler
 
-from ppt_learning.utils import utils, model_utils
+from ppt_learning.utils import utils
 from ppt_learning.utils.warmup_lr_wrapper import WarmupLR
 from ppt_learning.paths import *
 
@@ -41,10 +38,13 @@ def run(cfg):
         -1
     ]  # domain_list[0] if len(domain_list) == 1 else "_".join(domain_list)
 
+    wandb_project = cfg.get("wandb_project", "ppt-learning")
+    timestamp = time.strftime("%Y%m%d-%H%M%S")
+    wandb_name = f"{domain}-{cfg.suffix}-{timestamp}"
     if not cfg.debug:
         wandb.init(
-            project=domain,
-            name=cfg.suffix,
+            project=wandb_project,
+            name=wandb_name,
             tags=[cfg.wb_tag],
             config=OmegaConf.to_container(cfg, resolve=True),
             reinit=False,
