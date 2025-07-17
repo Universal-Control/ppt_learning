@@ -41,9 +41,9 @@ def quat_to_pos_rot(quat):
 
 def pos_rot_to_quat(pos, rot):
     shape = pos.shape[:-1]
-    quat = np.zeros(shape + (4,), dtype=pos.dtype)
-    quat[...,:3] = pos
-    quat[...,3:] = rot.as_quat()
+    quat = np.zeros(shape + (7,), dtype=pos.dtype)
+    quat[..., :3] = pos
+    quat[..., 3:] = rot.as_quat()
     return quat
 
 def quat_to_pose(quat):
