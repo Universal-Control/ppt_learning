@@ -4,12 +4,18 @@ The learning framework proposed in [Gensim2](gensim2.github.io).
 
 ## Requirements
 
+If you do not need to process point cloud:
+```python
+pip install -r requirements.txt
+pip install -e .
+```
+
+Otherwise, additionally run:
 ```python
 cd ppt_learning/third_party
 git clone git@github.com:guochengqian/openpoints.git # For PointNext
 cd ..
 bash install.sh
-pip install -e .
 ```
 
 ## Run script

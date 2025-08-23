@@ -7,7 +7,7 @@ with open("README.md", "r") as fh:
 setuptools.setup(
     name="ppt_learning",
     version="1.0.0",
-    author="Minghuan Liu, Pu Hua, Annabella Macaluso, Lirui Wang, et al.",
+    author="Minghuan Liu, Zhengbang Zhu, Xiaoshen Han",
     long_description=long_description,
     long_description_content_type="text/markdown",
     packages=setuptools.find_packages(),

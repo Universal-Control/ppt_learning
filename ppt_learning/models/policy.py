@@ -16,7 +16,6 @@ import hydra
 import torch
 from torch import optim
 import torch.nn as nn
-import lightning as L
 import numpy as np
 
 from ppt_learning.utils.normalizer import LinearNormalizer, SingleFieldLinearNormalizer
@@ -51,7 +50,7 @@ def merge_act(actions_for_curr_step, t, k=0.01):
     return raw_action
 
 
-class Policy(L.LightningModule):
+class Policy(nn.Module):
     """The stem / trunk / head separation for each policy, which
     respectively consumes low-level, mid-level, high-level representations.
     Different from the the pretraining code, this class should support arbitrary

@@ -1,4 +1,4 @@
-from typing import Tuple
+from typing import Tuple, Dict, Optional, Any, Union
 import os
 import time
 
@@ -23,8 +23,8 @@ from ppt_learning.utils.learning import dict_apply, batchify, sample_pcd_data, u
 
 try:
     from ppt_learning.utils.video import save_video
-except:
-    pass
+except ImportError:
+    save_video = None
 from ppt_learning.utils.model_utils import module_max_gradient, module_mean_param
 
 info_key = [
@@ -82,22 +82,26 @@ def log_stat(
 
 
 def train(
-    log_interval,
-    model,
-    device,
-    train_loader,
-    optimizer,
-    scheduler,
-    epoch,
-    rank=0,
-    world_size=1,
-    pcd_npoints=8192,
-    in_channels=4,
-    log_name="train",
-    debug=True,
-    epoch_size=None, # Not used for now
-):
-    """training for one epoch"""
+    log_interval: int,
+    model: torch.nn.Module,
+    device: str,
+    train_loader: torch.utils.data.DataLoader,
+    optimizer: torch.optim.Optimizer,
+    scheduler: Any,
+    epoch: int,
+    rank: int = 0,
+    world_size: int = 1,
+    pcd_npoints: int = 8192,
+    in_channels: int = 4,
+    log_name: str = "train",
+    debug: bool = True,
+    epoch_size: Optional[int] = None,
+) -> Dict[str, float]:
+    """Training for one epoch.
+    
+    Returns:
+        Dictionary containing training statistics.
+    """
     info_log = {k: deque([], maxlen=20) for k in info_key}
     model.train()
     start_time = time.time()
@@ -186,18 +190,22 @@ def train(
 
 @torch.no_grad()
 def test(
-    model,
-    device,
-    test_loader,
-    epoch,
-    rank=0,
-    world_size=1,
-    pcd_npoints=8192,
-    in_channels=4,
-    log_name="test",
-    debug=True,
-):
-    """evaluate imitation losses on the test sets"""
+    model: torch.nn.Module,
+    device: str,
+    test_loader: torch.utils.data.DataLoader,
+    epoch: int,
+    rank: int = 0,
+    world_size: int = 1,
+    pcd_npoints: int = 8192,
+    in_channels: int = 4,
+    log_name: str = "test",
+    debug: bool = True,
+) -> float:
+    """Evaluate imitation losses on the test sets.
+    
+    Returns:
+        Average test loss.
+    """
     model.eval()
     test_loss, num_examples = 0, 0
     pbar = tqdm(test_loader, position=2, leave=False, disable=rank != 0)

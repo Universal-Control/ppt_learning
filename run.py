@@ -1,5 +1,7 @@
-import os, sys
-from typing import Union
+import os
+import sys
+from typing import Union, Optional
+import logging
 
 import hydra
 from tqdm import trange
@@ -13,7 +15,7 @@ from torch.utils import data
 from torchvision import transforms
 from torch.utils.data import DataLoader, RandomSampler
 
-from ppt_learning.utils import learning, model_utils
+from ppt_learning.utils import learning, model_utils, logging_utils
 from ppt_learning.utils.warmup_lr_wrapper import WarmupLR
 from ppt_learning.paths import *
 
@@ -22,15 +24,25 @@ os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 from ppt_learning import train_test
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 
 @hydra.main(
     config_path=f"{PPT_DIR}/experiments/configs",
     config_name="config",
     version_base="1.2",
 )
-def run(cfg):
+def run(cfg: OmegaConf) -> None:
     """
     This script runs through the train / test / eval loop. Assumes single task for now.
+    
+    Args:
+        cfg: Hydra configuration object.
     """
     # Register custom OmegaConf resolver for mathematical expressions
     OmegaConf.register_new_resolver("eval", eval)
@@ -51,7 +63,7 @@ def run(cfg):
             reinit=False,
             resume="allow",
         )
-        print("wandb url:", wandb.run.get_url())
+        logger.info(f"W&B URL: {wandb.run.get_url()}")
 
     output_dir_full = cfg.output_dir.split("/")
     output_dir = "/".join(output_dir_full[:-2] + [domain, ""])
@@ -101,7 +113,7 @@ def run(cfg):
             val_dataset, **cfg.val_dataloader, multiprocessing_context="fork"
         )
 
-        print(f"Train size: {len(dataset)}. Test size: {len(val_dataset)}.")
+        logger.info(f"Train size: {len(dataset)}, Test size: {len(val_dataset)}")
 
         action_dim = dataset.action_dim
         state_dim = dataset.state_dim
@@ -113,8 +125,8 @@ def run(cfg):
 
     learning.save_args_hydra(cfg.output_dir, cfg)
 
-    print("cfg: ", cfg)
-    print("output dir", cfg.output_dir)
+    logger.info(f"Configuration: {cfg}")
+    logger.info(f"Output directory: {cfg.output_dir}")
 
     policy = hydra.utils.instantiate(cfg.network)
     cfg.stem.state["input_dim"] = state_dim
@@ -123,7 +135,7 @@ def run(cfg):
 
     # optimizer and scheduler
     policy.finalize_modules()
-    print("cfg.train.pretrained_dir:", cfg.train.pretrained_dir)
+    logger.info(f"Pretrained directory: {cfg.train.pretrained_dir}")
 
     loaded_epoch = -1
     if len(cfg.train.pretrained_dir) > 0:
@@ -131,7 +143,7 @@ def run(cfg):
             assert os.path.exists(
                 cfg.train.pretrained_dir
             ), "Pretrained model not found"
-            print("load model from", cfg.train.pretrained_dir)
+            logger.info(f"Loading model from {cfg.train.pretrained_dir}")
             policy.load_state_dict(torch.load(cfg.train.pretrained_dir))
             loaded_epoch = int(
                 cfg.train.pretrained_dir.split("/")[-1].split(".")[0].split("_")[-1]
@@ -144,13 +156,13 @@ def run(cfg):
                 torch.load(os.path.join(cfg.train.pretrained_dir, f"model.pth"))
             )
 
-        print("loaded trunk")
+        logger.info("Loaded trunk")
         # policy.load_trunk(os.path.join(cfg.train.pretrained_dir, f"model.pth"))
         if cfg.train.freeze_trunk:
             policy.freeze_trunk()
-            print("trunk frozen")
+            logger.info("Trunk frozen")
     else:
-        print("train from scratch")
+        logger.info("Training from scratch")
 
     policy.to(device)
 
@@ -166,7 +178,7 @@ def run(cfg):
     #     warmup_strategy="constant",
     # )
     n_parameters = sum(p.numel() for p in policy.parameters() if p.requires_grad)
-    print(f"number of params (M): {n_parameters / 1.0e6:.2f}")
+    logger.info(f"Number of parameters (M): {n_parameters / 1.0e6:.2f}")
 
     if not is_eval:
         # train / test loop
@@ -221,9 +233,9 @@ def run(cfg):
     else:
         total_success = train_test.eval_policy_sequential(policy, cfg)
 
-    print("saved results to:", cfg.output_dir)
+    logger.info(f"Saved results to: {cfg.output_dir}")
     # save the results
-    utils.log_results(cfg, total_success)
+    logging_utils.log_results(cfg, total_success)
 
 
 if __name__ == "__main__":
