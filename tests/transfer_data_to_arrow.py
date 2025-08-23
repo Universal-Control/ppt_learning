@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-使用 Ray Data 将 Zarr 数据转换为 Parquet 格式
-优化版本 - 修复生成器长度问题和其他内存优化
+Convert Zarr data to Parquet format using Ray Data
+Optimized version - Fixed generator length issues and other memory optimizations
 Author: xshenhan
 Date: 2025-06-07
 """
@@ -25,7 +25,7 @@ import logging
 import traceback
 from contextlib import contextmanager
 
-# 配置日志
+# Configure logging
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - %(message)s'
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 class ZarrChunkIterator:
-    """Zarr 数据块迭代器 - 支持错误恢复和流式处理"""
+    """Zarr data chunk iterator - supports error recovery and streaming"""
     
     def __init__(self, zarr_path: str, chunk_strategy: List[Dict[str, Any]], 
                  continue_on_error: bool = True, max_retries: int = 3):
@@ -46,23 +46,23 @@ class ZarrChunkIterator:
         self._chunks = None
     
     def __len__(self):
-        """返回块的数量"""
+        """Return the number of chunks"""
         return len(self.chunk_strategy)
     
     def __iter__(self):
-        """迭代器，yield 每个数据块 - 支持错误恢复"""
+        """Iterator that yields each data chunk - supports error recovery"""
         if self._chunks is None:
             self._chunks = list(self._generate_chunks())
         return iter(self._chunks)
     
     def _generate_chunks(self) -> Iterator[Dict[str, Any]]:
-        """生成数据块的内部方法"""
+        """Internal method to generate data chunks"""
         zarr_root = None
         
         try:
             zarr_root = zarr.open(self.zarr_path, mode='r')
         except Exception as e:
-            logger.error(f"无法打开 Zarr 文件 {self.zarr_path}: {e}")
+            logger.error(f"Unable to open Zarr file {self.zarr_path}: {e}")
             if not self.continue_on_error:
                 raise
             return
@@ -77,36 +77,36 @@ class ZarrChunkIterator:
                     meta_path = chunk_info.get('meta_path')
                     slice_info = chunk_info.get('slice_info')
                     
-                    # 流式提取数据，避免全部加载到内存
+                    # Stream data extraction, avoid loading everything into memory
                     if slice_info:
                         zarr_array = zarr_root[data_path]
-                        # 检查数组大小，如果太大则进一步分割
+                        # Check array size, split further if too large
                         if hasattr(slice_info, 'start') and hasattr(slice_info, 'stop'):
                             slice_size = (slice_info.stop - slice_info.start) * zarr_array.itemsize * np.prod(zarr_array.shape[1:])
-                            if slice_size > 50 * 1024 * 1024:  # 50MB 限制
-                                logger.warning(f"数据块 {chunk_id} 太大 ({slice_size/1024/1024:.1f}MB)，将进一步分割")
-                                # 这里可以实现进一步分割逻辑
+                            if slice_size > 50 * 1024 * 1024:  # 50MB limit
+                                logger.warning(f"Data chunk {chunk_id} is too large ({slice_size/1024/1024:.1f}MB), will split further")
+                                # Further splitting logic can be implemented here
                         
                         data = zarr_array[slice_info]
                     else:
-                        # 对于大数组，分批读取
+                        # For large arrays, read in batches
                         zarr_array = zarr_root[data_path]
                         if zarr_array.nbytes > 100 * 1024 * 1024:  # 100MB
-                            logger.warning(f"大数组 {data_path} ({zarr_array.nbytes/1024/1024:.1f}MB)，将分批处理")
+                            logger.warning(f"Large array {data_path} ({zarr_array.nbytes/1024/1024:.1f}MB), will process in batches")
                         data = zarr_array[:]
                     
-                    # 提取元数据
+                    # Extract metadata
                     meta_data = {}
                     if meta_path and meta_path in zarr_root:
                         try:
                             meta_data = dict(zarr_root[meta_path].attrs)
                         except Exception as meta_e:
-                            logger.warning(f"无法读取元数据 {meta_path}: {meta_e}")
+                            logger.warning(f"Unable to read metadata {meta_path}: {meta_e}")
                     
-                    # 预处理数据以避免 Arrow 维度问题
+                    # Preprocess data to avoid Arrow dimension issues
                     processed_data = self._preprocess_data(data, chunk_id)
                     
-                    # 生成单个数据块记录
+                    # Generate single data chunk record
                     yield {
                         "chunk_id": chunk_id,
                         "data_path": data_path,
@@ -116,11 +116,11 @@ class ZarrChunkIterator:
                         "original_shape": data.shape if hasattr(data, 'shape') else None,
                         "data_type": str(data.dtype) if hasattr(data, 'dtype') else None
                     }
-                    break  # 成功处理，跳出重试循环
+                    break  # Successfully processed, exit retry loop
                     
                 except Exception as e:
                     retry_count += 1
-                    error_msg = f"处理块 {chunk_id} (重试 {retry_count}/{self.max_retries}) 时出错: {e}"
+                    error_msg = f"Error processing chunk {chunk_id} (retry {retry_count}/{self.max_retries}): {e}"
                     logger.error(error_msg)
                     self.error_log.append({
                         "chunk_id": chunk_id,
@@ -131,12 +131,12 @@ class ZarrChunkIterator:
                     
                     if retry_count > self.max_retries:
                         if self.continue_on_error:
-                            logger.warning(f"跳过块 {chunk_id}，已达最大重试次数")
-                            # 生成一个空的占位符块
+                            logger.warning(f"Skipping chunk {chunk_id}, maximum retry attempts reached")
+                            # Generate an empty placeholder chunk
                             yield {
                                 "chunk_id": chunk_id,
                                 "data_path": chunk_info['data_path'],
-                                "data": np.array([]),  # 空数组
+                                "data": np.array([]),  # Empty array
                                 "meta_data": {"error": str(e)},
                                 "slice_info": str(slice_info) if slice_info else None,
                                 "original_shape": None,
@@ -146,56 +146,56 @@ class ZarrChunkIterator:
                         else:
                             raise
                     else:
-                        time.sleep(1)  # 重试前等待
+                        time.sleep(1)  # Wait before retry
     
     def _preprocess_data(self, data: np.ndarray, chunk_id: str) -> np.ndarray:
-        """预处理数据以避免 Arrow 维度不一致问题"""
+        """Preprocess data to avoid Arrow dimension inconsistency issues"""
         if not isinstance(data, np.ndarray):
             return data
         
-        # 确保所有数据块具有一致的维度
+        # Ensure all data chunks have consistent dimensions
         if data.ndim == 0:
-            # 标量转为1D数组
+            # Convert scalar to 1D array
             return np.array([data])
         elif data.ndim == 1:
-            # 1D数组保持不变
+            # Keep 1D array unchanged
             return data
         elif data.ndim >= 2:
-            # 多维数组展平为2D (samples, features)
+            # Flatten multi-dimensional array to 2D (samples, features)
             if data.ndim == 2:
                 return data
             else:
-                # 保留第一维度作为样本数，展平其他维度
+                # Keep first dimension as sample count, flatten other dimensions
                 new_shape = (data.shape[0], -1)
                 reshaped = data.reshape(new_shape)
-                logger.debug(f"块 {chunk_id}: 重塑 {data.shape} -> {reshaped.shape}")
+                logger.debug(f"Chunk {chunk_id}: reshaped {data.shape} -> {reshaped.shape}")
                 return reshaped
         
         return data
 
 
 def create_zarr_dataset_from_chunks(chunk_iterator: ZarrChunkIterator) -> ray.data.Dataset:
-    """从 Zarr 块迭代器创建 Ray Dataset"""
+    """Create Ray Dataset from Zarr chunk iterator"""
     try:
-        # 将迭代器转换为列表以获得长度
+        # Convert iterator to list to get length
         chunks_list = list(chunk_iterator)
-        logger.info(f"成功加载 {len(chunks_list)} 个数据块定义")
+        logger.info(f"Successfully loaded {len(chunks_list)} data chunk definitions")
         
-        # 使用列表创建 dataset
+        # Create dataset using list
         dataset = ray.data.from_items(chunks_list)
         return dataset
         
     except Exception as e:
-        logger.error(f"创建 Ray Dataset 时出错: {e}")
+        logger.error(f"Error creating Ray Dataset: {e}")
         raise
 
 
 def normalize_data_dimensions(batch_data: List[np.ndarray]) -> List[np.ndarray]:
-    """标准化批次中所有数据的维度"""
+    """Normalize dimensions of all data in the batch"""
     if not batch_data:
         return batch_data
     
-    # 找出最大维度数
+    # Find maximum number of dimensions
     valid_data = [data for data in batch_data if isinstance(data, np.ndarray) and data.size > 0]
     if not valid_data:
         return batch_data
@@ -209,17 +209,17 @@ def normalize_data_dimensions(batch_data: List[np.ndarray]) -> List[np.ndarray]:
             continue
             
         if data.ndim < max_dims:
-            # 如果维度不足，添加新轴
+            # If dimensions are insufficient, add new axes
             if data.ndim == 1 and max_dims == 2:
                 # 1D -> 2D: (n,) -> (n, 1)
                 data = data.reshape(-1, 1)
             elif data.ndim == 0 and max_dims >= 1:
-                # 标量 -> 1D
+                # Scalar -> 1D
                 data = np.array([data])
                 if max_dims == 2:
                     data = data.reshape(1, 1)
         elif data.ndim > 2:
-            # 超过2D的数组展平
+            # Flatten arrays beyond 2D
             data = data.reshape(data.shape[0], -1)
         
         normalized_data.append(data)
@@ -229,11 +229,11 @@ def normalize_data_dimensions(batch_data: List[np.ndarray]) -> List[np.ndarray]:
 
 def prepare_data_batch(batch: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Ray Data UDF: 将 Zarr 数据块转换为训练友好的格式
-    增强错误处理和内存优化
+    Ray Data UDF: Convert Zarr data chunks to training-friendly format
+    Enhanced error handling and memory optimization
     """
     try:
-        # 处理批次数据 - 确保是列表格式
+        # Process batch data - ensure list format
         if isinstance(batch["chunk_id"], list):
             chunk_ids = batch["chunk_id"]
             data_list = batch["data"]
@@ -245,7 +245,7 @@ def prepare_data_batch(batch: Dict[str, Any]) -> Dict[str, Any]:
             meta_data_list = [batch["meta_data"]]
             data_paths = [batch.get("data_path", "")]
         
-        # 跳过错误块
+        # Skip error chunks
         valid_data = []
         valid_chunk_ids = []
         valid_meta_data = []
@@ -258,43 +258,43 @@ def prepare_data_batch(batch: Dict[str, Any]) -> Dict[str, Any]:
                 valid_meta_data.append(meta_data)
                 valid_data_paths.append(data_paths[i] if i < len(data_paths) else "")
             else:
-                logger.warning(f"跳过空或错误的数据块: {chunk_id}")
+                logger.warning(f"Skipping empty or error chunk: {chunk_id}")
         
         if not valid_data:
-            logger.warning("批次中没有有效数据")
+            logger.warning("No valid data in batch")
             return pd.DataFrame()
         
-        # 标准化数据维度
+        # Normalize data dimensions
         normalized_data = normalize_data_dimensions(valid_data)
         
-        # 合并所有有效数据
+        # Merge all valid data
         all_dataframes = []
         
         for chunk_id, data, meta_data, data_path in zip(valid_chunk_ids, normalized_data, valid_meta_data, valid_data_paths):
             try:
-                # 处理多维数组
+                # Process multi-dimensional arrays
                 if isinstance(data, np.ndarray):
                     if data.ndim > 2:
                         original_shape = data.shape
-                        # 保留第一维作为样本数，展平其他维度
+                        # Keep first dimension as sample count, flatten other dimensions
                         data = data.reshape(data.shape[0], -1)
-                        logger.debug(f"重塑数据从 {original_shape} 到 {data.shape}")
+                        logger.debug(f"Reshaped data from {original_shape} to {data.shape}")
                     
-                    # 创建 DataFrame
+                    # Create DataFrame
                     if data.ndim == 1:
                         df = pd.DataFrame({"value": data})
                     elif data.ndim == 2:
-                        # 为特征创建列名
+                        # Create column names for features
                         feature_names = [f"feature_{i:04d}" for i in range(data.shape[1])]
                         df = pd.DataFrame(data, columns=feature_names)
                     else:
-                        # 应该不会到这里，但以防万一
+                        # Should not reach here, but just in case
                         df = pd.DataFrame({"value": data.flatten()})
                 else:
-                    # 处理非数组数据
+                    # Handle non-array data
                     df = pd.DataFrame({"value": [data]})
                 
-                # 添加元数据列
+                # Add metadata columns
                 if meta_data and not meta_data.get("error"):
                     for key, value in meta_data.items():
                         if isinstance(value, (str, int, float, bool)):
@@ -302,7 +302,7 @@ def prepare_data_batch(batch: Dict[str, Any]) -> Dict[str, Any]:
                         elif isinstance(value, (list, tuple)) and len(value) == len(df):
                             df[f"meta_{key}"] = value
                 
-                # 添加标识列
+                # Add identifier columns
                 df["chunk_id"] = chunk_id
                 df["row_id"] = range(len(df))
                 df["data_path"] = data_path
@@ -310,41 +310,41 @@ def prepare_data_batch(batch: Dict[str, Any]) -> Dict[str, Any]:
                 all_dataframes.append(df)
                 
             except Exception as e:
-                logger.error(f"处理单个数据块 {chunk_id} 时出错: {e}")
+                logger.error(f"Error processing single data chunk {chunk_id}: {e}")
                 continue
         
         if not all_dataframes:
-            logger.warning("没有成功处理的数据框")
+            logger.warning("No successfully processed data frames")
             return pd.DataFrame()
         
-        # 合并所有数据框
+        # Merge all data frames
         try:
             combined_df = pd.concat(all_dataframes, ignore_index=True)
             
-            # 确保所有列都有一致的数据类型
+            # Ensure all columns have consistent data types
             combined_df = harmonize_column_types(combined_df)
             
             return combined_df
             
         except Exception as e:
-            logger.error(f"合并数据框时出错: {e}")
-            # 返回第一个有效的数据框
+            logger.error(f"Error merging data frames: {e}")
+            # Return first valid data frame
             return all_dataframes[0]
         
     except Exception as e:
-        logger.error(f"处理数据批次时出错: {e}")
-        logger.error(f"错误详情: {traceback.format_exc()}")
-        # 返回空表
+        logger.error(f"Error processing data batch: {e}")
+        logger.error(f"Error details: {traceback.format_exc()}")
+        # Return empty table
         return pd.DataFrame()
 
 
 def harmonize_column_types(df: pd.DataFrame) -> pd.DataFrame:
-    """统一数据框中列的数据类型"""
+    """Harmonize data types of columns in the data frame"""
     try:
-        # 处理数值列的类型不一致问题
+        # Handle data type inconsistencies in numeric columns
         for col in df.columns:
             if df[col].dtype == 'object':
-                # 尝试转换为数值类型
+                # Try to convert to numeric type
                 try:
                     numeric_col = pd.to_numeric(df[col], errors='coerce')
                     if not numeric_col.isna().all():
@@ -354,12 +354,12 @@ def harmonize_column_types(df: pd.DataFrame) -> pd.DataFrame:
         
         return df
     except Exception as e:
-        logger.warning(f"类型统一化失败: {e}")
+        logger.warning(f"Type harmonization failed: {e}")
         return df
 
 
 def optimize_dtypes(df: pd.DataFrame) -> pd.DataFrame:
-    """优化 DataFrame 的数据类型以节省内存"""
+    """Optimize DataFrame data types to save memory"""
     try:
         for col in df.columns:
             if df[col].dtype == 'object':
@@ -386,18 +386,18 @@ def optimize_dtypes(df: pd.DataFrame) -> pd.DataFrame:
                         df[col] = df[col].astype('int32')
             
             elif df[col].dtype in ['float64']:
-                # 检查是否可以安全转换为 float32
+                # Check if can safely convert to float32
                 if (df[col].min() >= np.finfo(np.float32).min and 
                     df[col].max() <= np.finfo(np.float32).max):
                     df[col] = df[col].astype('float32')
     except Exception as e:
-        logger.warning(f"数据类型优化失败: {e}")
+        logger.warning(f"Data type optimization failed: {e}")
     
     return df
 
 
 def analyze_zarr_structure(zarr_path: str) -> Dict[str, Any]:
-    """分析 Zarr 数据结构"""
+    """Analyze Zarr data structure"""
     zarr_root = zarr.open(zarr_path, mode='r')
     
     structure = {
@@ -434,7 +434,7 @@ def create_chunk_strategy(
     target_chunk_size_mb: int = 64,
     num_workers: int = None
 ) -> List[Dict[str, Any]]:
-    """创建优化的数据块分割策略"""
+    """Create optimized data chunk splitting strategy"""
     
     if num_workers is None:
         num_workers = int(ray.cluster_resources().get("CPU", 1))
@@ -449,25 +449,25 @@ def create_chunk_strategy(
         if len(shape) == 0:
             continue
         
-        # 计算每个元素的字节数
+        # Calculate bytes per element
         try:
             element_size = np.dtype(dtype).itemsize
         except:
-            element_size = 8  # 默认假设 float64
+            element_size = 8  # Default assumption: float64
         
-        # 计算每行的字节数
+        # Calculate bytes per row
         row_size = element_size * np.prod(shape[1:]) if len(shape) > 1 else element_size
         
-        # 计算每个块的最大行数 - 更保守的内存使用
+        # Calculate maximum rows per chunk - more conservative memory usage
         target_chunk_bytes = target_chunk_size_mb * 1024 * 1024
-        max_rows_per_chunk = max(1, target_chunk_bytes // row_size)  # 移除 *2 的缓冲
+        max_rows_per_chunk = max(1, target_chunk_bytes // row_size)  # Remove *2 buffer
         
-        # 确保块数量不会太多
+        # Ensure chunk count is not too high
         total_rows = shape[0]
-        min_rows_per_chunk = max(1, total_rows // (num_workers * 2))  # 从8改为2，减少块数量
+        min_rows_per_chunk = max(1, total_rows // (num_workers * 2))  # Changed from 8 to 2, reduce chunk count
         max_rows_per_chunk = max(min_rows_per_chunk, max_rows_per_chunk)
         
-        # 创建数据块
+        # Create data chunks
         for start_idx in range(0, total_rows, max_rows_per_chunk):
             end_idx = min(start_idx + max_rows_per_chunk, total_rows)
             
@@ -480,7 +480,7 @@ def create_chunk_strategy(
                 "meta_path": None
             }
             
-            # 查找对应的元数据路径
+            # Find corresponding metadata path
             data_key = data_path.split("/")[-1]
             for meta_path in zarr_structure["meta_keys"]:
                 if data_key in meta_path:
@@ -495,14 +495,14 @@ def create_chunk_strategy(
 
 @contextmanager
 def memory_monitor():
-    """内存监控上下文管理器"""
+    """Memory monitoring context manager"""
     try:
         import psutil
         process = psutil.Process()
         mem_before = process.memory_info().rss / 1024 / 1024
         yield mem_before
         mem_after = process.memory_info().rss / 1024 / 1024
-        logger.info(f"内存使用: {mem_before:.1f}MB -> {mem_after:.1f}MB (增加: {mem_after-mem_before:.1f}MB)")
+        logger.info(f"Memory usage: {mem_before:.1f}MB -> {mem_after:.1f}MB (increase: {mem_after-mem_before:.1f}MB)")
     except ImportError:
         yield 0
 
@@ -512,9 +512,9 @@ def main():
     parser.add_argument("zarr_path", help="Path to input Zarr file/directory")
     parser.add_argument("--output-dir", help="Output directory (default: same as input)")
     parser.add_argument("--num-workers", type=int, help="Number of Ray workers")
-    parser.add_argument("--chunk-size-mb", type=int, default=2048,  # 从32改为1024
+    parser.add_argument("--chunk-size-mb", type=int, default=2048,  # Changed from 32 to 1024
                     help="Target chunk size in MB")
-    parser.add_argument("--block-size-mb", type=int, default=2048,  # 从128改为2048
+    parser.add_argument("--block-size-mb", type=int, default=2048,  # Changed from 128 to 2048
                     help="Ray Data block size in MB")
     parser.add_argument("--compression", default="snappy", 
                        choices=["snappy", "gzip", "brotli", "lz4", "zstd"],
@@ -528,7 +528,7 @@ def main():
     
     args = parser.parse_args()
     
-    # 设置输出目录
+    # Set output directory
     zarr_path = Path(args.zarr_path)
     if args.output_dir:
         output_dir = Path(args.output_dir)
@@ -537,7 +537,7 @@ def main():
     
     output_dir.mkdir(parents=True, exist_ok=True)
     
-    # 初始化 Ray
+    # Initialize Ray
     ray_init_kwargs = {"ignore_reinit_error": True}
     if args.ray_address:
         ray_init_kwargs["address"] = args.ray_address
@@ -548,26 +548,26 @@ def main():
     
     try:
         with memory_monitor() as initial_memory:
-            logger.info(f"开始分析 Zarr 结构: {zarr_path}")
+            logger.info(f"Starting Zarr structure analysis: {zarr_path}")
             zarr_structure = analyze_zarr_structure(str(zarr_path))
             
-            logger.info(f"发现数据键: {zarr_structure['data_keys']}")
-            logger.info(f"发现元数据键: {zarr_structure['meta_keys']}")
-            logger.info(f"总数据大小: {zarr_structure['total_size'] / 1024 / 1024:.2f} MB")
+            logger.info(f"Found data keys: {zarr_structure['data_keys']}")
+            logger.info(f"Found metadata keys: {zarr_structure['meta_keys']}")
+            logger.info(f"Total data size: {zarr_structure['total_size'] / 1024 / 1024:.2f} MB")
             
-            # 创建分块策略
+            # Create chunking strategy
             chunks = create_chunk_strategy(
                 zarr_structure, 
                 target_chunk_size_mb=args.chunk_size_mb,
                 num_workers=args.num_workers or int(ray.cluster_resources().get("CPU", 1))
             )
             
-            logger.info(f"创建了 {len(chunks)} 个数据块")
+            logger.info(f"Created {len(chunks)} data chunks")
             total_estimated_size = sum(chunk["estimated_size_mb"] for chunk in chunks)
-            logger.info(f"预估总处理大小: {total_estimated_size:.2f} MB")
+            logger.info(f"Estimated total processing size: {total_estimated_size:.2f} MB")
             
-            # 创建 Zarr 数据迭代器
-            logger.info("创建 Zarr 数据迭代器...")
+            # Create Zarr data iterator
+            logger.info("Creating Zarr data iterator...")
             chunk_iterator = ZarrChunkIterator(
                 str(zarr_path), 
                 chunks, 
@@ -575,44 +575,44 @@ def main():
                 max_retries=args.max_retries
             )
             
-            # 创建 Ray Dataset
-            logger.info("创建 Ray Dataset...")
+            # Create Ray Dataset
+            logger.info("Creating Ray Dataset...")
             dataset = create_zarr_dataset_from_chunks(chunk_iterator)
-            dataset = dataset.prefetch(num_blocks=4)  # 添加预取
+            dataset = dataset.prefetch(num_blocks=4)  # Add prefetch
             
-            # 设置 Ray Data 配置
+            # Set Ray Data configuration
             ctx = ray.data.DataContext.get_current()
             ctx.execution_options.preserve_order = True
             if args.block_size_mb:
                 ctx.target_max_block_size = args.block_size_mb * 1024 * 1024
             
-            # 设置并行度
+            # Set parallelism
             if args.parallelism:
                 dataset = dataset.repartition(args.parallelism)
             else:
-                # 自动设置合理的并行度
+                # Automatically set reasonable parallelism
                 num_cpus = int(ray.cluster_resources().get("CPU", 1))
                 optimal_parallelism = min(len(chunks), num_cpus * 4)
                 dataset = dataset.repartition(optimal_parallelism)
             
-            logger.info(f"Dataset 并行度: {dataset.num_blocks()}")
+            logger.info(f"Dataset parallelism: {dataset.num_blocks()}")
             
-            # 应用数据转换
-            logger.info("开始数据转换...")
+            # Apply data transformation
+            logger.info("Starting data transformation...")
             start_time = time.time()
             
-            # 使用更小的批次大小来避免内存问题
+            # Use smaller batch size to avoid memory issues
             processed_dataset = dataset.map_batches(
                 prepare_data_batch,
                 batch_format="pandas",
-                batch_size=8,  # 从1改为8，一次处理多个块
-                num_cpus=2,    # 从1改为2，每个任务使用更多CPU
+                batch_size=8,  # Changed from 1 to 8, process multiple chunks at once
+                num_cpus=2,    # Changed from 1 to 2, each task uses more CPUs
                 zero_copy_batch=True,
             )
             
-            # 过滤空的数据框
+            # Filter empty data frames
             def filter_empty_dataframes(batch):
-                """过滤空的数据框"""
+                """Filter empty data frames"""
                 if isinstance(batch, pd.DataFrame) and len(batch) > 0:
                     return batch
                 else:
@@ -625,31 +625,31 @@ def main():
                 zero_copy_batch=True
             )
             
-            # 写入 Parquet 文件
-            logger.info(f"写入 Parquet 文件到: {output_dir}")
+            # Write Parquet files
+            logger.info(f"Writing Parquet files to: {output_dir}")
             
-            # Ray Data 的 write_parquet 方法
+            # Ray Data's write_parquet method
             final_dataset.write_parquet(
                 str(output_dir),
                 compression=args.compression,
                 try_create_dir=True,
-                row_group_size=100000,  # 从25000改为100000，增加行组大小
+                row_group_size=100000,  # Changed from 25000 to 100000, increase row group size
                 use_threads=True,
-                num_rows_per_file=1000000,  # 添加此参数，增加每个文件的行数
+                num_rows_per_file=1000000,  # Add this parameter, increase rows per file
             )
             
             conversion_time = time.time() - start_time
-            logger.info(f"转换完成! 用时: {conversion_time:.2f} 秒")
+            logger.info(f"Conversion complete! Time taken: {conversion_time:.2f} seconds")
             
-            # 记录错误统计
+            # Record error statistics
             if hasattr(chunk_iterator, 'error_log') and chunk_iterator.error_log:
-                logger.warning(f"处理过程中发生 {len(chunk_iterator.error_log)} 个错误")
+                logger.warning(f"Encountered {len(chunk_iterator.error_log)} errors during processing")
                 error_file = output_dir / "error_log.json"
                 with open(error_file, 'w') as f:
                     json.dump(chunk_iterator.error_log, f, indent=2)
-                logger.info(f"错误日志保存到: {error_file}")
+                logger.info(f"Error log saved to: {error_file}")
             
-            # 创建数据集元数据
+            # Create dataset metadata
             dataset_metadata = {
                 "conversion_date": datetime.now().isoformat(),
                 "source_zarr": str(zarr_path),
@@ -669,31 +669,31 @@ def main():
                 "max_retries": args.max_retries
             }
             
-            # 保存元数据
+            # Save metadata
             metadata_file = output_dir / "dataset_metadata.json"
             with open(metadata_file, 'w') as f:
                 json.dump(dataset_metadata, f, indent=2)
             
-            # 验证输出
+            # Validate output
             parquet_files = list(output_dir.glob("*.parquet"))
             total_size = sum(f.stat().st_size for f in parquet_files)
             
             logger.info("=" * 60)
-            logger.info("转换完成统计:")
-            logger.info(f"输出目录: {output_dir}")
-            logger.info(f"生成文件数: {len(parquet_files)}")
-            logger.info(f"总输出大小: {total_size / 1024 / 1024:.2f} MB")
+            logger.info("Conversion completion statistics:")
+            logger.info(f"Output directory: {output_dir}")
+            logger.info(f"Generated files: {len(parquet_files)}")
+            logger.info(f"Total output size: {total_size / 1024 / 1024:.2f} MB")
             if zarr_structure['total_size'] > 0:
-                logger.info(f"压缩比: {zarr_structure['total_size'] / total_size:.2f}x")
-            logger.info(f"转换速度: {zarr_structure['total_size'] / 1024 / 1024 / conversion_time:.2f} MB/s")
-            logger.info(f"元数据文件: {metadata_file}")
+                logger.info(f"Compression ratio: {zarr_structure['total_size'] / total_size:.2f}x")
+            logger.info(f"Conversion speed: {zarr_structure['total_size'] / 1024 / 1024 / conversion_time:.2f} MB/s")
+            logger.info(f"Metadata file: {metadata_file}")
             if hasattr(chunk_iterator, 'error_log') and chunk_iterator.error_log:
-                logger.info(f"错误数量: {len(chunk_iterator.error_log)} (详见 error_log.json)")
+                logger.info(f"Error count: {len(chunk_iterator.error_log)} (see error_log.json)")
             logger.info("=" * 60)
         
     except Exception as e:
-        logger.error(f"转换过程出错: {e}")
-        logger.error(f"详细错误信息: {traceback.format_exc()}")
+        logger.error(f"Error during conversion process: {e}")
+        logger.error(f"Detailed error information: {traceback.format_exc()}")
         raise
     finally:
         ray.shutdown()

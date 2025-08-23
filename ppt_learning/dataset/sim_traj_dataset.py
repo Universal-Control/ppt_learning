@@ -373,9 +373,10 @@ class TrajDataset:
                 if isinstance(action, (dict, OrderedDict)):
                     try:
                         action = action[key]
-                    except:
-                        print("Action key not found:", key)
-                        import ipdb; ipdb.set_trace()
+                    except KeyError:
+                        print(f"Action key not found: {key}")
+                        print(f"Available keys: {list(action.keys())}")
+                        raise
             sample["action"] = action
             del sample[action_sub_keys[0]]
 

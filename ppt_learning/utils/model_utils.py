@@ -1,8 +1,6 @@
 import numpy as np
 import torch
 import torch.nn.functional as F
-from torchvision import transforms
-import numpy as np
 
 
 def module_max_param(module):

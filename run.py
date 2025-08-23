@@ -6,14 +6,12 @@ import logging
 import hydra
 from tqdm import trange
 
-import csv
 import wandb
 from omegaconf import OmegaConf
 
 import torch
 from torch.utils import data
-from torchvision import transforms
-from torch.utils.data import DataLoader, RandomSampler
+from torch.utils.data import DataLoader
 
 from ppt_learning.utils import learning, model_utils, logging_utils
 from ppt_learning.utils.warmup_lr_wrapper import WarmupLR
@@ -33,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 @hydra.main(
-    config_path=f"{PPT_DIR}/experiments/configs",
+    config_path=f"configs",
     config_name="config",
     version_base="1.2",
 )

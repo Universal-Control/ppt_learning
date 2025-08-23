@@ -12,13 +12,13 @@ if mode=='cosineAnn':
 elif mode=='cosineAnnWarm':
     scheduler = CosineAnnealingWarmRestarts(optimizer,T_0=6,T_mult=15)
     '''
-    以T_0=5, T_mult=1为例:
-    T_0:学习率第一次回到初始值的epoch位置.
-    T_mult:这个控制了学习率回升的速度
-        - 如果T_mult=1,则学习率在T_0,2*T_0,3*T_0,....,i*T_0,....处回到最大值(初始学习率)
-            - 5,10,15,20,25,.......处回到最大值
-        - 如果T_mult>1,则学习率在T_0,(1+T_mult)*T_0,(1+T_mult+T_mult**2)*T_0,.....,(1+T_mult+T_mult**2+...+T_0**i)*T0,处回到最大值
-            - 5,15,35,75,155,.......处回到最大值
+    Example with T_0=5, T_mult=1:
+    T_0: The epoch position where the learning rate returns to its initial value for the first time.
+    T_mult: This controls the speed of learning rate recovery
+        - If T_mult=1, the learning rate returns to maximum (initial learning rate) at T_0,2*T_0,3*T_0,....,i*T_0,....
+            - Returns to maximum at 5,10,15,20,25,.......
+        - If T_mult>1, the learning rate returns to maximum at T_0,(1+T_mult)*T_0,(1+T_mult+T_mult**2)*T_0,.....,(1+T_mult+T_mult**2+...+T_0**i)*T0
+            - Returns to maximum at 5,15,35,75,155,.......
     example:
         T_0=5, T_mult=1
     '''

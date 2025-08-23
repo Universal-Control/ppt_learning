@@ -1,18 +1,18 @@
 import os, sys
 from typing import Union
+import random
+import numpy as np
 
 import hydra
 from hydra import initialize, compose
 import argparse
 from tqdm import trange
-import csv
 import wandb
 import datetime
 from omegaconf import DictConfig, OmegaConf
 
 import torch
-from torchvision import transforms
-from torch.utils.data import DataLoader, RandomSampler, DistributedSampler
+from torch.utils.data import DataLoader, DistributedSampler
 import torch.distributed as dist
 import torch.multiprocessing as mp
 from torch.nn.parallel import DistributedDataParallel as DDP
@@ -275,7 +275,7 @@ def main():
     local_rank, model_type, suffix = filter_ddp_args()
 
     # Initialize Hydra
-    with initialize(config_path=f"ppt_learning/experiments/configs", version_base="1.2"):
+    with initialize(config_path=f"configs", version_base="1.2"):
         cfg = compose(config_name=f"config_ddp_{model_type}_lance")
 
     # Resolve any remaining interpolations
@@ -324,22 +324,6 @@ if __name__ == "__main__":
                     break
         os.environ["RANK"] = os.environ["NODE_RANK"] = os.environ["ARNOLD_ID"]
         print(f"ARNOLD_WORKER_0_PORT: {os.environ['ARNOLD_WORKER_0_PORT']}")
-    elif "ARNOLD_EXECUTOR_0_HOST" in os.environ:
-        os.environ["MASTER_IP"] = os.environ["ARNOLD_EXECUTOR_0_HOST"]
-        os.environ["MASTER_ADDR"] = os.environ["ARNOLD_EXECUTOR_0_HOST"]
-        Port = os.environ["ARNOLD_EXECUTOR_0_PORT"].split(",")
-        os.environ["WORLD_SIZE"] = os.environ["NODE_SIZE"] = os.environ[
-            "ARNOLD_EXECUTOR_NUM"
-        ]
-        if True:  # int(os.environ["WORLD_SIZE"]) > 1:
-            os.environ["MASTER_PORT"] = Port[0]
-        else:
-            for p in Port:
-                if check_port(int(p)) == False:
-                    os.environ["MASTER_PORT"] = p
-                    break
-        os.environ["RANK"] = os.environ["NODE_SIZE"] = os.environ["ARNOLD_ID"]
-        print(f"ARNOLD_EXECUTOR_0_PORT: {os.environ['ARNOLD_EXECUTOR_0_PORT']}")
     try:
         print(
             f"MASTER_ADDR: {os.environ['MASTER_ADDR']}, MASTER_PORT: {os.environ['MASTER_PORT']}"

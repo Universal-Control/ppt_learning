@@ -22,51 +22,51 @@ def load_data(root_path, rgb_path, depth_path, camera_id, depth_threshold=2., vi
 
 def depth_to_pointcloud(rgb_image, depth_map, intrinsics, depth_max_threshold=1.3):
     """
-    将RGB图像和深度图转换为彩色点云
+    Convert RGB image and depth map to colored point cloud
     
-    参数:
-        rgb_image: RGB图像，numpy数组 (H, W, 3)
-        depth_map: 深度图，numpy数组 (H, W)
-        intrinsics: 相机内参矩阵 (3, 3)
+    Parameters:
+        rgb_image: RGB image, numpy array (H, W, 3)
+        depth_map: Depth map, numpy array (H, W)
+        intrinsics: Camera intrinsic matrix (3, 3)
     
-    返回:
-        point_cloud: Open3D点云对象
+    Returns:
+        point_cloud: Open3D point cloud object
     """
-    # 获取图像尺寸
+    # Get image dimensions
     height, width = depth_map.shape
     
-    # 创建像素坐标网格
+    # Create pixel coordinate grid
     v, u = np.mgrid[0:height, 0:width]
     
-    # 重塑为列向量
+    # Reshape to column vectors
     u = u.reshape(-1)
     v = v.reshape(-1)
     depth = depth_map.reshape(-1)
     
-    # 过滤无效的深度值（0或负值）
+    # Filter invalid depth values (0 or negative)
     valid_indices = np.logical_and(depth > 0,  depth < depth_max_threshold)
     u = u[valid_indices]
     v = v[valid_indices]
     depth = depth[valid_indices]
     
-    # 获取相机内参
-    fx = intrinsics[0, 0]  # 焦距x
-    fy = intrinsics[1, 1]  # 焦距y
-    cx = intrinsics[0, 2]  # 光心x
-    cy = intrinsics[1, 2]  # 光心y
+    # Get camera intrinsics
+    fx = intrinsics[0, 0]  # focal length x
+    fy = intrinsics[1, 1]  # focal length y
+    cx = intrinsics[0, 2]  # optical center x
+    cy = intrinsics[1, 2]  # optical center y
     
-    # 计算3D坐标
+    # Calculate 3D coordinates
     x = (u - cx) * depth / fx
     y = (v - cy) * depth / fy
     z = depth
     
-    # 创建点云
+    # Create point cloud
     points = np.vstack((x, y, z)).T
     
-    # 从RGB图像获取颜色
+    # Get colors from RGB image
     colors = rgb_image.reshape(-1, 3)[valid_indices] / 255.0
     
-    # 创建Open3D点云对象
+    # Create Open3D point cloud object
     point_cloud = o3d.geometry.PointCloud()
     point_cloud.points = o3d.utility.Vector3dVector(points)
     point_cloud.colors = o3d.utility.Vector3dVector(colors)
@@ -75,7 +75,7 @@ def depth_to_pointcloud(rgb_image, depth_map, intrinsics, depth_max_threshold=1.
 
 def get_intr_matrix(only_table_intrinsics, camera_id):
     """
-    获取相机内参矩阵
+    Get camera intrinsic matrix
     """
     fx = only_table_intrinsics["arr_0"][camera_id]["fx"]
     fy = only_table_intrinsics["arr_0"][camera_id]["fy"]
@@ -89,38 +89,38 @@ def get_intr_matrix(only_table_intrinsics, camera_id):
 
 def load_obj_as_pointcloud(obj_file_path, sample_points=0):
     """
-    从OBJ文件中加载3D模型并转换为点云
+    Load 3D model from OBJ file and convert to point cloud
     
-    参数:
-        obj_file_path: OBJ文件路径
-        sample_points: 采样点数量，若为0则使用所有顶点，若大于0则对网格进行采样
+    Parameters:
+        obj_file_path: OBJ file path
+        sample_points: Number of sample points, if 0 use all vertices, if >0 sample the mesh
         
-    返回:
-        point_cloud: Open3D点云对象
+    Returns:
+        point_cloud: Open3D point cloud object
     """
-    print(f"正在加载OBJ文件: {obj_file_path}")
+    print(f"Loading OBJ file: {obj_file_path}")
     
-    # 加载OBJ文件为网格
+    # Load OBJ file as mesh
     mesh = o3d.io.read_triangle_mesh(obj_file_path)
     
-    # 确保网格有法线，如果没有则计算法线
+    # Ensure mesh has normals, compute if not available
     if not mesh.has_vertex_normals():
         mesh.compute_vertex_normals()
     
-    print(f"网格加载完成: {len(mesh.vertices)}个顶点, {len(mesh.triangles)}个三角形")
+    print(f"Mesh loading completed: {len(mesh.vertices)} vertices, {len(mesh.triangles)} triangles")
     
-    # 从网格中获取点云
+    # Get point cloud from mesh
     if sample_points > 0:
-        print(f"对网格进行采样: {sample_points}个点")
+        print(f"Sampling mesh: {sample_points} points")
         point_cloud = mesh.sample_points_uniformly(number_of_points=sample_points)
     else:
-        # 使用网格顶点创建点云
+        # Create point cloud using mesh vertices
         point_cloud = o3d.geometry.PointCloud()
         point_cloud.points = mesh.vertices
         point_cloud.colors = mesh.vertex_colors if mesh.has_vertex_colors() else None
         point_cloud.normals = mesh.vertex_normals if mesh.has_vertex_normals() else None
     
-    print(f"点云创建完成: {len(point_cloud.points)}个点")
+    print(f"Point cloud creation completed: {len(point_cloud.points)} points")
     
     return point_cloud
 

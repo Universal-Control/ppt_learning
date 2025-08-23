@@ -11,23 +11,13 @@ from ppt_learning.paths import *
 import numpy as np
 from torch.utils import data
 import time
-import open3d as o3d
-from collections import deque
 import json
-import argparse
-import threading
 
 sys.path.append(f"{PPT_DIR}/third_party/")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-hostname = ""  # TODO fill in the hostname
-deploy_on_real = True
-MAX_EP_STEPS = 1000
-
-# TODO use +prompt "task description" to run specific task
-# TODO fill in config_name with config from training
 @hydra.main(
-    config_path=f"{PPT_DIR}/experiments/configs",
+    config_path=f"configs",
     config_name="config_eval_pcd_sequential",
     version_base="1.2",
 )

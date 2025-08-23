@@ -7,15 +7,15 @@ import pickle
 ignore_keys = ["row_id"]
 def check_data_consistency(zarr_root, dsl, shape_meta, check_nums=1000):
     """
-    检查zarr数据在指定索引范围内的一致性
+    Check zarr data consistency within specified index range
     
     Args:
-        zarr_root: zarr根对象
-        start_idx: 起始索引
-        end_idx: 结束索引
+        zarr_root: zarr root object
+        start_idx: start index
+        end_idx: end index
         
     Returns:
-        list: 包含每行数据的字典列表
+        list: list of dictionaries containing data for each row
     """
     indices = np.arange(len(dsl))
     np.random.shuffle(indices)

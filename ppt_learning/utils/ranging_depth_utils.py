@@ -26,8 +26,6 @@ from ranging_anything.compute_metric import (
     colorize_depth_maps,
 )
 
-import argparse
-
 HDF5_PATH = "/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/code/GR-Isaaclab/datasets/ur5_close_microwave_version_2_generated_37.hdf5"
 
 def load_image(
@@ -359,7 +357,7 @@ def model_infer(
     img = img.to(f"cuda:{rank}")
     lowres = lowres.to(f"cuda:{rank}")
 
-    # 进行推理
+    # Perform inference
     # pred = batch_inference(model, img, lowres)
     time1 = time.time()
     pred = model(img, lowres)
@@ -402,7 +400,7 @@ def eval_traj(
 
     model = get_model(model_type, rank)
 
-    # 准备数据
+    # Prepare data
     dataset = hdf5TrajDataset(hdf5_path)
     sampler = DistributedSampler(
         dataset, num_replicas=world_size, rank=rank, shuffle=False
@@ -421,7 +419,7 @@ def eval_traj(
         gt = gt.to(f"cuda:{rank}")
         lowres = lowres.to(f"cuda:{rank}")
 
-        # 进行推理
+        # Perform inference
         pred = batch_inference(model, img, lowres)
 
         if len(img.shape) > 4:  # traj data
@@ -463,7 +461,7 @@ def get_model(model_path: str, rank: int = 0, model_type = "promptda-robot") -> 
         elif model_type == "dav2":
             from depth_anything_v2.metric_depth.depth_anything_v2 import DepthAnythingV2
 
-            # 加载模型
+            # Load model
             encoder = "vitl"
             dataset = "hypersim"
             max_depth = 10

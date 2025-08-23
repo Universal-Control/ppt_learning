@@ -18,13 +18,15 @@ from .math_utils import unproject_depth, transform_points
 
 try:
     import pytorch3d.ops as torch3d_ops
-except:
-    print("pytorch3d not installed")
+except ImportError:
+    torch3d_ops = None
+    print("Warning: pytorch3d not installed")
 
 try:
     from openpoints.models.layers import furthest_point_sample
-except:
-    print("openpoints not installed")
+except ImportError:
+    furthest_point_sample = None
+    print("Warning: openpoints not installed")
 
 
 TensorData = Union[np.ndarray, torch.Tensor]
@@ -1005,8 +1007,8 @@ def create_pointcloud_from_rgbd(
             # is done in the order (u, v) where u: (0, W-1) and v: (0 - H-1)
             batch_size, H, W, _ = rgb.shape
 
-            # 使用 permute 重排维度，从 [B, H, W, 3] 变为 [B, W, H, 3]
-            # 然后 reshape 为 [B, W*H, 3]
+            # Use permute to rearrange dimensions, from [B, H, W, 3] to [B, W, H, 3]
+            # Then reshape to [B, W*H, 3]
             points_rgb = rgb.permute(0, 2, 1, 3).reshape(batch_size, W * H, 3)
         elif isinstance(rgb, (tuple, list)):
             # same color for all points
@@ -1054,31 +1056,31 @@ def create_pointcloud_from_rgbd(
 
 def uniform_sampling_torch(points, npoints=1200):
     """
-    均匀采样点云中的点（矩阵操作版本，无for循环）
+    Uniform sampling of points in point cloud (matrix operation version, no for loops)
 
-    参数:
-        points: torch.Tensor - 形状为[B, N, 3]或[N, 3]的点云
-        npoints: int - 采样后的点数
+    Parameters:
+        points: torch.Tensor - Point cloud with shape [B, N, 3] or [N, 3]
+        npoints: int - Number of points after sampling
 
-    返回:
-        torch.Tensor - 采样点的索引，形状为[B, npoints]或[npoints]
+    Returns:
+        torch.Tensor - Indices of sampled points, shape [B, npoints] or [npoints]
     """
-    # 检查输入维度
+    # Check input dimensions
     if len(points.shape) == 3:  # [B, N, 3]
         batch_size, n, _ = points.shape
         batch_mode = True
     elif len(points.shape) == 2:  # [N, 3]
         n = points.shape[0]
         batch_mode = False
-        # 扩展为批处理模式以便统一处理
+        # Expand to batch mode for unified processing
         points = points.unsqueeze(0)
         batch_size = 1
     else:
         raise ValueError(
-            f"输入点云维度不正确，应为[B, N, 3]或[N, 3]，当前为{points.shape}"
+            f"Input point cloud dimensions incorrect, should be [B, N, 3] or [N, 3], currently {points.shape}"
         )
 
-    # 处理空点云情况
+    # Handle empty point cloud case
     if n == 0:
         if batch_mode:
             return torch.zeros(
@@ -1087,81 +1089,81 @@ def uniform_sampling_torch(points, npoints=1200):
         else:
             return torch.zeros(npoints, dtype=torch.int64, device=points.device)
 
-    # 创建索引张量 [B, N]
+    # Create index tensor [B, N]
     indices = torch.arange(n, device=points.device).expand(batch_size, n)
 
     if n > npoints:
-        # 使用矩阵操作进行随机采样
-        # 为每个批次生成随机排列
+        # Use matrix operations for random sampling
+        # Generate random permutations for each batch
         rand_indices = torch.argsort(
             torch.rand(batch_size, n, device=points.device), dim=1
         )
-        # 选择前npoints个索引
+        # Select first npoints indices
         sampled_indices = torch.gather(indices, 1, rand_indices[:, :npoints])
     elif n < npoints:
-        # 计算重复次数和剩余数量
+        # Calculate repeat count and remaining quantity
         num_repeat = npoints // n
         remaining = npoints - num_repeat * n
 
-        # 重复整个索引张量
+        # Repeat entire index tensor
         repeated_indices = indices.repeat_interleave(num_repeat, dim=1)
 
-        # 添加剩余的索引
+        # Add remaining indices
         if remaining > 0:
             remaining_indices = indices[:, :remaining]
             sampled_indices = torch.cat([repeated_indices, remaining_indices], dim=1)
         else:
             sampled_indices = repeated_indices
     else:
-        # 如果点数正好等于npoints，直接返回索引
+        # If point count equals npoints exactly, return indices directly
         sampled_indices = indices
 
-    # 返回结果
+    # Return results
     if batch_mode:
         return sampled_indices
     else:
-        return sampled_indices[0]  # 移除批处理维度
+        return sampled_indices[0]  # Remove batch dimension
 
 
 def pcd_filter_bound_torch(pc, bound):
     """
-    根据给定边界过滤点云（尽量避免循环的版本）
+    Filter point cloud based on given boundaries (version that avoids loops as much as possible)
 
-    参数:
-        cloud: torch.Tensor或dict - 点云数据，形状为[B, N, 3]、[N, 3]或包含'pos'键的字典
-        bound: list或torch.Tensor - 边界值 [x_min, x_max, y_min, y_max, z_min, z_max]
-        eps: float - 最小高度阈值
-        max_dis: float - 最大距离阈值
+    Parameters:
+        cloud: torch.Tensor or dict - Point cloud data, shape [B, N, 3], [N, 3] or dictionary containing 'pos' key
+        bound: list or torch.Tensor - Boundary values [x_min, x_max, y_min, y_max, z_min, z_max]
+        eps: float - Minimum height threshold
+        max_dis: float - Maximum distance threshold
 
-    返回:
-        torch.Tensor - 在边界内的点的索引掩码，形状为[B, N]
-        或
-        list of torch.Tensor - 每个批次在边界内的点的索引
+    Returns:
+        torch.Tensor - Index mask of points within boundaries, shape [B, N]
+        or
+        list of torch.Tensor - Indices of points within boundaries for each batch
     """
-    # 确保bound是tensor并且在正确的设备上
+    # Ensure bound is tensor and on correct device
     if not isinstance(bound, torch.Tensor):
         bound = torch.tensor(bound, device=pc.device)
 
-    # 检查输入维度
+    # Check input dimensions
     batch_mode = len(pc.shape) == 3
 
     if not batch_mode:
         pc = pc.unsqueeze(0)  # [N, 3] -> [1, N, 3]
 
-    # 确保bound是正确的形状
+    # Ensure bound has correct shape
     if len(bound.shape) == 1:
         bound = bound.unsqueeze(0).expand(pc.shape[0], -1)
 
-    # 计算边界条件
+    # Calculate boundary conditions
     within_bound_x = (pc[..., 0] > bound[:, 0:1]) & (pc[..., 0] < bound[:, 1:2])
     within_bound_y = (pc[..., 1] > bound[:, 2:3]) & (pc[..., 1] < bound[:, 3:4])
     within_bound_z = (pc[..., 2] > bound[:, 4:5]) & (pc[..., 2] < bound[:, 5:6])
 
-    # 组合所有条件
+    # Combine all conditions
     within_bound = within_bound_x & within_bound_y & within_bound_z
 
-    # 两种返回方式：
-    # 1. 返回掩码
+    # Two return methods:
+    # 1. Return mask
     if batch_mode:
         return within_bound
     else:
