@@ -1,6 +1,6 @@
 # PPT learning
 
-The learning framework proposed in [Gensim2](gensim2.github.io). 
+The learning framework derived from [Gensim2](gensim2.github.io). 
 
 ## Requirements
 

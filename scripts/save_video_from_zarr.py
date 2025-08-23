@@ -7,7 +7,6 @@ parser = argparse.ArgumentParser()
 parser.add_argument(
     "--file_path",
     type=str,
-    default="/mnt/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/put_bowl_in_microwave__520_collected_data_retry_random_x015_new_subtask_generated_1gpu.zarr",
 )
 parser.add_argument(
     "--start",
