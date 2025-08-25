@@ -21,7 +21,7 @@ from pathlib import Path
 import ppt_learning
 
 PPT_DIR = Path(ppt_learning.__path__[-1])
-sys.path.append(f"{PPT_DIR}/third_party/")
+sys.path.append(f"{PPT_DIR}/../third_party/")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 def get_dataloader(dataset, seed, rank, world_size, **kwargs):

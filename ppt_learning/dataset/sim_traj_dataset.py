@@ -1,3 +1,18 @@
+"""Single trajectory dataset for robotics learning.
+
+This module provides the TrajDataset class for managing trajectory data from
+simulation environments, supporting data augmentation, normalization, and
+efficient sampling for training robotic manipulation policies.
+
+Key Features:
+    - Flexible data loading from disk or memory
+    - Point cloud generation from RGB-D images
+    - Comprehensive data augmentation pipeline
+    - State and action normalization
+    - Support for distributed training
+    - Efficient caching with LRU support
+"""
+
 import numpy as np
 from collections import OrderedDict
 import copy
@@ -8,6 +23,13 @@ import ipdb
 import argparse
 import time
 import albumentations as A
+from typing import Dict, List, Optional, Union, Any, Tuple, Callable
+import torch
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 from ppt_learning.utils.replay_buffer import ReplayBuffer
 from ppt_learning.utils.sampler import SequenceSampler, get_val_mask
@@ -25,57 +47,67 @@ from ppt_learning.utils.pcd_utils import BOUND
 
 
 class TrajDataset:
-    """
-    Single Dataset class that converts simulation data into trajectory data.
-    Explanations of parameters are in config
+    """Single trajectory dataset for robotic manipulation learning.
+    
+    This class manages trajectory data from a single domain/task, handling
+    data loading, preprocessing, augmentation, and sampling for training
+    neural network policies.
+    
+    Attributes:
+        dataset_name: Name of the dataset/domain
+        replay_buffer: Buffer storing trajectory data
+        sampler: Sequence sampler for training data
+        normalizer: Data normalizer for states/actions
+        action_dim: Dimension of action space
+        state_dim: Dimension of state space
     """
 
     def __init__(
         self,
-        domain,
-        dataset_path,
-        mode="train",
-        episode_cnt=10,
-        step_cnt=100,
-        data_ratio=1,
-        use_disk=False,
-        horizon=4,
-        pad_before=0,
-        pad_after=0,
-        val_ratio=0.1,
-        seed=233,
-        action_horizon=1,
-        observation_horizon=1,
-        hist_action_cond=False,
-        resize_img=True,
-        img_size=(224,224),
-        augment_pcd=False,
-        se3_augmentation=False,  # pcd in roboframe do not need this (gensim2 & rlbench)
-        augment_img=True,
-        augment_depth=True,
-        img_augment_prob=0.7,
-        dataset_postfix="",
-        dataset_encoder_postfix="",
-        precompute_feat=False,
-        env_rollout_fn=None,
-        use_multiview=False,
-        normalize_state=False,
-        from_empty=True,
-        use_pcd=False,
-        pcdnet_pretrain_domain="",
-        pcd_channels=None,
-        load_from_cache=True,
-        voxelization=False,
-        voxel_size=0.01,
-        use_lru_cache=True,
-        rank=0,  # Add rank for DDP
-        ignored_keys=None,
-        state_keys=None,
-        action_key="actions",
-        pose_transform=None,
-        norm_depth=False,
-        **kwargs,
-    ):
+        domain: str,
+        dataset_path: Union[str, List[str]],
+        mode: str = "train",
+        episode_cnt: int = 10,
+        step_cnt: int = 100,
+        data_ratio: float = 1.0,
+        use_disk: bool = False,
+        horizon: int = 4,
+        pad_before: int = 0,
+        pad_after: int = 0,
+        val_ratio: float = 0.1,
+        seed: int = 233,
+        action_horizon: int = 1,
+        observation_horizon: int = 1,
+        hist_action_cond: bool = False,
+        resize_img: bool = True,
+        img_size: Tuple[int, int] = (224, 224),
+        augment_pcd: bool = False,
+        se3_augmentation: bool = False,  # pcd in roboframe do not need this (gensim2 & rlbench)
+        augment_img: bool = True,
+        augment_depth: bool = True,
+        img_augment_prob: float = 0.7,
+        dataset_postfix: str = "",
+        dataset_encoder_postfix: str = "",
+        precompute_feat: bool = False,
+        env_rollout_fn: Optional[Callable] = None,
+        use_multiview: bool = False,
+        normalize_state: bool = False,
+        from_empty: bool = True,
+        use_pcd: bool = False,
+        pcdnet_pretrain_domain: str = "",
+        pcd_channels: Optional[int] = None,
+        load_from_cache: bool = True,
+        voxelization: bool = False,
+        voxel_size: float = 0.01,
+        use_lru_cache: bool = True,
+        rank: int = 0,  # Add rank for DDP
+        ignored_keys: Optional[List[str]] = None,
+        state_keys: Optional[List[str]] = None,
+        action_key: str = "actions",
+        pose_transform: Optional[Any] = None,
+        norm_depth: bool = False,
+        **kwargs: Any,
+    ) -> None:
         self.rank = rank
         self.dataset_name = domain
         self.horizon = horizon
@@ -94,16 +126,8 @@ class TrajDataset:
         self.img_size = img_size
         self.action_key = action_key
         self.hist_action_cond = hist_action_cond
-        if use_pcd:
-            assert pcd_channels is not None, "pcd_channels must be provided for pcd"
-        if pcd_channels is not None:
-            assert pcd_channels in [
-                3,
-                4,
-                5,
-                6,
-                7,
-            ], "pcd_channels must be one of [3, 4, 5, 6, 7]"
+        # Validate configuration
+        self._validate_config(use_pcd, pcd_channels, hist_action_cond)
         self.pcd_channels = pcd_channels
         self.mode = mode
         self.use_pcd = use_pcd
@@ -121,50 +145,10 @@ class TrajDataset:
         if norm_depth:
             self.warp_func = WarpMinMax()
 
-        if not hist_action_cond:
-            assert self.horizon == self.observation_horizon + self.action_horizon - 1, "Check if your horizon is right"
-
-        if augment_img:
-            self.img_transform = A.Compose(
-                [
-                    A.OneOf(
-                        [
-                            A.GaussianBlur(
-                                blur_limit=(3, 7),
-                                sigma_limit=(0.1, 2),
-                                p=img_augment_prob,
-                            ),
-                            A.MotionBlur(p=img_augment_prob),
-                            A.Defocus(p=img_augment_prob),
-                            A.ColorJitter(p=img_augment_prob),
-                            A.GaussNoise(p=img_augment_prob),
-                        ],
-                    ),
-                ]
-            )
-        if augment_depth:
-            # random translate / random affine
-            self.depth_transform = A.Compose(
-                [
-                    A.OneOf(
-                        [
-                            A.ShiftScaleRotate(
-                                shift_limit=0.25,
-                                scale_limit=0.05,
-                                rotate_limit=2,
-                                p=img_augment_prob,
-                            ),
-                            # A.ShiftScaleRotate(
-                            #     shift_limit=0.15,
-                            #     scale_limit=0.1,
-                            #     rotate_limit=1,
-                            #     p=img_augment_prob,
-                            # ),
-                        ],
-                    ),
-                ]
-            )
-            
+        # Setup augmentation pipelines
+        self.img_transform = self._setup_image_augmentation(augment_img, img_augment_prob)
+        self.depth_transform = self._setup_depth_augmentation(augment_depth, img_augment_prob)
+        
         self.state_keys = state_keys
         if state_keys is None:
             self.state_keys = [
@@ -197,8 +181,8 @@ class TrajDataset:
         self.update_pcd_transform()
 
         load_from_cache = os.path.exists(dataset_path) and load_from_cache
-        print(
-            f"\n\n >>>dataset_path: {dataset_path} load_from_cache: {load_from_cache} \n\n"
+        logger.info(
+            f"Loading dataset: {dataset_path} (load_from_cache={load_from_cache})"
         )
         self.dataset_path = dataset_path
         self.replay_buffer = None
@@ -213,7 +197,7 @@ class TrajDataset:
                     self.replay_buffer = ReplayBuffer.create_from_group(
                         group
                     )
-                    print("Using lru cache")
+                    logger.info(f"Using LRU cache with max_size={2**38}")
                 else:
                     self.replay_buffer = ReplayBuffer.create_from_path(
                         dataset_path
@@ -233,12 +217,16 @@ class TrajDataset:
             self.get_training_dataset(val_ratio, seed)
             self.get_sa_dim()
 
-    def update_pcd_transform(self, pcd_setup_cfg=None):
+    def update_pcd_transform(self, pcd_setup_cfg: Optional[Any] = None) -> None:
+        """Update point cloud transformation configuration.
+        
+        Args:
+            pcd_setup_cfg: Point cloud setup configuration object
+        """
         if not self.use_pcd:
             return
-        assert (
-            self.pcdnet_pretrain_domain != ""
-        ), "pcdnet_domain must be provided for pcdnet"
+        if not self.pcdnet_pretrain_domain:
+            raise ValueError("pcdnet_pretrain_domain must be provided when use_pcd=True")
 
         from openpoints.transforms import build_transforms_from_cfg
 
@@ -261,21 +249,41 @@ class TrajDataset:
         )
         self.pcd_num_points = pcd_setup_cfg.num_points
 
-    def get_sa_dim(self):
+    def get_sa_dim(self) -> None:
+        """Calculate and set action and state dimensions from the first sample."""
         self.action_dim = self[0]["data"]["action"].shape[-1]  #  * self.action_horizon
         self.state_dim = self[0]["data"]["state"].shape[-1]
 
-    def get_normalizer(self, mode="limits", **kwargs):
-        """action normalizer"""
+    def get_normalizer(self, mode: str = "limits", **kwargs: Any) -> LinearNormalizer:
+        """Get action normalizer fitted on the dataset.
+        
+        Args:
+            mode: Normalization mode (e.g., 'limits', 'gaussian')
+            **kwargs: Additional keyword arguments for normalization
+            
+        Returns:
+            Fitted LinearNormalizer instance
+        """
         data = self._sample_to_data(self.replay_buffer)
         self.normalizer = LinearNormalizer()
         self.normalizer.fit(data=data, last_n_dims=1, mode=mode, **kwargs)
         for k, v in self.normalizer.params_dict.items():
-            print(f"normalizer {k} stats min: {v['input_stats'].min}")
-            print(f"normalizer {k} stats max: {v['input_stats'].max}")
+            logger.info(f"Normalizer {k} - min: {v['input_stats'].min:.4f}, max: {v['input_stats'].max:.4f}")
         return self.normalizer
 
-    def append_episode(self, episode, description="", env_name=None):
+    def append_episode(
+        self, 
+        episode: List[Dict[str, Any]], 
+        description: str = "", 
+        env_name: Optional[str] = None
+    ) -> None:
+        """Append a new episode to the replay buffer.
+        
+        Args:
+            episode: List of timestep dictionaries
+            description: Episode description
+            env_name: Environment name
+        """
         data = OrderedDict()
 
         def recursive_dict_update(d, u):
@@ -303,10 +311,26 @@ class TrajDataset:
 
         self.replay_buffer.add_episode(data, description=description, env_name=env_name)
 
-    def get_episode(self, idx):
+    def get_episode(self, idx: int) -> Dict[str, Any]:
+        """Get an episode by index.
+        
+        Args:
+            idx: Episode index
+            
+        Returns:
+            Episode data dictionary
+        """
         return self.replay_buffer.get_episode(idx)
 
-    def _sample_to_data(self, sample):
+    def _sample_to_data(self, sample: Union[ReplayBuffer, Dict[str, Any]]) -> Dict[str, np.ndarray]:
+        """Convert sample to normalized data dictionary.
+        
+        Args:
+            sample: Sample from replay buffer
+            
+        Returns:
+            Dictionary with action and optionally state data
+        """
         data = {"action": sample[self.action_key]}
         if self.normalize_state:
             if "state" in sample:
@@ -339,8 +363,9 @@ class TrajDataset:
             ignored_keys=self.ignored_keys,
             action_key=self.action_key,
         )
-        print(
-            f"{self.dataset_path} size: {len(self.sampler)} episodes: {n_episodes} train: {self.train_mask.sum()} eval: {self.val_mask.sum()}"
+        logger.info(
+            f"Dataset {self.dataset_name}: {len(self.sampler)} samples, "
+            f"{n_episodes} episodes ({self.train_mask.sum()} train, {self.val_mask.sum()} val)"
         )
 
     def get_validation_dataset(self):
@@ -358,10 +383,111 @@ class TrajDataset:
         return val_set
 
     def __len__(self) -> int:
+        """Get total number of samples in the dataset."""
+        if not hasattr(self, 'sampler') or self.sampler is None:
+            return 0
         return len(self.sampler)
+    
+    @property
+    def num_episodes(self) -> int:
+        """Get number of episodes in the dataset."""
+        if not hasattr(self, 'replay_buffer') or self.replay_buffer is None:
+            return 0
+        return self.replay_buffer.n_episodes
+    
+    def _validate_config(self, use_pcd: bool, pcd_channels: Optional[int], hist_action_cond: bool) -> None:
+        """Validate dataset configuration parameters.
+        
+        Args:
+            use_pcd: Whether point clouds are used
+            pcd_channels: Number of point cloud channels
+            hist_action_cond: Whether using historical action conditioning
+            
+        Raises:
+            ValueError: If configuration is invalid
+        """
+        # Validate point cloud configuration
+        if use_pcd:
+            if pcd_channels is None:
+                raise ValueError("pcd_channels must be provided when use_pcd=True")
+            if pcd_channels not in [3, 4, 5, 6, 7]:
+                raise ValueError(f"pcd_channels must be one of [3, 4, 5, 6, 7], got {pcd_channels}")
+        
+        # Validate horizon configuration
+        if not hist_action_cond:
+            expected_horizon = self.observation_horizon + self.action_horizon - 1
+            if self.horizon != expected_horizon:
+                raise ValueError(
+                    f"Horizon mismatch: got {self.horizon}, expected {expected_horizon} "
+                    f"(observation_horizon={self.observation_horizon} + action_horizon={self.action_horizon} - 1)"
+                )
+    
+    def _setup_image_augmentation(self, augment_img: bool, img_augment_prob: float) -> Optional[A.Compose]:
+        """Setup image augmentation pipeline.
+        
+        Args:
+            augment_img: Whether to enable image augmentation
+            img_augment_prob: Probability of applying augmentation
+            
+        Returns:
+            Albumentations composition or None
+        """
+        if not augment_img:
+            return None
+            
+        return A.Compose([
+            A.OneOf([
+                A.GaussianBlur(
+                    blur_limit=(3, 7),
+                    sigma_limit=(0.1, 2),
+                    p=img_augment_prob,
+                ),
+                A.MotionBlur(p=img_augment_prob),
+                A.Defocus(p=img_augment_prob),
+                A.ColorJitter(
+                    brightness=0.2,
+                    contrast=0.2,
+                    saturation=0.2,
+                    hue=0.1,
+                    p=img_augment_prob
+                ),
+                A.GaussNoise(p=img_augment_prob),
+            ]),
+        ])
+    
+    def _setup_depth_augmentation(self, augment_depth: bool, img_augment_prob: float) -> Optional[A.Compose]:
+        """Setup depth augmentation pipeline.
+        
+        Args:
+            augment_depth: Whether to enable depth augmentation
+            img_augment_prob: Probability of applying augmentation
+            
+        Returns:
+            Albumentations composition or None
+        """
+        if not augment_depth:
+            return None
+            
+        return A.Compose([
+            A.OneOf([
+                A.ShiftScaleRotate(
+                    shift_limit=0.25,
+                    scale_limit=0.05,
+                    rotate_limit=2,
+                    p=img_augment_prob,
+                ),
+            ]),
+        ])
 
-    def __getitem__(self, idx: int):
-        """normalize observation and actions"""
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
+        """Normalize observation and actions for the given index.
+        
+        Args:
+            idx: Index of the trajectory sequence to retrieve
+            
+        Returns:
+            Dictionary containing processed observations, actions, and metadata
+        """
         # import time
         # start_time = time.time()
         sample = self.sampler.sample_sequence(idx)
@@ -374,9 +500,9 @@ class TrajDataset:
                     try:
                         action = action[key]
                     except KeyError:
-                        print(f"Action key not found: {key}")
-                        print(f"Available keys: {list(action.keys())}")
-                        raise
+                        logger.error(f"Action key not found: {key}")
+                        logger.error(f"Available keys: {list(action.keys())}")
+                        raise KeyError(f"Failed to access action key '{key}' in sample")
             sample["action"] = action
             del sample[action_sub_keys[0]]
 
@@ -482,8 +608,8 @@ class TrajDataset:
                         sample["obs"]["pointcloud"]
                     )
                 except Exception as e:
-                    print(
-                        f"Found error {e}, should not be a problem when initializing the dataset"
+                    logger.warning(
+                        f"Point cloud transform error (may be expected during initialization): {e}"
                     )
                 for key, val in sample["obs"]["pointcloud"].items():
                     sample["obs"]["pointcloud"][key] = val.reshape(
@@ -503,11 +629,20 @@ class TrajDataset:
         if self.rank == 0:  # Only rank 0 saves the dataset
             self.replay_buffer.save_to_path(self.dataset_path)
 
-    def load_dataset(self):
+    def load_dataset(self) -> None:
+        """Load dataset from disk into replay buffer."""
         self.replay_buffer = ReplayBuffer.copy_from_path(self.dataset_path)
-        print("Replay buffer keys: ", self.replay_buffer.keys())
+        logger.info(f"Replay buffer keys: {self.replay_buffer.keys()}")
 
-    def get_state(self, sample):
+    def get_state(self, sample: Union[Dict[str, Any], np.ndarray]) -> np.ndarray:
+        """Extract and concatenate state information from sample.
+        
+        Args:
+            sample: Sample containing state components
+            
+        Returns:
+            Concatenated state array
+        """
         res = {"state": []}
         if isinstance(sample, (dict, OrderedDict)):
             res = sample
@@ -524,7 +659,15 @@ class TrajDataset:
 
         return res["state"]
 
-    def transform(self, sample, idx):
+    def transform(self, sample: Dict[str, Any], idx: int) -> None:
+        """Apply transformations to sample data in-place.
+        
+        Includes image resizing, depth normalization, and augmentations.
+        
+        Args:
+            sample: Sample dictionary to transform
+            idx: Sample index (for debugging)
+        """
         if self.resize_img and "image" in sample.keys():
             for key, val in sample["image"].items():
                 # Image shape N, H, W, C
@@ -534,7 +677,7 @@ class TrajDataset:
                 # Image shape N, H, W, C
                 clippped_depth, _ = clip_depth(val)
                 if not _:
-                    print(f"Invalid depth at {idx}")
+                    logger.warning(f"Invalid depth detected in sample")
                 sample["depth"][key] = resize_image_sequence(clippped_depth, (self.img_size[0], self.img_size[1]), interp=cv2.INTER_NEAREST)
                 if self.norm_depth:
                     sample["depth"][key] = self.warp_func.warp(sample["depth"][key], sample["depth"][key])
@@ -556,7 +699,14 @@ class TrajDataset:
             else:
                 raise ValueError(f"Invalid action shape: {sample['action'].shape}")
 
-    def flat_sample(self, sample):
+    def flat_sample(self, sample: Dict[str, Any]) -> None:
+        """Flatten nested sample structure in-place.
+        
+        Moves observation data to top level and handles point cloud channels.
+        
+        Args:
+            sample: Sample dictionary to flatten
+        """
         if "obs" in sample.keys():
             for key, val in sample["obs"].items():
                 sample[key] = val
@@ -609,10 +759,17 @@ class TrajDataset:
             else:
                 raise ValueError(f"Invalid pcd_channels: {self.pcd_channels}")
 
-    def pcd_aug(self, pcd):
+    def pcd_aug(self, pcd: np.ndarray) -> np.ndarray:
+        """Apply augmentations to point cloud data.
+        
+        Args:
+            pcd: Point cloud array
+            
+        Returns:
+            Augmented point cloud array
+        """
         pcd = add_gaussian_noise(pcd)
         pcd = randomly_drop_point(pcd)
-
         return pcd
 
 

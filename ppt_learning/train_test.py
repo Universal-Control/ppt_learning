@@ -20,6 +20,7 @@ import wandb
 import logging
 
 from ppt_learning.utils.learning import dict_apply, batchify, sample_pcd_data, unbatchify
+from ppt_learning.constants import DEFAULT_LOG_MAXLEN, DEFAULT_PROGRESS_LOG_MAXLEN
 
 try:
     from ppt_learning.utils.video import save_video
@@ -58,7 +59,7 @@ def log_stat(
     use_wandb=True,
 ):
     if domain + "_loss" not in info_log:
-        info_log[domain + "_loss"] = deque([], maxlen=50)
+        info_log[domain + "_loss"] = deque([], maxlen=DEFAULT_LOG_MAXLEN)
 
     info_log[domain + "_loss"].append(loss.item())
     info_log["loss"].append(loss.item())
@@ -102,7 +103,7 @@ def train(
     Returns:
         Dictionary containing training statistics.
     """
-    info_log = {k: deque([], maxlen=20) for k in info_key}
+    info_log = {k: deque([], maxlen=DEFAULT_PROGRESS_LOG_MAXLEN) for k in info_key}
     model.train()
     start_time = time.time()
 

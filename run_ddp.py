@@ -3,6 +3,11 @@ import glob
 from typing import Union
 import random
 import numpy as np
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger(__name__)
 
 import hydra
 from hydra import initialize, compose
@@ -22,7 +27,7 @@ from ppt_learning.utils import learning, model_utils
 from ppt_learning.utils.warmup_lr_wrapper import WarmupLR
 from ppt_learning.paths import *
 
-sys.path.append(f"{PPT_DIR}/third_party/")
+sys.path.append(f"{PPT_DIR}/../third_party/")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 from ppt_learning import train_test
@@ -39,7 +44,7 @@ def remove_old_checkpoints(output_dir, k):
     while len(checkpoint_files) > k:
         oldest_checkpoint = checkpoint_files.pop(0)
         os.remove(oldest_checkpoint)
-        print(f"Removed old checkpoint: {oldest_checkpoint}")
+        logger.info(f"Removed old checkpoint: {oldest_checkpoint}")
 
 def get_dataloader(dataset, seed, rank, world_size, **kwargs):
 
@@ -66,7 +71,7 @@ def run(local_rank: int, world_size: int, cfg: DictConfig, node_rank: int = 0):
     rank = node_rank * gpus_per_node + local_rank
 
     # Initialize DDP process group
-    print(f"Process {rank} initialized with world size {world_size}")
+    logger.info(f"Process {rank} initialized with world size {world_size}")
 
     torch.cuda.set_device(local_rank)
     dist.init_process_group(
@@ -93,7 +98,7 @@ def run(local_rank: int, world_size: int, cfg: DictConfig, node_rank: int = 0):
             # resume="allow",
             resume="must",
         )
-        print("wandb url:", wandb.run.get_url())
+        logger.info(f"wandb url: {wandb.run.get_url()}")
 
     output_dir_full = cfg.output_dir.split("/")
     output_dir = "/".join(output_dir_full + [domain, ""])
@@ -151,7 +156,7 @@ def run(local_rank: int, world_size: int, cfg: DictConfig, node_rank: int = 0):
             **cfg.val_dataloader,
         )
         if rank == 0:
-            print(f"Train size: {len(dataset)}. Test size: {len(val_dataset)}.")
+            logger.info(f"Train size: {len(dataset)}. Test size: {len(val_dataset)}.")
 
         action_dim = dataset.action_dim
         state_dim = dataset.state_dim
@@ -160,8 +165,8 @@ def run(local_rank: int, world_size: int, cfg: DictConfig, node_rank: int = 0):
     cfg.head["output_dim"] = cfg.network["action_dim"] = action_dim
 
     if rank == 0:
-        print("cfg: ", cfg)
-        print("output dir", cfg.output_dir)
+        logger.info(f"Config: {cfg}")
+        logger.info(f"Output directory: {cfg.output_dir}")
 
     policy = hydra.utils.instantiate(cfg.network)
     cfg.stem.state["input_dim"] = state_dim
@@ -189,7 +194,7 @@ def run(local_rank: int, world_size: int, cfg: DictConfig, node_rank: int = 0):
                 cfg.train.pretrained_dir.split("/")[-1].split(".")[0].split("_")[-1]
             )
             if rank == 0:
-                print("load model from", cfg.train.pretrained_dir, "loaded_epoch", loaded_epoch)
+                logger.info(f"Loaded model from {cfg.train.pretrained_dir}, loaded_epoch: {loaded_epoch}")
         else:
             assert os.path.exists(
                 os.path.join(cfg.train.pretrained_dir, f"model.pth")
@@ -198,22 +203,22 @@ def run(local_rank: int, world_size: int, cfg: DictConfig, node_rank: int = 0):
                 torch.load(os.path.join(cfg.train.pretrained_dir, f"model.pth"))
             )
             if rank == 0:
-                print("load model from", cfg.train.pretrained_dir)
+                logger.info(f"Loaded model from {cfg.train.pretrained_dir}")
         if rank == 0:
-            print("loaded trunk")
+            logger.info("Loaded trunk")
         # policy.load_trunk(os.path.join(cfg.train.pretrained_dir, f"model.pth"))
         if cfg.train.freeze_trunk:
             policy.freeze_trunk()
-            print("trunk frozen")
+            logger.info("Trunk frozen")
     else:
         if rank == 0:
-            print("train from scratch")
+            logger.info("Training from scratch")
 
     policy.to(device)
     policy = DDP(policy, device_ids=[rank])
 
     if rank == 0:
-        print("cfg.train.pretrained_dir:", cfg.train.pretrained_dir)
+        logger.info(f"Pretrained directory: {cfg.train.pretrained_dir}")
 
     total_steps = cfg.train.total_epochs * len(train_loader)
     opt = learning.get_optimizer(cfg.optimizer, policy)
@@ -229,7 +234,7 @@ def run(local_rank: int, world_size: int, cfg: DictConfig, node_rank: int = 0):
 
     n_parameters = sum(p.numel() for p in policy.parameters() if p.requires_grad)
     if rank == 0:
-        print(f"number of params (M): {n_parameters / 1.0e6:.2f}")
+        logger.info(f"Number of parameters (M): {n_parameters / 1.0e6:.2f}")
 
     if not is_eval:
         # train / test loop
@@ -279,7 +284,7 @@ def run(local_rank: int, world_size: int, cfg: DictConfig, node_rank: int = 0):
 
         pbar.close()
 
-    print("saved results to:", cfg.output_dir)
+    logger.info(f"Saved results to: {cfg.output_dir}")
     # save the results
     # utils.log_results(cfg, total_success)
 
@@ -351,12 +356,10 @@ if __name__ == "__main__":
                     os.environ["MASTER_PORT"] = p
                     break
         os.environ["RANK"] = os.environ["NODE_RANK"] = os.environ["ARNOLD_ID"]
-        print(f"ARNOLD_WORKER_0_PORT: {os.environ['ARNOLD_WORKER_0_PORT']}")
+        logger.info(f"ARNOLD_WORKER_0_PORT: {os.environ['ARNOLD_WORKER_0_PORT']}")
     try:
-        print(
-            f"MASTER_ADDR: {os.environ['MASTER_ADDR']}, MASTER_PORT: {os.environ['MASTER_PORT']}"
-        )
-        print(f"WORLD_SIZE: {os.environ['WORLD_SIZE']}, RANK: {os.environ['RANK']}")
+        logger.info(f"MASTER_ADDR: {os.environ['MASTER_ADDR']}, MASTER_PORT: {os.environ['MASTER_PORT']}")
+        logger.info(f"WORLD_SIZE: {os.environ['WORLD_SIZE']}, RANK: {os.environ['RANK']}")
     except:
         pass
     main()

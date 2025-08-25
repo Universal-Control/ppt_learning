@@ -6,8 +6,15 @@ import zarr
 import ipdb
 import albumentations as A
 import cv2
+from typing import Dict, List, Optional, Union, Any, Tuple, Callable
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 from ppt_learning.utils.replay_buffer import ReplayBuffer
+import torch
 from ppt_learning.utils.sampler import SequenceSampler, get_val_mask
 from ppt_learning.utils.normalizer import LinearNormalizer, SingleFieldLinearNormalizer
 from ppt_learning.utils.pcd_utils import (
@@ -21,58 +28,67 @@ from ppt_learning.utils.pcd_utils import BOUND
 from ppt_learning.dataset.sim_traj_dataset import resize_image_sequence, clip_depth, WarpMinMax
 
 class MultiTrajDataset:
-    """
-    Multiple single Dataset class that converts simulation data into trajectory data.
-    Explanations of parameters are in config
+    """Multiple trajectory dataset for handling multi-domain simulation data.
+    
+    This class manages multiple single trajectory datasets, enabling multi-task
+    learning across different domains. It handles data loading, normalization,
+    augmentation, and sampling for training multi-domain policies.
+    
+    Key Features:
+        - Multi-domain data loading and management
+        - Point cloud generation from RGB-D images
+        - Data augmentation for images, depth, and point clouds
+        - Flexible state/action normalization
+        - Support for distributed training
     """
 
     def __init__(
         self,
-        domain,
-        dataset_path="",
-        mode="train",
-        episode_cnt=10,
-        step_cnt=100,
-        data_ratio=1,
-        use_disk=False,
-        horizon=4,
-        pad_before=0,
-        pad_after=0,
-        val_ratio=0.1,
-        seed=233,
-        action_horizon=1,
-        observation_horizon=1,
-        hist_action_cond=False,
-        resize_img=True,
-        img_size=(224,224),
-        augment_pcd=False,
-        se3_augmentation=False,  # pcd in roboframe do not need this (gensim2 & rlbench)
-        augment_img=True,
-        augment_depth=True,
-        img_augment_prob=0.7,
-        dataset_postfix="",
-        dataset_encoder_postfix="",
-        precompute_feat=False,
-        env_rollout_fn=None,
-        use_multiview=False,
-        normalize_state=False,
-        from_empty=True,
-        use_pcd=False,
-        pcdnet_pretrain_domain="",
-        pcd_channels=None,
-        load_from_cache=True,
-        voxelization=False,
-        voxel_size=0.01,
-        use_lru_cache=True,
-        rank=0,  # Add rank for DDP
-        ignored_keys=None,
-        state_keys=None,
-        action_key="actions",
-        pose_transform=None,
-        norm_depth=False,
-        **kwargs,
-    ):
-        self.dataset_name = domain
+        domain: Union[str, List[str]],
+        dataset_path: Union[str, List[str]] = "",
+        mode: str = "train",
+        episode_cnt: int = 10,
+        step_cnt: int = 100,
+        data_ratio: float = 1.0,
+        use_disk: bool = False,
+        horizon: int = 4,
+        pad_before: int = 0,
+        pad_after: int = 0,
+        val_ratio: float = 0.1,
+        seed: int = 233,
+        action_horizon: int = 1,
+        observation_horizon: int = 1,
+        hist_action_cond: bool = False,
+        resize_img: bool = True,
+        img_size: Tuple[int, int] = (224, 224),
+        augment_pcd: bool = False,
+        se3_augmentation: bool = False,  # pcd in roboframe do not need this (gensim2 & rlbench)
+        augment_img: bool = True,
+        augment_depth: bool = True,
+        img_augment_prob: float = 0.7,
+        dataset_postfix: str = "",
+        dataset_encoder_postfix: str = "",
+        precompute_feat: bool = False,
+        env_rollout_fn: Optional[Callable] = None,
+        use_multiview: bool = False,
+        normalize_state: bool = False,
+        from_empty: bool = True,
+        use_pcd: bool = False,
+        pcdnet_pretrain_domain: str = "",
+        pcd_channels: Optional[int] = None,
+        load_from_cache: bool = True,
+        voxelization: bool = False,
+        voxel_size: float = 0.01,
+        use_lru_cache: bool = True,
+        rank: int = 0,  # Add rank for DDP
+        ignored_keys: Optional[List[str]] = None,
+        state_keys: Optional[List[str]] = None,
+        action_key: str = "actions",
+        pose_transform: Optional[Union[str, Callable]] = None,
+        norm_depth: bool = False,
+        **kwargs: Any,
+    ) -> None:
+        self.dataset_name = domain if isinstance(domain, list) else [domain]
         self.rank = rank
         self.horizon = horizon
         self.pad_before = pad_before
@@ -89,16 +105,8 @@ class MultiTrajDataset:
         self.img_size = img_size
         self.action_key = action_key
         self.hist_action_cond = hist_action_cond
-        if use_pcd:
-            assert pcd_channels is not None, "pcd_channels must be provided for pcd"
-        if pcd_channels is not None:
-            assert pcd_channels in [
-                3,
-                4,
-                5,
-                6,
-                7,
-            ], "pcd_channels must be one of [3, 4, 6, 7]"
+        # Validate configuration
+        self._validate_config(use_pcd, pcd_channels, hist_action_cond)
         self.pcd_channels = pcd_channels
         self.mode = mode
         self.use_pcd = use_pcd
@@ -116,8 +124,14 @@ class MultiTrajDataset:
         if norm_depth:
             self.warp_func = WarpMinMax()
 
+        # Validate horizon configuration
         if not hist_action_cond:
-            assert self.horizon == self.observation_horizon + self.action_horizon - 1, "Check if your horizon is right"
+            expected_horizon = self.observation_horizon + self.action_horizon - 1
+            if self.horizon != expected_horizon:
+                raise ValueError(
+                    f"Horizon mismatch: got {self.horizon}, expected {expected_horizon} "
+                    f"(observation_horizon={self.observation_horizon} + action_horizon={self.action_horizon} - 1)"
+                )
 
         if augment_img:
             self.img_transform = A.Compose(
@@ -131,7 +145,13 @@ class MultiTrajDataset:
                             ),
                             A.MotionBlur(p=img_augment_prob),
                             A.Defocus(p=img_augment_prob),
-                            A.ColorJitter(p=img_augment_prob),
+                            A.ColorJitter(
+                                brightness=0.2,
+                                contrast=0.2,
+                                saturation=0.2,
+                                hue=0.1,
+                                p=img_augment_prob
+                            ),
                             A.GaussNoise(p=img_augment_prob),
                         ],
                     ),
@@ -182,18 +202,31 @@ class MultiTrajDataset:
                 from ppt_learning.utils.pose_utils import quat_to_pose
                 self.pose_transform = quat_to_pose
             else:
-                raise NotImplementedError("Pose transform function not assigned!")
+                raise NotImplementedError(f"Pose transform '{pose_transform}' not implemented")
         
         self.update_pcd_transform()
 
+        # Ensure dataset_path is a list
+        if isinstance(dataset_path, str):
+            dataset_path = [dataset_path]
+        if isinstance(domain, str):
+            domain = [domain] * len(dataset_path)
+        
+        if len(domain) != len(dataset_path):
+            raise ValueError(f"Domain list length ({len(domain)}) must match dataset_path length ({len(dataset_path)})")
+        
         self.dataset_path = dataset_path
-        self.replay_buffer = [None] * len(dataset_path)
-        # self.sample_ratio = [1.0] * len(dataset_path) # Not used for now 
+        self.replay_buffer: List[Optional[ReplayBuffer]] = [None] * len(dataset_path) 
 
+        # Initialize replay buffers for each dataset
         for idx, single_dpath in enumerate(dataset_path):
+            # Check if dataset exists and cache loading is enabled
             load_from_cache = os.path.exists(single_dpath) and load_from_cache
-            print(
-                f"\n\n >>>dataset_path: {single_dpath} load_from_cache: {load_from_cache} \n\n"
+            if not os.path.exists(single_dpath) and not from_empty:
+                raise FileNotFoundError(f"Dataset path not found: {single_dpath}")
+            logger.info(
+                f"Loading dataset {idx+1}/{len(dataset_path)}: {single_dpath} "
+                f"(load_from_cache={load_from_cache})"
             )
 
             if use_disk:
@@ -206,7 +239,7 @@ class MultiTrajDataset:
                         self.replay_buffer[idx] = ReplayBuffer.create_from_group(
                             group,
                         )
-                        print("Using lru cache")
+                        logger.info(f"Using LRU cache for dataset {idx+1} with max_size={2**(39-len(dataset_path))}")
                     else:
                         self.replay_buffer[idx] = ReplayBuffer.create_from_group(
                             zarr.open(zarr.DirectoryStore(single_dpath), "r"),
@@ -226,12 +259,16 @@ class MultiTrajDataset:
             self.get_training_dataset(val_ratio, seed)
             self.get_sa_dim()
 
-    def update_pcd_transform(self, pcd_setup_cfg=None):
+    def update_pcd_transform(self, pcd_setup_cfg: Optional[Any] = None) -> None:
+        """Update point cloud transformation configuration.
+        
+        Args:
+            pcd_setup_cfg: Point cloud setup configuration object
+        """
         if not self.use_pcd:
             return
-        assert (
-            self.pcdnet_pretrain_domain != ""
-        ), "pcdnet_domain must be provided for pcdnet"
+        if not self.pcdnet_pretrain_domain:
+            raise ValueError("pcdnet_pretrain_domain must be provided when use_pcd=True")
 
         from openpoints.transforms import build_transforms_from_cfg
 
@@ -254,12 +291,23 @@ class MultiTrajDataset:
         )
         self.pcd_num_points = pcd_setup_cfg.num_points
 
-    def get_sa_dim(self):
-        self.action_dim = self[0]["data"]["action"].shape[-1]  #  * self.action_horizon
-        self.state_dim = self[0]["data"]["state"].shape[-1]
+    def get_sa_dim(self) -> None:
+        """Calculate and set state and action dimensions from the first sample."""
+        first_sample = self[0]
+        self.action_dim = first_sample["data"]["action"].shape[-1]
+        self.state_dim = first_sample["data"]["state"].shape[-1]
+        logger.info(f"Set action_dim={self.action_dim}, state_dim={self.state_dim}")
 
-    def get_normalizer(self, mode="limits", **kwargs):
-        """action normalizer"""
+    def get_normalizer(self, mode: str = "limits", **kwargs: Any) -> LinearNormalizer:
+        """Get normalizer fitted on combined data from all datasets.
+        
+        Args:
+            mode: Normalization mode (e.g., 'limits', 'gaussian')
+            **kwargs: Additional keyword arguments for normalization
+            
+        Returns:
+            Fitted LinearNormalizer instance for multi-domain data
+        """
         data = {}
         for idx in range(len(self.replay_buffer)):
             tmp = self._sample_to_data(self.replay_buffer[idx])
@@ -271,17 +319,33 @@ class MultiTrajDataset:
             data[k] = np.concatenate(v, axis=0)
         self.normalizer = LinearNormalizer()
         self.normalizer.fit(data=data, last_n_dims=1, mode=mode, **kwargs)
+        # Log normalizer statistics
         for k, v in self.normalizer.params_dict.items():
-            print(f"normalizer {k} stats min: {v['input_stats'].min}")
-            print(f"normalizer {k} stats max: {v['input_stats'].max}")
+            logger.info(f"Normalizer {k} - min: {v['input_stats'].min:.4f}, max: {v['input_stats'].max:.4f}")
         return self.normalizer
 
-    def get_episode(self, idx):
+    def get_episode(self, idx: int) -> Dict[str, Any]:
+        """Get an episode by index across all datasets.
+        
+        Args:
+            idx: Episode index
+            
+        Returns:
+            Episode data dictionary
+        """
         dataset_idx = np.searchsorted(self.dataset_episodes, idx, side="right") - 1
         idx = idx - self.dataset_episodes[dataset_idx]
         return self.replay_buffer[dataset_idx].get_episode(idx)
 
-    def _sample_to_data(self, sample):
+    def _sample_to_data(self, sample: Union[ReplayBuffer, Dict[str, Any]]) -> Dict[str, np.ndarray]:
+        """Convert sample to normalized data dictionary.
+        
+        Args:
+            sample: Sample from replay buffer
+            
+        Returns:
+            Dictionary with action and optionally state data
+        """
         data = {"action": sample[self.action_key]}
         if self.normalize_state:
             if "state" in sample:
@@ -290,7 +354,13 @@ class MultiTrajDataset:
                 data["state"] = self.get_state(sample["obs"])
         return data
 
-    def get_training_dataset(self, val_ratio, seed):
+    def get_training_dataset(self, val_ratio: float, seed: int) -> None:
+        """Initialize training dataset with train/validation split.
+        
+        Args:
+            val_ratio: Ratio of data to use for validation
+            seed: Random seed for reproducible splits
+        """
         self.val_mask = [None] * len(self.replay_buffer)
         self.train_mask = [None] * len(self.replay_buffer)
         self.sampler = [None] * len(self.replay_buffer)
@@ -321,15 +391,25 @@ class MultiTrajDataset:
                 ignored_keys=self.ignored_keys,
                 action_key=self.action_key,
             )
-            print(
-                f"{self.dataset_name[idx]} size: {len(self.sampler[idx])} episodes: {n_episodes} train: {self.train_mask[idx].sum()} eval: {self.val_mask[idx].sum()}"
+            logger.info(
+                f"Dataset {self.dataset_name[idx]}: {len(self.sampler[idx])} samples, "
+                f"{n_episodes} episodes ({self.train_mask[idx].sum()} train, {self.val_mask[idx].sum()} val)"
             )
 
+        # Calculate cumulative dataset lengths for indexing
         self.dataset_length = np.cumsum([len(sampler) for sampler in self.sampler])
         self.dataset_length = np.insert(self.dataset_length, 0, 0)
-        self.dataset_episodes = [0] + [self.replay_buffer[idx].n_episodes for idx in range(len(self.replay_buffer))]
+        
+        # Calculate cumulative episode counts
+        episode_counts = [self.replay_buffer[idx].n_episodes for idx in range(len(self.replay_buffer))]
+        self.dataset_episodes = np.cumsum([0] + episode_counts)
 
-    def get_validation_dataset(self):
+    def get_validation_dataset(self) -> List['MultiTrajDataset']:
+        """Create validation dataset instances.
+        
+        Returns:
+            List of validation dataset instances for each domain
+        """
         val_set = [None] * len(self.replay_buffer)
         for idx, replay_buffer in enumerate(self.replay_buffer):
             val_set[idx] = copy.copy(self)
@@ -346,10 +426,53 @@ class MultiTrajDataset:
         return val_set
 
     def __len__(self) -> int:
+        \"\"\"Get total number of samples across all datasets.\"\"\"
+        if not hasattr(self, 'sampler') or not self.sampler:
+            return 0
         return sum([len(sampler) for sampler in self.sampler])
+    
+    @property
+    def num_datasets(self) -> int:
+        \"\"\"Get number of datasets being managed.\"\"\"
+        return len(self.replay_buffer)
+    
+    @property
+    def total_episodes(self) -> int:
+        \"\"\"Get total number of episodes across all datasets.\"\"\"
+        if not self.replay_buffer or not all(self.replay_buffer):
+            return 0
+        return sum(rb.n_episodes for rb in self.replay_buffer if rb is not None)
+    
+    def _validate_config(self, use_pcd: bool, pcd_channels: Optional[int], hist_action_cond: bool) -> None:
+        \"\"\"Validate dataset configuration parameters.
+        
+        Args:
+            use_pcd: Whether point clouds are used
+            pcd_channels: Number of point cloud channels
+            hist_action_cond: Whether using historical action conditioning
+            
+        Raises:
+            ValueError: If configuration is invalid
+        \"\"\"
+        # Validate point cloud configuration
+        if use_pcd:
+            if pcd_channels is None:
+                raise ValueError(\"pcd_channels must be provided when use_pcd=True\")
+            if pcd_channels not in [3, 4, 5, 6, 7]:
+                raise ValueError(f\"pcd_channels must be one of [3, 4, 5, 6, 7], got {pcd_channels}\")
 
-    def __getitem__(self, idx: int):
-        """normalize observation and actions"""
+    def __getitem__(self, idx: int) -> Dict[str, Any]:
+        """Get normalized observation and actions for given index.
+        
+        Args:
+            idx: Index of the sample to retrieve
+            
+        Returns:
+            Dictionary with 'domain' and 'data' keys containing processed sample
+        
+        Raises:
+            KeyError: If required action keys are not found in the sample
+        """
         dataset_idx = np.searchsorted(self.dataset_length, idx, side="right") - 1
         idx = idx - self.dataset_length[dataset_idx]
         sample = self.sampler[dataset_idx].sample_sequence(idx)
@@ -361,15 +484,16 @@ class MultiTrajDataset:
                 if isinstance(action, (dict, OrderedDict)):
                     try:
                         action = action[key]
-                    except KeyError:
-                        print(f"Action key not found: {key}")
-                        print(f"Available keys: {list(action.keys())}")
-                        raise
+                    except KeyError as e:
+                        logger.error(f"Action key not found: {key}")
+                        logger.error(f"Available keys: {list(action.keys())}")
+                        raise KeyError(f"Failed to access action key '{key}' in sample") from e
             sample["action"] = action
             del sample[action_sub_keys[0]]
 
-        # the full horizon is for the trajectory
-        def recursive_horizon(data):
+        # Process horizon for the trajectory
+        def recursive_horizon(data: Dict[str, Any]) -> None:
+            """Recursively apply horizon windowing to nested data."""
             for key, val in data.items():
                 if isinstance(val, (dict, OrderedDict)):
                     recursive_horizon(val)
@@ -470,8 +594,8 @@ class MultiTrajDataset:
                         sample["obs"]["pointcloud"]
                     )
                 except Exception as e:
-                    print(
-                        f"Found error {e}, should not be a problem when initializing the dataset"
+                    logger.warning(
+                        f"Point cloud transform error (may be expected during initialization): {e}"
                     )
                 for key, val in sample["obs"]["pointcloud"].items():
                     sample["obs"]["pointcloud"][key] = val.reshape(
@@ -487,12 +611,21 @@ class MultiTrajDataset:
 
         return {"domain": self.dataset_name, "data": sample}
 
-    def load_dataset(self):
+    def load_dataset(self) -> None:
+        """Load all datasets from disk into replay buffers."""
         for idx, dataset_path in enumerate(self.dataset_path):
             self.replay_buffer[idx] = ReplayBuffer.copy_from_path(dataset_path)
-            print("Replay buffer keys: ", self.replay_buffer[idx].keys())
+            logger.info(f"Dataset {idx+1} replay buffer keys: {self.replay_buffer[idx].keys()}")
 
-    def get_state(self, sample):
+    def get_state(self, sample: Union[Dict[str, Any], np.ndarray]) -> np.ndarray:
+        """Extract and concatenate state information from sample.
+        
+        Args:
+            sample: Sample containing state components
+            
+        Returns:
+            Concatenated state array
+        """
         res = {"state": []}
         if isinstance(sample, (dict, OrderedDict)):
             res = sample
@@ -509,7 +642,14 @@ class MultiTrajDataset:
 
         return res["state"]
 
-    def transform(self, sample):
+    def transform(self, sample: Dict[str, Any]) -> None:
+        """Apply transformations to sample data in-place.
+        
+        Includes image resizing, depth normalization, and augmentations.
+        
+        Args:
+            sample: Sample dictionary to transform
+        """
         if self.resize_img and "image" in sample.keys():
             for key, val in sample["image"].items():
                 # Image shape N, H, W, C
@@ -519,7 +659,7 @@ class MultiTrajDataset:
                 # Image shape N, H, W, C
                 clippped_depth, _ = clip_depth(val)
                 if not _:
-                    print(f"Invalid depth at {idx}")
+                    logger.warning(f"Invalid depth detected in sample")
                 sample["depth"][key] = resize_image_sequence(clippped_depth, (self.img_size[0], self.img_size[1]), interp=cv2.INTER_NEAREST)
                 if self.norm_depth:
                     sample["depth"][key] = self.warp_func.warp(sample["depth"][key], sample["depth"][key])
@@ -541,7 +681,14 @@ class MultiTrajDataset:
             else:
                 raise ValueError(f"Invalid action shape: {sample['action'].shape}")
 
-    def flat_sample(self, sample):
+    def flat_sample(self, sample: Dict[str, Any]) -> None:
+        """Flatten nested sample structure in-place.
+        
+        Moves observation data to top level and handles point cloud channels.
+        
+        Args:
+            sample: Sample dictionary to flatten
+        """
         if "obs" in sample.keys():
             for key, val in sample["obs"].items():
                 sample[key] = val
@@ -594,14 +741,22 @@ class MultiTrajDataset:
             else:
                 raise ValueError(f"Invalid pcd_channels: {self.pcd_channels}")
 
-    def pcd_aug(self, pcd):
+    def pcd_aug(self, pcd: np.ndarray) -> np.ndarray:
+        """Apply augmentations to point cloud data.
+        
+        Args:
+            pcd: Point cloud array
+            
+        Returns:
+            Augmented point cloud array
+        """
         pcd = add_gaussian_noise(pcd)
         pcd = randomly_drop_point(pcd)
-
         return pcd
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """Test the MultiTrajDataset class with sample data."""
     import collections
 
     dataset = MultiTrajDataset(
@@ -629,7 +784,8 @@ if __name__ == "__main__":
 
     import ipdb
 
-    ipdb.set_trace()
+    # Debug breakpoint - uncomment if needed
+    # ipdb.set_trace()
 
     from gensim2.env.utils.rlbench import plot_pred
 
@@ -639,3 +795,7 @@ if __name__ == "__main__":
         rgbs = data["obs"]["pointcloud"]["colors"][i]
         action = data["action"][i]
         plot_pred(np.array([action]), pcds, rgbs, ".")
+
+
+if __name__ == "__main__":
+    main()

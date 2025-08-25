@@ -1,5 +1,5 @@
 # install cpp extensions, the pointnet++ library
-cd ppt_learning/third_party/openpoints/cpp/pointnet2_batch
+cd third_party/openpoints/cpp/pointnet2_batch
 python setup.py install
 cd ../
 

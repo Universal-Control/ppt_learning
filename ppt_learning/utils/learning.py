@@ -1,13 +1,14 @@
 import torch.nn.functional as F
 from tqdm import tqdm
 import torch.nn as nn
+from typing import Dict, List, Optional, Union, Any, Tuple, Callable
 
 import numpy as np
 import json
 
 
 import torch
-from omegaconf import OmegaConf
+from omegaconf import OmegaConf, DictConfig
 import os
 from PIL import Image
 from types import SimpleNamespace
@@ -67,26 +68,49 @@ ModalityType = SimpleNamespace(
 )
 
 
-def recursive_in(data, modality):
+def recursive_in(data: Dict[str, Any], modality: str) -> bool:
+    """Check if a nested modality key exists in the data dictionary.
+    
+    Args:
+        data: Dictionary to search in
+        modality: Nested key path separated by '/' (e.g., 'obs/rgb/image')
+        
+    Returns:
+        True if the modality path exists, False otherwise
+    """
     if "/" in modality:
         sub_modality = modality.split("/")[0]
         return recursive_in(data[sub_modality], "/".join(modality.split("/")[1:]))
     return modality in data
 
 
-def recursive_get(data, modality):
+def recursive_get(data: Dict[str, Any], modality: str) -> Any:
+    """Recursively get a nested value from a dictionary using a path.
+    
+    Args:
+        data: Dictionary to search in
+        modality: Nested key path separated by '/' (e.g., 'obs/rgb/image')
+        
+    Returns:
+        Value at the specified modality path
+    """
     if "/" in modality:
         sub_modality = modality.split("/")[0]
         return recursive_get(data[sub_modality], "/".join(modality.split("/")[1:]))
     return data[modality]
 
 
-def mkdir_if_missing(dst_dir):
+def mkdir_if_missing(dst_dir: str) -> None:
+    """Create directory if it doesn't exist.
+    
+    Args:
+        dst_dir: Directory path to create
+    """
     if not os.path.exists(dst_dir):
         os.makedirs(dst_dir)
 
 
-def save_args_hydra(path, cfg):
+def save_args_hydra(path: str, cfg: DictConfig) -> None:
     from omegaconf import OmegaConf
 
     cfg_dict = OmegaConf.to_container(cfg, resolve=True)
@@ -139,12 +163,19 @@ def save_args_hydra(path, cfg):
 
 
 def get_scheduler(
-    schduler_spec,
-    optimizer,
-    **kwargs,
-):
-    """
-    simple linear optimizers
+    schduler_spec: DictConfig,
+    optimizer: torch.optim.Optimizer,
+    **kwargs: Any,
+) -> torch.optim.lr_scheduler._LRScheduler:
+    """Get a learning rate scheduler based on specification.
+    
+    Args:
+        schduler_spec: Configuration for scheduler instantiation
+        optimizer: PyTorch optimizer to schedule
+        **kwargs: Additional keyword arguments
+        
+    Returns:
+        Instantiated learning rate scheduler
     """
     sch = hydra.utils.instantiate(schduler_spec, optimizer)
     # sch = torch.optim.lr_scheduler.MultiStepLR(optimizer, gamma=gamma, milestones=milestones, **kwargs)
@@ -152,20 +183,36 @@ def get_scheduler(
 
 
 def get_optimizer(
-    optimizer_spec,
-    policy,
-    optimizer_extra=None,
-    **kwargs,
-):
-    """
-    Added kwargs vs diffuser's original implementation
+    optimizer_spec: DictConfig,
+    policy: torch.nn.Module,
+    optimizer_extra: Optional[Any] = None,
+    **kwargs: Any,
+) -> torch.optim.Optimizer:
+    """Get an optimizer based on specification.
+    
+    Args:
+        optimizer_spec: Configuration for optimizer instantiation
+        policy: PyTorch model to optimize
+        optimizer_extra: Additional optimizer configuration (unused)
+        **kwargs: Additional keyword arguments
+        
+    Returns:
+        Instantiated PyTorch optimizer
     """
     opt_i = hydra.utils.instantiate(optimizer_spec, params=policy.parameters())
     return opt_i
 
 
-def batchify(data, exclude=[]):  # bs, seq_len, *dim
-    """merge batchsize, seqlen, horizon into the first dimension"""
+def batchify(data: Dict[str, torch.Tensor], exclude: List[str] = []) -> Dict[str, torch.Tensor]:
+    """Merge batchsize, seqlen, horizon into the first dimension.
+    
+    Args:
+        data: Dictionary of tensors with shape (bs, seq_len, *dim)
+        exclude: List of keys to exclude from batchification
+        
+    Returns:
+        Dictionary with tensors reshaped to merge batch and sequence dimensions
+    """
     if isinstance(data, dict):
         for key, value in data.items():
             if key not in exclude:

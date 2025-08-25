@@ -34,3 +34,8 @@ Change to:
 ```
 282: if isinstance(self.angle, collections.abc.Iterable):
 ```
+
+# Acknowledgement:
+
+- [GenSim2](https://github.com/GenSim2/GenSim2)
+- [Diffusion Policy](https://github.com/real-stanford/diffusion_policy)

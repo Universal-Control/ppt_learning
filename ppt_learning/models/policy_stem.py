@@ -17,11 +17,14 @@ import IPython
 
 from ppt_learning.utils.pcd_utils import BOUND
 from .clip.core.clip import build_model, load_clip, tokenize
+from ppt_learning.constants import (
+    DEFAULT_IMAGE_SIZE, IMGNET_MEAN, IMGNET_STD, DINOV2_FEATURE_DIM
+)
 
 IMGNET_TFM = transforms.Compose(
     [
-        transforms.Resize((224, 224)),
-        transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        transforms.Resize((DEFAULT_IMAGE_SIZE, DEFAULT_IMAGE_SIZE)),
+        transforms.Normalize(mean=IMGNET_MEAN, std=IMGNET_STD),
     ]
 )
 
@@ -47,10 +50,10 @@ class MLP(nn.Module):
         super().__init__()
         modules = [nn.Linear(input_dim, widths[0]), nn.ReLU()]
 
-        for i in range(len(widths) - 1):
-            modules.extend([nn.Linear(widths[i], widths[i + 1])])
+        for curr_width, next_width in zip(widths[:-1], widths[1:]):
+            modules.extend([nn.Linear(curr_width, next_width)])
             if ln:
-                modules.append(nn.LayerNorm(widths[i + 1]))
+                modules.append(nn.LayerNorm(next_width))
             modules.append(nn.ReLU())
 
         modules.append(nn.Linear(widths[-1], output_dim))
@@ -90,7 +93,7 @@ class DepthCNN(nn.Module):
             activation,
             nn.Flatten(),
             # Calculate the flattened size
-            nn.Linear(168960, 128),
+            nn.Linear(DINOV2_FEATURE_DIM, 128),
             activation,
             nn.Linear(128, output_dim)
         )
@@ -332,8 +335,8 @@ class PointNet(nn.Module):
         if len(mlp_widths):
             self.activation = torch.nn.ReLU()
             modules = []
-            for i in range(len(mlp_widths) - 1):
-                modules.append(nn.Linear(mlp_widths[i], mlp_widths[i + 1]))
+            for i, (curr_width, next_width) in enumerate(zip(mlp_widths[:-1], mlp_widths[1:])):
+                modules.append(nn.Linear(curr_width, next_width))
                 if i < len(mlp_widths) - 2:
                     modules.append(nn.ReLU())
             self.mlp = nn.Sequential(*modules)

@@ -3,19 +3,20 @@ not parallel yet, just a loop for now
 """
 import os, sys
 import hydra
-import torch
-from ppt_learning.utils import learning
-from ppt_learning.utils.warmup_lr_wrapper import WarmupLR
-from ppt_learning.utils.learning import dict_apply
-from ppt_learning.paths import *
 import numpy as np
-from torch.utils import data
 import time
 import json
+
+import torch
+from torch.utils import data
 from torch.multiprocessing import JoinableQueue
 import torch.multiprocessing as mp
 
-sys.path.append(f"{PPT_DIR}/third_party/")
+from ppt_learning.utils import learning
+from ppt_learning.utils.learning import dict_apply
+from ppt_learning.paths import *
+
+sys.path.append(f"{PPT_DIR}/../third_party/")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
 def eval_in_one_process(rank, world_size, cfg, domain, queue:JoinableQueue):

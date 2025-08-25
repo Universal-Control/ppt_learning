@@ -107,12 +107,12 @@ class MLP(nn.Module):
 
         modules = [nn.Linear(input_dim, widths[0]), nn.ReLU()]
 
-        for i in range(len(widths) - 1):
-            modules.extend([nn.Linear(widths[i], widths[i + 1])])
+        for curr_width, next_width in zip(widths[:-1], widths[1:]):
+            modules.extend([nn.Linear(curr_width, next_width)])
             if dropout:
                 modules.append(nn.Dropout(p=0.2))
             if ln:
-                modules.append(nn.LayerNorm(widths[i + 1]))
+                modules.append(nn.LayerNorm(next_width))
             modules.append(nn.ReLU())
 
         modules.append(nn.Linear(widths[-1], output_dim))
@@ -142,9 +142,9 @@ class Transformer(nn.Module):
 
         modules = [nn.Linear(input_dim, widths[0]), nn.ReLU()]
 
-        for i in range(len(widths) - 1):
+        for next_width in widths[1:]:
             # width must be fixed
-            module = residual_self_attention(widths[i + 1], n_head=n_head)
+            module = residual_self_attention(next_width, n_head=n_head)
             modules.extend([module])
             if dropout:
                 modules.append(nn.Dropout(p=0.2))
@@ -235,17 +235,17 @@ class RNN(nn.Module):
 
         modules = [nn.Linear(input_dim, widths[0]), nn.ReLU()]
 
-        for i in range(len(widths) - 1):
+        for curr_width, next_width in zip(widths[:-1], widths[1:]):
             rnn = nn.RNN(
-                widths[i],
-                widths[i + 1],
+                curr_width,
+                next_width,
                 1,
                 dropout=0.2 if dropout else 0,
                 batch_first=True,
             )
             modules.extend([rnn, extract_tensor()])
             if ln:
-                modules.append(nn.LayerNorm(widths[i + 1]))
+                modules.append(nn.LayerNorm(next_width))
 
         modules.append(nn.Linear(widths[-1], output_dim))
         if tanh_end:

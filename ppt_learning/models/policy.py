@@ -10,8 +10,9 @@ from collections import OrderedDict, deque
 
 from functools import partial
 from types import SimpleNamespace
-from typing import Dict
+from typing import Dict, Optional, Any, Union, Tuple, List
 import hydra
+from omegaconf import DictConfig
 
 import torch
 from torch import optim
@@ -35,16 +36,27 @@ from ppt_learning.utils.learning import (
     recursive_in,
     sample_pcd_data,
 )
+from ppt_learning.constants import DEFAULT_K_VALUE
 import IPython
 
 
-def merge_act(actions_for_curr_step, t, k=0.01):
+def merge_act(actions_for_curr_step: torch.Tensor, t: int, k: float = DEFAULT_K_VALUE) -> torch.Tensor:
+    """Merge actions using exponential weighting based on recency.
+    
+    Args:
+        actions_for_curr_step: Tensor of actions for current timestep, shape (N, action_dim)
+        t: Current timestep (unused but kept for API compatibility)
+        k: Exponential weight decay constant for temporal weighting
+        
+    Returns:
+        Merged action tensor with exponential temporal weighting applied
+    """
     actions_populated = torch.all(actions_for_curr_step != 0, dim=1)
     actions_for_curr_step = actions_for_curr_step[actions_populated]
 
     exp_weights = np.exp(-k * np.arange(len(actions_for_curr_step)))
     exp_weights = exp_weights / exp_weights.sum()
-    exp_weights = torch.from_numpy(exp_weights).cuda().unsqueeze(dim=1)
+    exp_weights = torch.from_numpy(exp_weights).to(actions_for_curr_step.device).unsqueeze(dim=1)
     raw_action = (actions_for_curr_step * exp_weights).sum(dim=0, keepdim=True)
 
     return raw_action
@@ -58,21 +70,21 @@ class Policy(nn.Module):
 
     def __init__(
         self,
-        embed_dim=1024,
-        num_blocks=24,
-        num_heads=16,
-        use_modality_embedding=True,
-        token_postprocessing=False,
-        observation_horizon=4,
-        action_horizon=1,  #
-        openloop_steps=1,
-        no_trunk=False,
-        temporal_agg=False,
-        max_timesteps=1300,
-        action_dim=7,
-        num_envs=1, # for parallell evaluation
-        **kwargs,
-    ):
+        embed_dim: int = 1024,
+        num_blocks: int = 24,
+        num_heads: int = 16,
+        use_modality_embedding: bool = True,
+        token_postprocessing: bool = False,
+        observation_horizon: int = 4,
+        action_horizon: int = 1,
+        openloop_steps: int = 1,
+        no_trunk: bool = False,
+        temporal_agg: bool = False,
+        max_timesteps: int = 1300,
+        action_dim: int = 7,
+        num_envs: int = 1,  # for parallel evaluation
+        **kwargs: Any,
+    ) -> None:
         super().__init__()
         self.embed_dim = embed_dim
         if not no_trunk:
@@ -100,8 +112,13 @@ class Policy(nn.Module):
         if (not self.no_trunk) and self.use_modality_embedding:
             self.modalities_tokens = OrderedDict()
 
-    def init_domain_stem(self, domain_name, stem_spec):
-        """initialize an observation stem for each domain"""
+    def init_domain_stem(self, domain_name: str, stem_spec: DictConfig) -> None:
+        """Initialize an observation stem for each domain.
+        
+        Args:
+            domain_name: Name of the domain to initialize
+            stem_spec: Configuration specification for the stem architecture
+        """
         self.stem_spec = stem_spec
         self.modalities = stem_spec.modalities
 
@@ -142,8 +159,14 @@ class Policy(nn.Module):
                 domain_name, modality, self.stem_spec.crossattn_latent, self.stem_spec
             )
 
-    def init_domain_head(self, domain_name, head_spec, normalizer=None):
-        """initialize an action head for each domain, along with normalizer"""
+    def init_domain_head(self, domain_name: str, head_spec: DictConfig, normalizer: Optional[LinearNormalizer] = None) -> None:
+        """Initialize an action head for each domain, along with normalizer.
+        
+        Args:
+            domain_name: Name of the domain to initialize
+            head_spec: Configuration specification for the head architecture
+            normalizer: Optional pre-trained normalizer to load
+        """
         self.head_spec = head_spec
         self.domains.append(domain_name)
         self.normalizer[domain_name] = LinearNormalizer()
@@ -151,7 +174,8 @@ class Policy(nn.Module):
             self.normalizer[domain_name].load_state_dict(normalizer.state_dict())
         self.heads[domain_name] = hydra.utils.instantiate(head_spec)
 
-    def finalize_modules(self):
+    def finalize_modules(self) -> None:
+        """Convert ordered dictionaries to PyTorch ModuleDict/ParameterDict for proper registration."""
         self.stems = nn.ModuleDict(self.stems)
         self.heads = nn.ModuleDict(self.heads)
         self.normalizer = nn.ModuleDict(self.normalizer)
@@ -165,13 +189,13 @@ class Policy(nn.Module):
 
     def _create_policy_trunk(
         self,
-        embed_dim=1024,
-        num_blocks=24,
-        num_heads=16,
-        drop_path=0.0,
-        weight_init_style="pytorch",
-        **kwargs,
-    ):
+        embed_dim: int = 1024,
+        num_blocks: int = 24,
+        num_heads: int = 16,
+        drop_path: float = 0.0,
+        weight_init_style: str = "pytorch",
+        **kwargs: Any,
+    ) -> SimpleTransformer:
         # follow ImageBind
         def instantiate_trunk(
             embed_dim, num_blocks, num_heads, pre_transformer_ln, add_bias_kv, drop_path
@@ -234,10 +258,15 @@ class Policy(nn.Module):
         feature = feature + time_embedding.unsqueeze(2)
         return feature
 
-    def preprocess_tokens(self, features):
-        """
-        concatenate tokens and add modality tokens. Add positional and time embeddings.
-        (M) x B x T x Li x D -> B x L x D
+    def preprocess_tokens(self, features: List[torch.Tensor]) -> torch.Tensor:
+        """Concatenate tokens and add modality tokens. Add positional and time embeddings.
+        
+        Args:
+            features: List of feature tensors from different modalities
+            
+        Returns:
+            Concatenated and processed feature tensor with shape (B, L, D)
+            where B=batch, L=total sequence length, D=embedding dimension
         """
         processed_features = []
         for idx, (modality, feature) in enumerate(zip(self.modalities, features)):
@@ -283,7 +312,16 @@ class Policy(nn.Module):
         else:
             return trunk_tokens  # No postprocessing
 
-    def preprocess_actions(self, domain, data):
+    def preprocess_actions(self, domain: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Preprocess and normalize action data if configured.
+        
+        Args:
+            domain: Domain name for normalization
+            data: Data dictionary potentially containing actions
+            
+        Returns:
+            Data dictionary with normalized actions (if applicable)
+        """
         if (
             self.head_spec.normalize_action
             and ("action" in data)
@@ -293,8 +331,16 @@ class Policy(nn.Module):
 
         return data
 
-    def preprocess_states(self, domain, data):
-        """pre-process output"""
+    def preprocess_states(self, domain: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Preprocess and normalize state observations.
+        
+        Args:
+            domain: Domain name for normalization
+            data: Data dictionary containing state observations
+            
+        Returns:
+            Data dictionary with normalized state observations
+        """
         # normalize actions if needed
         if not self.stem_spec.cross_attention:
             return data
@@ -400,16 +446,19 @@ class Policy(nn.Module):
             if self.num_envs > 1:
                 if env_id is None:
                     self.all_time_actions = torch.zeros(
-                        [self.num_envs, self.max_timesteps + self.action_horizon, self.max_timesteps + self.action_horizon, self.action_dim]
-                    ).cuda()
+                        [self.num_envs, self.max_timesteps + self.action_horizon, self.max_timesteps + self.action_horizon, self.action_dim],
+                        device=next(self.parameters()).device
+                    )
                 else:
                     self.all_time_actions[env_id] = torch.zeros(
-                        [self.max_timesteps + self.action_horizon, self.max_timesteps + self.action_horizon, self.action_dim]
-                    ).cuda()
+                        [self.max_timesteps + self.action_horizon, self.max_timesteps + self.action_horizon, self.action_dim],
+                        device=next(self.parameters()).device
+                    )
             else:
                 self.all_time_actions = torch.zeros(
-                    [self.max_timesteps + self.action_horizon, self.max_timesteps + self.action_horizon, self.action_dim]
-                ).cuda()
+                    [self.max_timesteps + self.action_horizon, self.max_timesteps + self.action_horizon, self.action_dim],
+                    device=next(self.parameters()).device
+                )
         else:
             if self.num_envs > 1:
                 if env_id is None:
@@ -518,15 +567,29 @@ class Policy(nn.Module):
                         self.openloop_actions.append(a)
                 return action[0] # action w.r.t current obs
 
-    def forward_train(self, batch):
-        """Traing loop forward pass"""
+    def forward_train(self, batch: Dict[str, Any]) -> torch.Tensor:
+        """Training loop forward pass.
+        
+        Args:
+            batch: Training batch containing domain and data information
+            
+        Returns:
+            Action predictions for the training batch
+        """
         self.train_mode = True
         return self(batch["domain"][0], batch["data"])
 
-    def forward(self, domain, data, head_kwargs: dict = {}):
-        """main forward pass of the combined policy.
-        :param batch: data
-        :return: action"""
+    def forward(self, domain: str, data: Dict[str, Any], head_kwargs: Dict[str, Any] = {}) -> torch.Tensor:
+        """Main forward pass of the combined policy.
+        
+        Args:
+            domain: Domain name for the current forward pass
+            data: Dictionary containing input observations and actions
+            head_kwargs: Additional keyword arguments for the head module
+            
+        Returns:
+            Action tensor output from the policy head
+        """
         # preprocess / normalization
         data = self.preprocess_states(domain, data)
         data = self.preprocess_actions(domain, data)

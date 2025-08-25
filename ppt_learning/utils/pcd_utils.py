@@ -425,7 +425,7 @@ def transform_pcd(pcd, transform):
 
 
 def vis_pcd_html(pcds, rgbs, name, gt_traj=None):
-    rgb_strings = [f"rgb{rgbs[i][0],rgbs[i][1],rgbs[i][2]}" for i in range(len(rgbs))]
+    rgb_strings = [f"rgb{rgb[0],rgb[1],rgb[2]}" for rgb in rgbs]
 
     if gt_traj is not None:
         gx, gy, gz = gt_traj[:, 0], gt_traj[:, 1], gt_traj[:, 2]
@@ -686,16 +686,16 @@ def pcd_downsample(
     return obs
 
 
-def fps_sampling(points, npoints=1200):
+def fps_sampling(points, npoints=1200, device='cuda' if torch.cuda.is_available() else 'cpu'):
     num_curr_pts = points.shape[0]
     if num_curr_pts < npoints:
         return np.random.choice(num_curr_pts, npoints, replace=True)
-    points = torch.from_numpy(points).unsqueeze(0).cuda()
+    points = torch.from_numpy(points).unsqueeze(0).to(device)
     try:
         fps_idx = furthest_point_sample(points[..., :3], npoints)
     except:
-        npoints = torch.tensor([npoints]).cuda()
-        _, fps_idx = torch3d_ops.sample_farthest_points(points[..., :3], K=npoints)
+        npoints_tensor = torch.tensor([npoints]).to(device)
+        _, fps_idx = torch3d_ops.sample_farthest_points(points[..., :3], K=npoints_tensor)
 
     return fps_idx.squeeze(0).cpu().numpy()
 
@@ -1183,10 +1183,10 @@ def pcd_downsample_torch(
 
     if bound_clip:
         mask = pcd_filter_bound_torch(obs["pos"], bound=bound)
-        obs = {k: [v[i][mask[i]] for i in range(len(v))] for k, v in obs.items()}
+        obs = {k: [val[mask_val] for val, mask_val in zip(v, mask)] for k, v in obs.items()}
     res_obs = {k: [] for k in obs}
-    for i in range(len(obs["pos"])):
-        mask = uniform_sampling_torch(obs["pos"][i], npoints=num)
+    for i, pos in enumerate(obs["pos"]):
+        mask = uniform_sampling_torch(pos, npoints=num)
         for k in res_obs:
             res_obs[k].append(obs[k][i][mask])
     for k in res_obs:
