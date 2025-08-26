@@ -1,460 +1,288 @@
-"""Unified simulation evaluation script for PPT Learning.
-
-This script provides both sequential and distributed parallel evaluation modes
-for robotic manipulation policies. It supports single and multi-model evaluation
-with configurable parallelization strategies.
-
-Key Features:
-    - Sequential evaluation for single GPU setups
-    - Distributed parallel evaluation for multi-GPU setups
-    - Comprehensive logging and result collection
-    - Support for subtask-level success rate analysis
-    - Flexible model loading and evaluation
 """
-
-import os
-import sys
+Unified evaluation script that combines sequential and parallel evaluation modes.
+"""
+import os, sys
 import hydra
 import numpy as np
 import time
 import json
-import logging
-from typing import Dict, List, Optional, Tuple, Any, Union
-from pathlib import Path
-
 import torch
 from torch.utils import data
 from torch.multiprocessing import JoinableQueue
 import torch.multiprocessing as mp
-from omegaconf import DictConfig
+from omegaconf import OmegaConf
 
 from ppt_learning.utils import learning
 from ppt_learning.utils.learning import dict_apply
 from ppt_learning.paths import *
 
-# Configure environment
 sys.path.append(f"{PPT_DIR}/../third_party/")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
-# Configure logging
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
-logger = logging.getLogger(__name__)
+# Register eval resolver for OmegaConf
+OmegaConf.register_new_resolver("eval", eval)
 
 
-class EvaluationRunner:
-    """Unified evaluation runner for sequential and parallel modes."""
-    
-    def __init__(self, cfg: DictConfig, mode: str = "auto"):
-        """Initialize the evaluation runner.
-        
-        Args:
-            cfg: Hydra configuration object
-            mode: Evaluation mode - "sequential", "parallel", or "auto"
-        """
-        self.cfg = cfg
-        self.mode = self._determine_mode(mode)
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
-        
-        # Setup output directory
-        self.output_dir = self._setup_output_directory()
-        
-        # Parse domain configuration
-        self.domain_list = [d.strip() for d in cfg.domains.split(",")]
-        self.domain = self.domain_list[0] if len(self.domain_list) == 1 else "_".join(self.domain_list)
-        
-        # Configure model dimensions
-        self.action_dim = getattr(cfg, 'action_dim', 7)
-        self.state_dim = cfg.state_dim
-        
-        # Configure point cloud settings
-        self.use_pcd = "pointcloud" in cfg.stem.modalities
-        if self.use_pcd:
-            cfg.rollout_runner.pcdnet_pretrain_domain = cfg.stem.pointcloud.pcd_domain
-            
-        # Setup head configuration
+def eval_in_one_process(rank, world_size, cfg, domain, queue: JoinableQueue):
+    """Worker process for parallel evaluation."""
+    try:
+        os.environ["LOCAL_RANK"] = str(rank)
+        os.environ["RANK"] = str(rank)
+        os.environ["WORLD_SIZE"] = str(world_size)
+        device = f"cuda:{rank}"
+
+        # initialize policy
         if cfg.rollout_runner.get("hist_action_cond", False):
             cfg.head["hist_horizon"] = cfg.dataset.observation_horizon
-        cfg.head["output_dim"] = cfg.network["action_dim"] = self.action_dim
-        cfg.stem.state["input_dim"] = self.state_dim
-        
-        logger.info(f"Initialized {self.mode} evaluation runner")
-        logger.info(f"Output directory: {self.output_dir}")
-        logger.info(f"Domain: {self.domain}")
-        logger.info(f"Using point clouds: {self.use_pcd}")
-    
-    def _determine_mode(self, mode: str) -> str:
-        """Determine evaluation mode based on configuration and resources.
-        
-        Args:
-            mode: Requested mode ("sequential", "parallel", or "auto")
-            
-        Returns:
-            Determined evaluation mode
-        """
-        if mode == "auto":
-            n_procs = getattr(self.cfg, 'n_procs', 1)
-            n_gpus = torch.cuda.device_count()
-            
-            if n_procs > 1 and n_gpus > 1:
-                return "parallel"
-            else:
-                return "sequential"
-        return mode
-    
-    def _setup_output_directory(self) -> str:
-        """Setup and create output directory.
-        
-        Returns:
-            Output directory path
-        """
-        output_dir_full = self.cfg.output_dir.split("/")
-        domain_list = [d.strip() for d in self.cfg.domains.split(",")]
-        domain = domain_list[0] if len(domain_list) == 1 else "_".join(domain_list)
-        
-        output_dir = "/".join(output_dir_full[:-2] + [domain, ""])
-        if len(self.cfg.suffix):
-            output_dir += f"{self.cfg.suffix}"
-        else:
-            output_dir += "-".join(output_dir_full[-2:])
-        
-        is_eval = self.cfg.train.total_epochs == 0
-        if is_eval:
-            output_dir += "-eval"
-            
-        self.cfg.output_dir = output_dir
-        learning.save_args_hydra(output_dir, self.cfg)
-        
-        return output_dir
-    
-    def create_policy(self, device: str = None) -> torch.nn.Module:
-        """Create and initialize policy.
-        
-        Args:
-            device: Target device for policy
-            
-        Returns:
-            Initialized policy module
-        """
-        if device is None:
-            device = self.device
-            
-        policy = hydra.utils.instantiate(
-            self.cfg.network, 
-            max_timestep=self.cfg.rollout_runner.max_timestep
-        )
-        
-        policy.init_domain_stem(self.domain, self.cfg.stem)
-        policy.init_domain_head(self.domain, self.cfg.head)
+        policy = hydra.utils.instantiate(cfg.network, max_timestep=cfg.rollout_runner.max_timestep)
+        policy.init_domain_stem(domain, cfg.stem)
+        policy.init_domain_head(domain, cfg.head)
+
+        # optimizer and scheduler
         policy.finalize_modules()
+        print(f"rank: {rank}, cfg.train.pretrained_dir:", cfg.train.pretrained_dir)
         policy.to(device)
-        
-        n_parameters = sum(p.numel() for p in policy.parameters())
-        logger.info(f"Policy parameters: {n_parameters / 1.0e6:.2f}M")
-        
-        return policy
-    
-    def load_model(self, policy: torch.nn.Module, model_name: str) -> torch.nn.Module:
-        """Load model weights from checkpoint.
-        
-        Args:
-            policy: Policy module to load weights into
-            model_name: Name of model checkpoint file
-            
-        Returns:
-            Policy with loaded weights
-            
-        Raises:
-            FileNotFoundError: If model checkpoint doesn't exist
-        """
-        model_path = os.path.join(self.cfg.train.pretrained_dir, model_name)
-        
-        if not os.path.exists(model_path):
-            raise FileNotFoundError(
-                f"Pretrained model not found: {model_path}"
+
+        print(f"Before init at rank {rank}")
+        runner = hydra.utils.instantiate(cfg.rollout_runner, world_size=world_size, rank=rank)
+        print(f"After init at rank {rank}")
+
+        model_dir = cfg.train.pretrained_dir
+
+        model_names = [name for i, name in enumerate(cfg.train.model_names) if i % world_size == rank]
+        for model_name in model_names:
+            assert os.path.exists(
+                os.path.join(cfg.train.pretrained_dir, model_name)
+            ), f"Pretrained model not found, try to load model from {os.path.join(cfg.train.pretrained_dir, model_name)}"
+            policy.load_state_dict(
+                torch.load(os.path.join(cfg.train.pretrained_dir, model_name))
             )
-        
-        state_dict = torch.load(model_path, map_location=self.device)
-        policy.load_state_dict(state_dict)
-        policy.eval()
-        
-        logger.info(f"Loaded model: {model_name}")
-        return policy
-    
-    def evaluate_single_model(
-        self, 
-        policy: torch.nn.Module, 
-        runner: Any, 
-        model_name: str
-    ) -> Tuple[float, Dict[str, float]]:
-        """Evaluate a single model.
-        
-        Args:
-            policy: Policy to evaluate
-            runner: Evaluation runner instance
-            model_name: Name of the model being evaluated
-            
-        Returns:
-            Tuple of (success_rate, subtask_success_rates)
-        """
-        logger.info(f"Starting evaluation of {model_name}")
-        start_time = time.time()
-        
-        try:
+
+            n_parameters = sum(p.numel() for p in policy.parameters())
+            print(f"number of params (M): {n_parameters / 1.0e6:.2f}")
+
+            policy.eval()
+
+            print("Model initialize successfully")
+            start_time = time.time()
             result = runner.run(policy, model_name)
-            if len(result) == 3:
+            
+            # Handle different return formats
+            if isinstance(result, tuple) and len(result) == 3:
                 success_rate, _, extra_info = result
                 if isinstance(extra_info, tuple) and len(extra_info) == 3:
                     _, subtask_success_nums, episode_num = extra_info
-                    subtask_success_rates = {
-                        key: float(count) / episode_num 
-                        for key, count in subtask_success_nums.items()
-                    }
+                    subtask_success_sr = {}
+                    for key in subtask_success_nums:
+                        print(f"Subtask success rate for {key} is: {float(subtask_success_nums[key]) / episode_num}")
+                        subtask_success_sr[key] = float(subtask_success_nums[key]) / episode_num
                 else:
-                    subtask_success_rates = {}
+                    subtask_success_sr = {}
             else:
                 success_rate = result
-                subtask_success_rates = {}
-        except Exception as e:
-            logger.error(f"Error evaluating {model_name}: {e}")
-            success_rate = 0.0
-            subtask_success_rates = {}
-        
-        end_time = time.time()
-        evaluation_time = end_time - start_time
-        
-        logger.info(f"Model {model_name} evaluation completed")
-        logger.info(f"Success rate: {success_rate:.4f}")
-        logger.info(f"Evaluation time: {evaluation_time:.2f}s")
-        
-        for subtask, rate in subtask_success_rates.items():
-            logger.info(f"Subtask {subtask} success rate: {rate:.4f}")
-        
-        return success_rate, subtask_success_rates
+                subtask_success_sr = {}
+                
+            end_time = time.time()
+            print(f"Evaluation takes {end_time - start_time} second to finish.")
+            print("\n\nThe success rate is {}\n".format(success_rate))
+            
+            queue.put((model_name, success_rate, subtask_success_sr))
+
+        queue.join()
+    except Exception as e:
+        print(f"Error in process {rank}: {e}")
+        import traceback
+        traceback.print_exc()
+
+
+def run_sequential_eval(cfg, domain):
+    """Run sequential evaluation on a single process."""
+    device = "cuda"
     
-    def run_sequential(self) -> Dict[str, Dict[str, Union[float, Dict[str, float]]]]:
-        """Run sequential evaluation on a single process.
-        
-        Returns:
-            Dictionary mapping model names to their evaluation results
-        """
-        logger.info("Starting sequential evaluation")
-        
-        policy = self.create_policy()
-        runner = hydra.utils.instantiate(self.cfg.rollout_runner)
-        results = {}
-        
-        model_names = self.cfg.train.model_names
-        log_file = os.path.join(
-            self.cfg.train.pretrained_dir, 
-            f"{self.cfg.eval_log_name}.txt"
+    use_pcd = "pointcloud" in cfg.stem.modalities
+    if use_pcd:
+        cfg.rollout_runner.pcdnet_pretrain_domain = cfg.stem.pointcloud.pcd_domain
+
+    action_dim = cfg.action_dim
+    state_dim = cfg.state_dim
+
+    # initialize policy
+    if cfg.rollout_runner.get("hist_action_cond", False):
+        cfg.head["hist_horizon"] = cfg.dataset.observation_horizon
+    cfg.head["output_dim"] = cfg.network["action_dim"] = action_dim
+
+    policy = hydra.utils.instantiate(cfg.network, max_timestep=cfg.rollout_runner.max_timestep)
+    cfg.stem.state["input_dim"] = state_dim
+    policy.init_domain_stem(domain, cfg.stem)
+    policy.init_domain_head(domain, cfg.head)
+
+    # optimizer and scheduler
+    policy.finalize_modules()
+    print("cfg.train.pretrained_dir:", cfg.train.pretrained_dir)
+
+    policy.to(device)
+
+    model_names = cfg.train.model_names
+    model_dir = cfg.train.pretrained_dir
+    srs = {}
+    runner = hydra.utils.instantiate(cfg.rollout_runner)
+
+    print("============================================")
+    print(f'Log will be write to {os.path.join(model_dir, f"{cfg.eval_log_name}.txt")}')
+    print("============================================")
+    
+    for model_name in model_names:
+        assert os.path.exists(
+            os.path.join(cfg.train.pretrained_dir, model_name)
+        ), f"Pretrained model not found, try to load model from {os.path.join(cfg.train.pretrained_dir, model_name)}"
+
+        policy.load_state_dict(
+            torch.load(os.path.join(cfg.train.pretrained_dir, model_name))
         )
+
+        n_parameters = sum(p.numel() for p in policy.parameters())
+        print(f"number of params (M): {n_parameters / 1.0e6:.2f}")
+
+        policy.eval()
+
+        print("Model initialize successfully")
+        start_time = time.time()
+        result = runner.run(policy, model_name)
         
-        logger.info(f"Evaluating {len(model_names)} models")
-        logger.info(f"Results will be logged to: {log_file}")
-        
-        for model_name in model_names:
-            try:
-                self.load_model(policy, model_name)
-                success_rate, subtask_rates = self.evaluate_single_model(
-                    policy, runner, model_name
-                )
-                
-                # Store results
-                results[model_name] = {
-                    "total": success_rate,
-                    "subtask_sr": subtask_rates
-                }
-                
-                # Log to file
-                with open(log_file, "a") as f:
-                    f.write(f"success rate of {model_name} is: {success_rate}\\n")
-                    for subtask, rate in subtask_rates.items():
-                        f.write(f"Subtask success rate for {subtask} is: {rate}\\n")
-                        
-            except Exception as e:
-                logger.error(f"Failed to evaluate {model_name}: {e}")
-                results[model_name] = {"total": 0.0, "subtask_sr": {}}
-        
-        return results
-    
-    def run_parallel(self) -> Dict[str, Dict[str, Union[float, Dict[str, float]]]]:
-        """Run parallel evaluation using multiple processes.
-        
-        Returns:
-            Dictionary mapping model names to their evaluation results
-        """
-        logger.info("Starting parallel evaluation")
-        
-        world_size = self.cfg.n_procs
-        if world_size > torch.cuda.device_count():
-            logger.warning(
-                f"Requested {world_size} processes but only {torch.cuda.device_count()} GPUs available"
-            )
-            world_size = torch.cuda.device_count()
-        
-        logger.info(f"Using {world_size} parallel processes")
-        
-        # Set multiprocessing start method
-        mp.set_start_method('spawn', force=True)
-        
-        # Create shared queue for results
-        shared_queue = JoinableQueue()
-        
-        # Launch parallel processes
-        mp.spawn(
-            self._eval_worker_process,
-            args=(world_size, shared_queue),
-            nprocs=world_size,
-            join=False,
-            daemon=True
-        )
-        
-        # Collect results
-        results = {}
-        model_names = self.cfg.train.model_names
-        log_file = os.path.join(
-            self.cfg.train.pretrained_dir,
-            f"{self.cfg.eval_log_name}.txt"
-        )
-        
-        logger.info(f"Collecting results from {len(model_names)} models")
-        
-        try:
-            for _ in range(len(model_names)):
-                model_name, success_rate, subtask_rates = shared_queue.get()
-                
-                results[model_name] = {
-                    "total": success_rate,
-                    "subtask_sr": subtask_rates
-                }
-                
-                # Log results
-                with open(log_file, "a") as f:
-                    f.write(f"success rate of {model_name} is: {success_rate}\\n")
-                    for subtask, rate in subtask_rates.items():
-                        f.write(f"Subtask success rate for {subtask} is: {rate}\\n")
-                
-                shared_queue.task_done()
-                logger.info(f"Collected results for {model_name}")
-                
-        except KeyboardInterrupt:
-            logger.warning("Evaluation interrupted by user")
-        
-        return results
-    
-    def _eval_worker_process(self, rank: int, world_size: int, queue: JoinableQueue) -> None:
-        """Worker process for parallel evaluation.
-        
-        Args:
-            rank: Process rank
-            world_size: Total number of processes
-            queue: Shared queue for result communication
-        """
-        try:
-            # Set environment variables for distributed setup
-            os.environ["LOCAL_RANK"] = str(rank)
-            os.environ["RANK"] = str(rank)
-            os.environ["WORLD_SIZE"] = str(world_size)
-            
-            device = f"cuda:{rank}"
-            logger.info(f"Worker {rank} starting on {device}")
-            
-            # Create policy and runner for this process
-            policy = self.create_policy(device)
-            runner = hydra.utils.instantiate(
-                self.cfg.rollout_runner, 
-                world_size=world_size, 
-                rank=rank
-            )
-            
-            # Evaluate assigned models (round-robin assignment)
-            model_names = [
-                name for i, name in enumerate(self.cfg.train.model_names) 
-                if i % world_size == rank
-            ]
-            
-            logger.info(f"Worker {rank} assigned {len(model_names)} models")
-            
-            for model_name in model_names:
-                try:
-                    self.load_model(policy, model_name)
-                    success_rate, subtask_rates = self.evaluate_single_model(
-                        policy, runner, model_name
-                    )
-                    queue.put((model_name, success_rate, subtask_rates))
-                    logger.info(f"Worker {rank} completed {model_name}")
-                    
-                except Exception as e:
-                    logger.error(f"Worker {rank} failed on {model_name}: {e}")
-                    queue.put((model_name, 0.0, {}))
-            
-        except Exception as e:
-            logger.error(f"Worker {rank} encountered error: {e}")
-            import traceback
-            traceback.print_exc()
-    
-    def run(self) -> Dict[str, Dict[str, Union[float, Dict[str, float]]]]:
-        """Run evaluation in the configured mode.
-        
-        Returns:
-            Dictionary mapping model names to their evaluation results
-        """
-        logger.info(f"Starting evaluation in {self.mode} mode")
-        
-        if self.mode == "sequential":
-            results = self.run_sequential()
-        elif self.mode == "parallel":
-            results = self.run_parallel()
+        # Handle different return formats
+        if isinstance(result, tuple) and len(result) == 3:
+            success_rate, _, extra_info = result
+            if isinstance(extra_info, tuple) and len(extra_info) == 3:
+                _, subtask_success_nums, episode_num = extra_info
+                subtask_success_sr = {}
+                for key in subtask_success_nums:
+                    print(f"Subtask success rate for {key} is: {float(subtask_success_nums[key]) / episode_num}")
+                    subtask_success_sr[key] = float(subtask_success_nums[key]) / episode_num
+            else:
+                subtask_success_sr = {}
         else:
-            raise ValueError(f"Unknown evaluation mode: {self.mode}")
+            success_rate = result
+            subtask_success_sr = {}
+            
+        end_time = time.time()
+        print(f"Evaluation takes {end_time - start_time} second to finish.")
+        print("\n\nThe success rate is {}\n".format(success_rate))
         
-        # Save results to JSON
-        results_file = os.path.join(
-            self.cfg.train.pretrained_dir,
-            f"{self.cfg.eval_log_name}.json"
-        )
+        with open(os.path.join(model_dir, f"{cfg.eval_log_name}.txt"), "at") as t:
+            t.write(f"success rate of {model_name} is: {success_rate}\n")
+            for key in subtask_success_sr:
+                t.write(f"Subtask success rate for {key} is: {subtask_success_sr[key]}\n")
+                
+        srs[model_name] = {"total": success_rate, "subtask_sr": subtask_success_sr}
         
-        with open(results_file, "w") as f:
-            json.dump(results, f, indent=2)
-        
-        logger.info(f"Results saved to: {results_file}")
-        
-        # Log summary
-        total_models = len(results)
-        avg_success_rate = np.mean([r["total"] for r in results.values()])
-        
-        logger.info(f"Evaluation Summary:")
-        logger.info(f"  Total models: {total_models}")
-        logger.info(f"  Average success rate: {avg_success_rate:.4f}")
-        
-        return results
+    with open(os.path.join(model_dir, f"{cfg.eval_log_name}.json"), "wt") as j:
+        json.dump(srs, j)
+
+    return success_rate
+
+
+def run_parallel_eval(cfg, domain):
+    """Run parallel evaluation using multiple processes."""
+    mp.set_start_method('spawn')
+    
+    use_pcd = "pointcloud" in cfg.stem.modalities
+    if use_pcd:
+        cfg.rollout_runner.pcdnet_pretrain_domain = cfg.stem.pointcloud.pcd_domain
+    
+    action_dim = cfg.action_dim
+    state_dim = cfg.state_dim
+    
+    cfg.head["output_dim"] = cfg.network["action_dim"] = action_dim
+    cfg.stem.state["input_dim"] = state_dim
+
+    model_dir = cfg.train.pretrained_dir
+    shared_queue = JoinableQueue()
+    
+    print("============================================")
+    print(f'Log will be write to {os.path.join(model_dir, f"{cfg.eval_log_name}.txt")}')
+    print("============================================")
+
+    world_size = cfg.n_procs
+    print(f'Parallel on {world_size} gpu(s)')
+    mp.spawn(eval_in_one_process, args=(world_size, cfg, domain, shared_queue), nprocs=world_size, join=False, daemon=True)
+
+    idx = 0
+    srs = {}
+    try:
+        while idx < len(cfg.train.model_names):
+            model_name, success_rate, subtask_sr = shared_queue.get()
+            with open(os.path.join(model_dir, f"{cfg.eval_log_name}.txt"), "at") as t:
+                t.write(f"success rate of {model_name} is: {success_rate}\n")
+                for key in subtask_sr:
+                    t.write(f"Subtask success rate for {key} is: {subtask_sr[key]}\n")
+            srs[model_name] = {"total": success_rate}
+            shared_queue.task_done()
+            idx += 1
+            srs[model_name]["subtask_sr"] = subtask_sr
+        with open(os.path.join(model_dir, f"{cfg.eval_log_name}.json"), "wt") as j:
+            json.dump(srs, j)
+    except KeyboardInterrupt:
+        print("\nProgram interrupted by user. Exiting...")
+    
+    # Return average success rate
+    if srs:
+        return np.mean([s["total"] for s in srs.values()])
+    return 0.0
 
 
 @hydra.main(
-    config_path="configs",
-    config_name="config_eval_pcd_unified",
+    config_path=f"configs",
+    config_name="config_eval_depth_unified",
     version_base="1.2",
 )
-def main(cfg: DictConfig) -> float:
-    """Main evaluation entry point.
-    
-    Args:
-        cfg: Hydra configuration
-        
-    Returns:
-        Average success rate across all models
+def run(cfg):
     """
+    This script runs through the train / test / eval loop. Assumes single task for now.
+    """
+    is_eval = cfg.train.total_epochs == 0
+
+    domain_list = [d.strip() for d in cfg.domains.split(",")]
+    domain = domain_list[0] if len(domain_list) == 1 else "_".join(domain_list)
+
+    output_dir_full = cfg.output_dir.split("/")
+    output_dir = "/".join(output_dir_full[:-2] + [domain, ""])
+    if len(cfg.suffix):
+        output_dir += f"{cfg.suffix}"
+    else:
+        output_dir += "-".join(output_dir_full[-2:])
+    if is_eval:
+        output_dir += "-eval"
+    cfg.output_dir = output_dir
+    learning.save_args_hydra(cfg.output_dir, cfg)
+
+    print("cfg: ", cfg)
+    print("output dir", cfg.output_dir)
+    
     # Determine evaluation mode
-    eval_mode = getattr(cfg, 'eval_mode', 'auto')
+    eval_mode = cfg.get('eval_mode', 'auto')
     
-    # Create and run evaluator
-    evaluator = EvaluationRunner(cfg, mode=eval_mode)
-    results = evaluator.run()
+    if eval_mode == 'auto':
+        # Auto mode: use parallel if n_procs > 1 and multiple GPUs available
+        n_procs = cfg.get('n_procs', 1)
+        n_gpus = torch.cuda.device_count()
+        use_parallel = n_procs > 1 and n_gpus >= n_procs and len(cfg.train.model_names) > 1
+    elif eval_mode == 'sequential':
+        use_parallel = False
+    elif eval_mode == 'parallel':
+        use_parallel = True
+    else:
+        raise ValueError(f"Unknown eval_mode: {eval_mode}")
     
-    # Return average success rate for compatibility
-    avg_success_rate = np.mean([r["total"] for r in results.values()])
-    return avg_success_rate
+    # Run evaluation
+    if use_parallel:
+        print(f"Running PARALLEL evaluation with {cfg.n_procs} processes")
+        success_rate = run_parallel_eval(cfg, domain)
+    else:
+        print("Running SEQUENTIAL evaluation")
+        success_rate = run_sequential_eval(cfg, domain)
+
+    return success_rate
 
 
 if __name__ == "__main__":
-    main()
+    run()

@@ -13,6 +13,7 @@ from tqdm import tqdm
 import transforms3d
 import copy
 import cv2
+import os
 
 from multiprocessing import Process, Queue
 import multiprocessing as mp
@@ -32,6 +33,7 @@ from ppt_learning.utils.pcd_utils import (
 )
 from ppt_learning.paths import *
 from pathlib import Path
+import pandas as pd
 
 import collections
 try:
@@ -107,6 +109,17 @@ def flat_pcd_sample(sample, pcd_channels=4):
             raise ValueError(f"Invalid pcd_channels: {pcd_channels}")
     return sample
 
+def flat_dict(dct):
+    """Flatten a nested dictionary."""
+    flat = {}
+    for key, value in dct.items():
+        if isinstance(value, dict):
+            nested_flat = flat_dict(value)
+            for nested_key, nested_value in nested_flat.items():
+                flat[f"{key}/{nested_key}"] = nested_value
+        else:
+            flat[key] = value
+    return flat
 
 def update_pcd_transform(pcdnet_pretrain_domain, pcd_setup_cfg=None):
     from openpoints.transforms import build_transforms_from_cfg
@@ -455,19 +468,44 @@ def _recursive_flat_env_dim(obs: dict):
     return flatted_dict
 
 
-def clip_depth(depth):
-    # depth: torch.Tensor or np.ndarray
-    if isinstance(depth, np.ndarray):
-        depth = torch.from_numpy(depth)
-    valid_mask = (depth > 0.01) & (~torch.isnan(depth)) & (~torch.isinf(depth))
-    if valid_mask.sum() == 0:
-        print("No valid mask in the depth map")
-    if valid_mask.sum() != 0 and torch.isnan(depth).sum() != 0:
-        depth[torch.isnan(depth)] = depth[valid_mask].max()
-    if valid_mask.sum() != 0 and torch.isinf(depth).sum() != 0:
-        depth[torch.isinf(depth)] = depth[valid_mask].max()
-    return depth
+class WarpMinMax:
+    EPS = 1e-3
+    def warp(self, depth, reference, **kwargs):
+        depth_min, depth_max = (
+            reference.reshape(depth.shape[0], -1).min(1, keepdim=True)[0],
+            reference.reshape(depth.shape[0], -1).max(1, keepdim=True)[0],
+        )
+        if ((depth_max - depth_min) < self.EPS).any():
+            depth_max[(depth_max - depth_min) < self.EPS] = (
+                depth_min[(depth_max - depth_min) < self.EPS] + self.EPS
+            )
+        return (depth - depth_min[:, None, None]) / (depth_max - depth_min)[
+            :, None, None
+        ]
 
+    def unwarp(self, depth, reference, **kwargs):
+        depth_min, depth_max = (
+            reference.reshape(depth.shape[0], -1).min(1, keepdim=True)[0],
+            reference.reshape(depth.shape[0], -1).max(1, keepdim=True)[0],
+        )
+        if ((depth_max - depth_min) < self.EPS).any():
+            depth_max[(depth_max - depth_min) < self.EPS] = (
+                depth_min[(depth_max - depth_min) < self.EPS] + self.EPS
+            )
+        return depth * (depth_max - depth_min)[:, None, None] + depth_min[:, None, None]
+
+def clip_depth(depth):
+    valid_mask = np.logical_and(depth > 0.01, ~np.isnan(depth)) & (~np.isinf(depth))
+    if valid_mask.sum() == 0:
+        print(
+            "No valid mask in the depth map"
+        )
+    if valid_mask.sum() != 0 and np.isnan(depth).sum() != 0:
+        depth[np.isnan(depth)] = depth[valid_mask].max()
+    if valid_mask.sum() != 0 and np.isinf(depth).sum() != 0:
+        depth[np.isinf(depth)] = depth[valid_mask].max()
+
+    return depth
 
 class IsaacEnvRolloutRunner:
     def __init__(
@@ -480,7 +518,6 @@ class IsaacEnvRolloutRunner:
         pcd_channels=4,
         pcdnet_pretrain_domain="",
         random_reset=True,
-        collision_pred=False,
         pose_transform=None,
         num_envs=1,
         device="cuda:0",
@@ -493,6 +530,9 @@ class IsaacEnvRolloutRunner:
         warmup_step=10,
         hist_action_cond=False,
         tar_size=(224,224),
+        norm_depth=False,
+        camera_names=["camera_0"],
+        joint_names=None,
         **kwargs,
     ):
         try:
@@ -514,9 +554,12 @@ class IsaacEnvRolloutRunner:
                     self.pose_transform = pose_to_quat
             self.hist_action_cond = hist_action_cond
             self.tar_size = tar_size
+            self.norm_depth = norm_depth
+            self.warp_func = None
+            if norm_depth:
+                self.warp_func = WarpMinMax()
                                         
             self.random_reset = random_reset
-            self.collision_pred = collision_pred
             self.device = device
             self.num_envs = num_envs
             self.state_keys = state_keys
@@ -525,12 +568,13 @@ class IsaacEnvRolloutRunner:
                     "eef_pos",
                     "eef_quat",
                     "joint_pos",
-                    "joint_vel",
+                    # "joint_vel",
                     "normalized_gripper_pos"
                 ]
             self.pcd_aug = lambda x: randomly_drop_point(add_gaussian_noise(x))
 
             from isaaclab.app import AppLauncher
+            import pinocchio as pin
 
             distributed = (world_size != 1)
 
@@ -545,13 +589,20 @@ class IsaacEnvRolloutRunner:
             self.app = self.app_launcher.app
 
             import isaaclab_mimic.envs
-            import bytemini_sim.tasks
+            import isaaclab_mimic.tasks
             from isaaclab_tasks.utils.parse_cfg import parse_env_cfg
             from isaaclab.envs import ManagerBasedRLEnv
             import gymnasium as gym
+            from .isaac_rollout_utils import (
+                EvalStaticsCfg, joint_acc_from_vel, joint_acc_from_pos
+            )
+            from isaaclab.envs import mdp
+            from isaaclab.managers import ObservationTermCfg as ObsTerm, SceneEntityCfg
 
             if world_size > 1:
                 self.device = f"cuda:{rank}"
+            else:
+                self.device = "cuda:0"
 
             env_cfg = parse_env_cfg(
                 self.task_name, device=self.device, num_envs=self.num_envs
@@ -568,6 +619,44 @@ class IsaacEnvRolloutRunner:
                 env_cfg.sim.device = f'cuda:{rank}'
                 env_cfg.seed += self.app_launcher.global_rank
                 print("self.app_launcher.global_rank:", self.app_launcher.global_rank)
+            
+            env_cfg.observations.eval_static = EvalStaticsCfg()
+            if joint_names is not None:
+                joint_names = list(joint_names)
+                env_cfg.observations.eval_static = env_cfg.observations.eval_static.replace(
+                    joint_vel=ObsTerm(
+                        func=mdp.joint_vel,
+                        params={
+                            "asset_cfg": SceneEntityCfg(
+                                "robot",
+                                joint_names=joint_names,
+                                preserve_order=True,
+                            ),
+                        },
+                    ),
+                    joint_acc_from_vel=ObsTerm(
+                        func=joint_acc_from_vel,
+                        params={
+                            "asset_cfg": SceneEntityCfg(
+                                "robot",
+                                joint_names=joint_names,
+                                preserve_order=True,
+                            ),
+                        },
+                    ),
+                    joint_acc_from_pos=ObsTerm(
+                        func=joint_acc_from_pos,
+                        params={
+                            "asset_cfg": SceneEntityCfg(
+                                "robot",
+                                joint_names=joint_names,
+                                preserve_order=True,
+                            ),
+                        },
+                    ),
+                )
+            # if joint_names is not None:
+            #     env_cfg.observations.eval_static.sync_joint_names(joint_names)
 
             self.gym_env = gym.make(self.task_name, cfg=env_cfg)
             self.env = self.gym_env.unwrapped
@@ -584,6 +673,7 @@ class IsaacEnvRolloutRunner:
             if self.save_video:
                 self.video_logger = videoLogger(self.video_save_dir)
             self.rank = rank
+            self.camera_names = camera_names
         except Exception as e:
             print(f"Error initializing IsaacEnvRolloutRunner: {e}")
             import traceback
@@ -603,6 +693,8 @@ class IsaacEnvRolloutRunner:
         if self.obs_mode == "depth":
             ppt_obs["depth"] = {}
             for key in obs["depths"]:
+                if key not in self.camera_names:
+                    continue
                 depth_tensor = clip_depth(obs["depths"][key]) # [1, H, W, 1]
                 # Ensure shape is [N, C, H, W] for interpolation
                 if depth_tensor.ndim == 4:
@@ -619,6 +711,8 @@ class IsaacEnvRolloutRunner:
                     size=self.tar_size,
                     mode="nearest"
                 )
+                if self.norm_depth:
+                    depth_tensor = self.warp_func.warp(depth_tensor, depth_tensor)
                 # Back to [1, H, W, 1]
                 depth_tensor = depth_tensor.permute(0, 2, 3, 1)
                 ppt_obs["depth"][key] = depth_tensor
@@ -637,6 +731,8 @@ class IsaacEnvRolloutRunner:
     def run(self, policy, policy_name="model"):
         policy.to(self.device)
         try:
+            statics_save_dir_root = self.video_save_dir.parent / "statics" / policy_name
+            
             print(f"Begin eval model:{policy_name}")
             episode_num = self.episode_num  # upper bound for number of trajectories
             imgs = OrderedDict()
@@ -649,6 +745,8 @@ class IsaacEnvRolloutRunner:
             pbar = tqdm(range(episode_num), position=1, leave=True)
 
             for i in pbar:
+                statics_save_dir = statics_save_dir_root / f"{i}-th-statistics"
+                os.makedirs(statics_save_dir, exist_ok=True)
                 eps_reward = 0
                 traj_length = 0
                 done = False
@@ -668,17 +766,36 @@ class IsaacEnvRolloutRunner:
                 for _ in range(self.warmup_step):
                     obs, reward, terminations, timeouts, info = env.step(env.cfg.mimic_config.default_actions[None])
 
+                obs, _ = env.reset()
+
+                # warm up
+                for _ in range(self.warmup_step):
+                    obs, reward, terminations, timeouts, info = env.step(env.cfg.mimic_config.default_actions[None])
+
                 for t in range(self.max_timestep):
                     if self.save_video:
                         for key in obs["images"]:
                             image = obs["images"][key][0].cpu().numpy()
-                            cv2.putText(image, f'{key}: step {t}', (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2, cv2.LINE_AA)
-                            for idx,subtask in enumerate(obs["subtask_terms"].keys()):
-                                cv2.putText(image, f'{subtask}: {obs["subtask_terms"][subtask].cpu().numpy()[0]}', (50, 50*(idx+2)), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
-                            if hasattr(policy, "openloop_actions") and len(policy.openloop_actions) == 0:
-                                cv2.putText(image, f'Next step new action trunk!', (50, 50*(idx+3)), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2, cv2.LINE_AA)
+                            # cv2.putText(image, f'{key}: step {t}', (50, 50), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2, cv2.LINE_AA)
+                            # for idx,subtask in enumerate(obs["subtask_terms"].keys()):
+                            #     cv2.putText(image, f'{subtask}: {obs["subtask_terms"][subtask].cpu().numpy()[0]}', (50, 50*(idx+2)), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
+                            # if hasattr(policy, "openloop_actions") and len(policy.openloop_actions) == 0:
+                            #     cv2.putText(image, f'Next step new action trunk!', (50, 50*(idx+3)), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 0), 2, cv2.LINE_AA)
+                            # 将action信息显示在图像上
+                            # if t > 0 and 'action' in locals():
+                            #     action_str_1 = f"Action: [{action[3]:.2f}, | {action[6]:.2f}, {action[7]:.2f}, {action[8]:.2f}, {action[9]:.2f}, {action[10]:.2f}, {action[11]:.2f}], {action[12]:.2f}, |"
+                            #     cv2.putText(image, action_str_1, (50, 50*(idx+4)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
+                            #     action_str_2 = f"Action: [{action[13]:.2f}, {action[14]:.2f}| {action[15]:.2f}, {action[16]:.2f}, {action[17]:.2f}, {action[18]:.2f}, {action[19]:.2f}], {action[20]:.2f}, {action[21]:.2f}|"
+                            #     cv2.putText(image, action_str_2, (50, 50*(idx+5)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
+                            #     action_str_3 = f"Action: [{action[22]:.2f}, {action[23]:.2f}|"
+                            #     cv2.putText(image, action_str_3, (50, 50*(idx+6)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
                             self.video_logger.extend(
                                 key, image, category="color"
+                            )
+                        for key in obs["depths"]:
+                            depth = obs["depths"][key][0].cpu().numpy()
+                            self.video_logger.extend(
+                                key, depth, category="depth"
                             )
 
                     traj_length += 1
@@ -713,23 +830,29 @@ class IsaacEnvRolloutRunner:
                                 t=t,
                                 hist_action_cond=self.hist_action_cond
                             )
-                        
-                    action[-1] = 0.0 if action[-1] < 0.5 else 1.0
-
-                    if self.collision_pred:
-                        assert False, "Not support collision pred"
+                    
+                    if "x7" in self.task_name.lower():
+                        pass
                     else:
-                        if isinstance(action, np.ndarray):
-                            action = torch.from_numpy(action)
-                        next_obs, reward, terminations, timeouts, info = env.step(
-                            action[None]
-                        )
-                        for key in subtask_successes:
-                            subtask_successes[key] = subtask_successes[key] or next_obs["subtask_terms"][key]
-                        if self.success_term.func(env, **self.success_term.params):
-                            success = True
-                            terminations[0] = True
-                        done = torch.logical_or(terminations, timeouts)
+                        action[-1] = 0.0 if action[-1] < 0.5 else 1.0
+
+                    if isinstance(action, np.ndarray):
+                        action = torch.from_numpy(action)
+                    next_obs, reward, terminations, timeouts, info = env.step(
+                        action[None]
+                    )
+                    statics = flat_dict(next_obs["eval_static"])
+                    statics = dict_apply(statics, lambda x: x.cpu().numpy() if isinstance(x, torch.Tensor) else x)
+                    np.savez(
+                        statics_save_dir / f"{i}-th-statistics.npz",
+                        **statics
+                    )
+                    for key in subtask_successes:
+                        subtask_successes[key] = subtask_successes[key] or next_obs["subtask_terms"][key]
+                    if self.success_term.func(env, **self.success_term.params):
+                        success = True
+                        terminations[0] = True
+                    done = torch.logical_or(terminations, timeouts)
 
                     eps_reward += reward
                     obs = next_obs
@@ -770,7 +893,6 @@ class IsaacEnvWbcRolloutRunner(IsaacEnvRolloutRunner):
         pcd_channels=4,
         pcdnet_pretrain_domain="",
         random_reset=True,
-        collision_pred=False,
         num_envs=1,
         device="cuda:0",
         seed=0,
@@ -792,7 +914,7 @@ class IsaacEnvWbcRolloutRunner(IsaacEnvRolloutRunner):
         super().__init__(
             task_name, episode_num, save_video, headless,
             obs_mode, pcd_channels, pcdnet_pretrain_domain,
-            random_reset, collision_pred, num_envs, device,
+            random_reset, num_envs, device,
             seed, state_keys, video_save_dir, world_size,
             rank, max_timestep, **kwargs,)
         self.wbc_controller.cfg.dt = self.env.unwrapped.step_dt
@@ -828,6 +950,7 @@ class IsaacEnvWbcRolloutRunner(IsaacEnvRolloutRunner):
                 task_description = ""
                 success = False
                 subtask_successes = {key: False for key in obs["subtask_terms"]}
+                
                 for t in range(self.max_timestep):
                     traj_length += 1
 
@@ -861,36 +984,28 @@ class IsaacEnvWbcRolloutRunner(IsaacEnvRolloutRunner):
                             )
                         
                     action[-1] = 0.0 if action[-1] < 0.5 else 1.0
-                    if self.collision_pred:
-                        assert False, "Temporarily not support collision pred"
-                        action[-2] = 0.0 if action[-2] < 0.5 else 1.0
-                        ignore_collisions = bool(action[-1])
-                        action = action[:-1]
-                        next_obs, reward, terminations, timeouts, info = env.step(action)
-                        done = torch.logical_or(terminations, timeouts)
-                    else:
-                        if self.robot_type == "ur5e":
-                            joint_action = action[:6]
-                            ee_pos = self.wbc_controller.fkine(joint_action)
-                            current_joint_pos = obs["policy"]["joint_pos"]
-                            current_joint_pos = current_joint_pos.cpu().numpy().squeeze()
-                            self.wbc_controller.set_goal(ee_pos)
-                            self.wbc_controller.update_joint_pos(current_joint_pos[:6])
-                            target_reached, dq = self.wbc_controller.step_robot()
-                            target_q = self.wbc_controller.dt * dq + current_joint_pos[:6]
-                            action[:6] = target_q
+                    if self.robot_type == "ur5e":
+                        joint_action = action[:6]
+                        ee_pos = self.wbc_controller.fkine(joint_action)
+                        current_joint_pos = obs["policy"]["joint_pos"]
+                        current_joint_pos = current_joint_pos.cpu().numpy().squeeze()
+                        self.wbc_controller.set_goal(ee_pos)
+                        self.wbc_controller.update_joint_pos(current_joint_pos[:6])
+                        target_reached, dq = self.wbc_controller.step_robot()
+                        target_q = self.wbc_controller.dt * dq + current_joint_pos[:6]
+                        action[:6] = target_q
 
-                        if isinstance(action, np.ndarray):
-                            action = torch.from_numpy(action)
-                        next_obs, reward, terminations, timeouts, info = env.step(
-                            action[None]
-                        )
-                        for key in subtask_successes:
-                            subtask_successes[key] = subtask_successes[key] or next_obs["subtask_terms"][key]
-                        if self.success_term.func(env, **self.success_term.params):
-                            success = True
-                            terminations[0] = True
-                        done = torch.logical_or(terminations, timeouts)
+                    if isinstance(action, np.ndarray):
+                        action = torch.from_numpy(action)
+                    next_obs, reward, terminations, timeouts, info = env.step(
+                        action[None]
+                    )
+                    for key in subtask_successes:
+                        subtask_successes[key] = subtask_successes[key] or next_obs["subtask_terms"][key]
+                    if self.success_term.func(env, **self.success_term.params):
+                        success = True
+                        terminations[0] = True
+                    done = torch.logical_or(terminations, timeouts)
 
                     eps_reward += reward
                     if self.save_video:

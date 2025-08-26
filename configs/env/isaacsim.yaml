@@ -46,6 +46,6 @@ rollout_runner:
   # save_video: True
   max_timestep: 2000
   obs_mode: "pointcloud"
-  pcdnet_pretrain_domain : "/mnt/bn/robot-minghuan-debug/ppt_learning/outputs/depth/2025-06-20_14-21-35/ur5_put_bowl_in_microwave_and_close/one_camera_618_no_yaw_randomaffine_moreaug_nojointvel" # To be replaced
+  pcdnet_pretrain_domain : "" # To be replaced
   pcd_channels: ${dataset.pcd_channels}
   video_save_dir: "${train.pretrained_dir}/eval_video"

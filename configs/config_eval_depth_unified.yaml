@@ -1,0 +1,65 @@
+seed: 42
+output_dir: ${hydra:runtime.output_dir}
+wb_tag: ${suffix}
+log_interval: 10
+script_name: ''
+pretrained_dir: ${train.pretrained_dir}
+parallel_eval: false
+env_names: [
+    "Isaac-UR5-CleanPlate-Joint-GoHome-Mimic-v0"
+  ]
+debug: False # Turn off to allow wandb logging
+suffix: "" # suffix for the experiment
+
+# Evaluation mode control
+eval_mode: "auto"  # "sequential", "parallel", or "auto"
+n_procs: 8  # Number of processes for parallel mode
+
+defaults:
+  - env: isaacsim # rlbench # gensim2
+  - network: depth
+  - datasetsize: all
+  - _self_
+
+network:
+  openloop_steps: 16
+  # temporal_agg: true
+
+state_dim: 14
+action_dim: 7
+
+train:
+  total_epochs: 250  # maximum training epochs before termination. usually set as maximum
+  total_iters: 100000000 # maximum training steps before termination
+  epoch_iters: 1000  # training steps in each epoch
+  validation_iters: 100 # maximum iterations for validation
+  pretrained_dir: "/home/ubuntu/xiaoshen/code/IsaacLab-new/GR-Isaaclab/outputs/ppt_learning/ablation/main/2025-07-25_02-31-02/ur5_clean_plate/depth_ur5_clean_plate_724_random_scale" # pretrained model path for testing
+  model_names:
+    - model.pth
+    - model_1490.pth
+    - model_1480.pth
+    - model_1470.pth
+    - model_1460.pth
+    - model_1450.pth
+  freeze_trunk: False # whether to freeze the trunk during finetuning
+
+prompt: ""
+
+rollout_runner:
+  camera_names: ["camera_0"] # list of camera names to use for depth observation
+  obs_mode: "depth"
+  # norm_depth: true
+  episode_num: 50
+  hist_action_cond: true
+  warmup_step: 30
+  save_video: true
+  task_name: "Isaac-UR5-CleanPlate-Joint-GoHome-Mimic-v0"
+  # Alternative task names:
+  # task_name: "Isaac-UR5-PutBowlInMicroWaveAndClose-Joint-GoHome-Retry-Place-OneCamera-NoCrop-Mimic-v0"
+  # task_name: "Isaac-UR5-PutBowlInMicroWaveAndClose-Joint-GoHome-OneCamera-Mimic-v0"
+
+eval_log_name: "eval_log_depth_unified"
+domains: ur5_clean_plate
+stem:
+  pointcloud: 
+    pretrained_path: ""

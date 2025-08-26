@@ -4,13 +4,9 @@ This document describes the unified evaluation system for PPT Learning robotic m
 
 ## Overview
 
-The evaluation system has been unified from two separate scripts into a single, flexible evaluation runner that supports both sequential and parallel evaluation modes.
+The evaluation system provides a unified script that supports both sequential and parallel evaluation modes for robotic manipulation policies.
 
-### Previous Scripts (Deprecated)
-- `run_eval_sim_sequential.py` - Sequential single-GPU evaluation
-- `run_eval_sim_batch_ddp.py` - Parallel multi-GPU evaluation
-
-### New Unified Script
+### Script
 - `run_eval_sim.py` - Unified evaluation with automatic mode selection
 
 ## Features
@@ -41,26 +37,30 @@ python run_eval_sim.py eval_mode=parallel n_procs=4
 
 ### Configuration
 
-The unified script uses `config_eval_pcd_unified.yaml`:
+The unified script uses `config_eval_depth_unified.yaml`:
 
 ```yaml
 # Evaluation mode: "sequential", "parallel", or "auto"
 eval_mode: auto
 
 # Number of parallel processes (only used in parallel mode)
-n_procs: 4
+n_procs: 8
 
 # Model configuration
 train:
-  pretrained_dir: "outputs/models"
+  pretrained_dir: "/path/to/models"
   model_names:
-    - "model_best.pth"
-    - "model_latest.pth"
+    - "model.pth"
+    - "model_1490.pth"
+    - "model_1480.pth"
 
 # Rollout configuration
 rollout_runner:
-  num_episodes: 50
-  save_video: false
+  episode_num: 50
+  save_video: true
+  obs_mode: "depth"
+  hist_action_cond: true
+  warmup_step: 30
 ```
 
 ## Evaluation Modes
@@ -81,46 +81,28 @@ rollout_runner:
   - Falls back to sequential otherwise
 - **Benefits**: Hands-off operation, optimal resource usage
 
-## Migration Guide
+## Usage Guide
 
-### Step 1: Backup Old Scripts (Optional)
+### Running Evaluations
+
+**Automatic mode selection:**
 ```bash
-python migrate_eval_scripts.py --backup
-```
-
-### Step 2: Update Your Workflow
-
-**Old way:**
-```bash
-# Sequential
-python run_eval_sim_sequential.py --config-name=config_eval_pcd_sequential
-
-# Parallel  
-python run_eval_sim_batch_ddp.py --config-name=config_eval_pcd_ddp
-```
-
-**New way:**
-```bash
-# Automatic mode selection
 python run_eval_sim.py
-
-# Or specify mode explicitly
-python run_eval_sim.py eval_mode=sequential
-python run_eval_sim.py eval_mode=parallel n_procs=4
 ```
 
-### Step 3: Update Configuration Files
+**Specify mode explicitly:**
+```bash
+python run_eval_sim.py eval_mode=sequential
+python run_eval_sim.py eval_mode=parallel n_procs=8
+```
 
-Add these parameters to your existing configs:
+### Configuration
+
+Ensure your config includes these parameters:
 
 ```yaml
 eval_mode: auto  # "sequential", "parallel", or "auto"
-n_procs: 4       # number of parallel processes
-```
-
-### Step 4: Create Compatibility Wrappers (If Needed)
-```bash
-python migrate_eval_scripts.py --create-wrappers
+n_procs: 8       # number of parallel processes
 ```
 
 ## Configuration Options
@@ -144,10 +126,12 @@ train:
 ### Rollout Configuration  
 ```yaml
 rollout_runner:
-  num_episodes: 50           # Episodes per model evaluation
+  episode_num: 50            # Episodes per model evaluation
   max_timestep: 1300         # Maximum timesteps per episode
   save_video: false          # Whether to save evaluation videos
-  hist_action_cond: false    # Historical action conditioning
+  hist_action_cond: true     # Historical action conditioning
+  obs_mode: "depth"          # Observation mode
+  warmup_step: 30            # Warmup steps before action
 ```
 
 ## Output Structure
@@ -182,7 +166,7 @@ python run_eval_sim.py --config-path=my_configs --config-name=custom_eval
 python run_eval_sim.py \
   eval_mode=parallel \
   n_procs=8 \
-  rollout_runner.num_episodes=100 \
+  rollout_runner.episode_num=100 \
   train.pretrained_dir=experiments/run_1/models
 ```
 
@@ -205,8 +189,8 @@ A: Check that `train.pretrained_dir` and `train.model_names` are correct
 **Q: "Evaluation stuck in parallel mode"**
 A: Try reducing `n_procs` or switching to sequential mode
 
-**Q: "Import errors with old scripts"**
-A: Use the migration script to create compatibility wrappers
+**Q: "OmegaConf eval interpolation error"**
+A: Ensure the script includes `OmegaConf.register_new_resolver("eval", eval)`
 
 ### Performance Tips
 
@@ -230,16 +214,22 @@ class EvaluationRunner:
 ### Main Function
 
 ```python
-@hydra.main(config_path="configs", config_name="config_eval_pcd_unified")
+@hydra.main(config_path="configs", config_name="config_eval_depth_unified")
 def main(cfg: DictConfig) -> float
 ```
 
-## Migration Support
+## Notes
 
-For questions or issues during migration:
+### Important Considerations
 
-1. **Check the migration script**: `python migrate_eval_scripts.py --help`
-2. **Create compatibility wrappers**: For gradual migration
-3. **Backup old scripts**: Keep working versions during transition
+1. **OmegaConf Resolver**: The scripts register an `eval` resolver for mathematical expressions in configs
+2. **Device Management**: The rollout runner properly handles device assignment in parallel mode
+3. **Result Format**: Both sequential and parallel modes output the same result format
+4. **Model Loading**: Models are distributed round-robin across processes in parallel mode
 
-The unified evaluation system maintains full backward compatibility while providing enhanced functionality and better maintainability.
+### Best Practices
+
+1. **Use unified script** for new projects and evaluations
+2. **Test with sequential mode** first when debugging
+3. **Monitor GPU memory** when setting n_procs
+4. **Check logs** in the pretrained model directory for detailed results

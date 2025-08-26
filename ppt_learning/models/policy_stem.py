@@ -7,6 +7,7 @@ from functools import partial
 from typing import Tuple, Union, Union, List
 from termcolor import cprint
 from einops import rearrange, repeat, reduce
+from ppt_learning.paths import PPT_DIR
 
 import torch
 import torch.nn as nn
@@ -221,7 +222,7 @@ class ViT(nn.Module):
 
         self.num_of_copy = num_of_copy
         # backbone = torch.hub.load("facebookresearch/dinov2", model_name, skip_validation=True)
-        backbone = torch.hub.load("/mnt/bn/robot-minghuan-debug/dinov2/facebookresearch_dinov2_main", model_name, skip_validation=True, source="local")
+        backbone = torch.hub.load(f"{PPT_DIR}/pretraned_models/dinov2/facebookresearch_dinov2_main", model_name, skip_validation=True, source="local")
 
         self.net = backbone
         self.patch_size = patch_size

@@ -15,6 +15,7 @@ shortuuid
 diffusers
 pandas
 deepspeed
+numpy<2
 numba
 easydict
 timm
@@ -26,3 +27,4 @@ transformers
 sentence_transformers
 albumentations
 matplotlib
+pytorch-lightning
