@@ -577,7 +577,8 @@ class Policy(nn.Module):
             Action predictions for the training batch
         """
         self.train_mode = True
-        return self(batch["domain"][0], batch["data"])
+        domain = batch["domain"][0] if isinstance(batch["domain"][0], str) else batch["domain"][0][0]
+        return self(domain, batch["data"])
 
     def forward(self, domain: str, data: Dict[str, Any], head_kwargs: Dict[str, Any] = {}) -> torch.Tensor:
         """Main forward pass of the combined policy.

@@ -13,18 +13,20 @@ wb_tag: ${suffix}
 
 batch_size: 512 # batch size
 
+dataset_path: /mnt/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/generate_ur5_close_microwave_717_open_gripper_close_door3_fasterclose_723_2e-4
+
 defaults:
   - env: isaacsim # rlbench # gensim2
   - network: depth
   - datasetsize: all
   - _self_
 
-domains: one_camera_higher_72_retry_clear_history
+domains: generate_ur5_close_microwave_717_open_gripper_close_door3_fasterclose.001, generate_ur5_close_microwave_717_open_gripper_close_door3_fasterclose.002
 save_interval: 10
 
 dataset:
-  # _target_: ppt_learning.dataset.multi_sim_traj_dataset.MultiTrajDataset
-  ignored_keys: ["language", "initial_state", "states", "images", "color", "abs_gripper_pos", "pointcloud", "wbc_target", "wbc_step", "last_action"]
+  _target_: ppt_learning.dataset.multi_sim_traj_dataset.MultiTrajDataset
+  ignored_keys: ["language", "initial_state", "states", "images", "color", "abs_gripper_pos", "pointcloud", "wbc_target", "wbc_step", "last_action", "camera_1"]
   norm_depth: false
   augment_depth: true
   use_lru_cache: true
@@ -67,7 +69,7 @@ train:
   total_iters: 1000000000 # maximum training steps before termination
   epoch_iters: 500  # training steps in each epoch
   validation_iters: 100 # maximum iterations for validation
-  # pretrained_dir: "/mnt/bn/robot-minghuan-debug/ppt_learning/outputs/depth/2025-06-21_03-33-04/ur5_put_bowl_in_microwave_and_close/one_camera_618_no_yaw_randomaffine_moreaug_nojointvel_combine" # pretrained model path
+  # pretrained_dir: "/mnt/ppt_learning/outputs/depth/2025-06-21_03-33-04/ur5_put_bowl_in_microwave_and_close/one_camera_618_no_yaw_randomaffine_moreaug_nojointvel_combine" # pretrained model path
   pretrained_dir: "" # pretrained model path
   freeze_trunk: False # whether to freeze the trunk during finetuning
   last_k_checkpoints: 5 # number of last checkpoints to keep

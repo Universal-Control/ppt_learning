@@ -321,7 +321,7 @@ class MultiTrajDataset:
         self.normalizer.fit(data=data, last_n_dims=1, mode=mode, **kwargs)
         # Log normalizer statistics
         for k, v in self.normalizer.params_dict.items():
-            logger.info(f"Normalizer {k} - min: {v['input_stats'].min:.4f}, max: {v['input_stats'].max:.4f}")
+            logger.info(f"Normalizer {k} - min: {v['input_stats'].min}, max: {v['input_stats'].max}")
         return self.normalizer
 
     def get_episode(self, idx: int) -> Dict[str, Any]:
@@ -391,10 +391,10 @@ class MultiTrajDataset:
                 ignored_keys=self.ignored_keys,
                 action_key=self.action_key,
             )
-            logger.info(
-                f"Dataset {self.dataset_name[idx]}: {len(self.sampler[idx])} samples, "
-                f"{n_episodes} episodes ({self.train_mask[idx].sum()} train, {self.val_mask[idx].sum()} val)"
-            )
+            # logger.info(
+            #     f"Dataset {self.dataset_name[0]}: {len(self.sampler[idx])} samples, "
+            #     f"{n_episodes} episodes ({self.train_mask[idx].sum()} train, {self.val_mask[idx].sum()} val)"
+            # )
 
         # Calculate cumulative dataset lengths for indexing
         self.dataset_length = np.cumsum([len(sampler) for sampler in self.sampler])
@@ -426,25 +426,25 @@ class MultiTrajDataset:
         return val_set
 
     def __len__(self) -> int:
-        \"\"\"Get total number of samples across all datasets.\"\"\"
+        """Get total number of samples across all datasets."""
         if not hasattr(self, 'sampler') or not self.sampler:
             return 0
         return sum([len(sampler) for sampler in self.sampler])
     
     @property
     def num_datasets(self) -> int:
-        \"\"\"Get number of datasets being managed.\"\"\"
+        """Get number of datasets being managed."""
         return len(self.replay_buffer)
     
     @property
     def total_episodes(self) -> int:
-        \"\"\"Get total number of episodes across all datasets.\"\"\"
+        """Get total number of episodes across all datasets."""
         if not self.replay_buffer or not all(self.replay_buffer):
             return 0
         return sum(rb.n_episodes for rb in self.replay_buffer if rb is not None)
     
     def _validate_config(self, use_pcd: bool, pcd_channels: Optional[int], hist_action_cond: bool) -> None:
-        \"\"\"Validate dataset configuration parameters.
+        """Validate dataset configuration parameters.
         
         Args:
             use_pcd: Whether point clouds are used
@@ -453,13 +453,13 @@ class MultiTrajDataset:
             
         Raises:
             ValueError: If configuration is invalid
-        \"\"\"
+        """
         # Validate point cloud configuration
         if use_pcd:
             if pcd_channels is None:
-                raise ValueError(\"pcd_channels must be provided when use_pcd=True\")
+                raise ValueError("pcd_channels must be provided when use_pcd=True")
             if pcd_channels not in [3, 4, 5, 6, 7]:
-                raise ValueError(f\"pcd_channels must be one of [3, 4, 5, 6, 7], got {pcd_channels}\")
+                raise ValueError(f"pcd_channels must be one of [3, 4, 5, 6, 7], got {pcd_channels}")
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         """Get normalized observation and actions for given index.

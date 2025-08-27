@@ -11,12 +11,12 @@ The training system has been unified from two separate scripts into a single, fl
 - `run_ddp.py` - Distributed multi-GPU training
 
 ### New Unified Script
-- `run_train.py` - Unified training with automatic mode selection
+- `run_train.py` - Unified training supporting both single-GPU and multi-GPU with torchrun
 
 ## Features
 
 ✅ **Unified Interface**: Single script handles both single-GPU and distributed training  
-✅ **Automatic Mode Selection**: Intelligently chooses training mode based on resources  
+✅ **Automatic Distributed Detection**: Automatically detects distributed environment variables  
 ✅ **Comprehensive Logging**: Structured logging with detailed progress information  
 ✅ **Type Safety**: Full type hints for better IDE support and error detection  
 ✅ **Flexible Configuration**: Supports all previous configuration options  
@@ -29,37 +29,40 @@ The training system has been unified from two separate scripts into a single, fl
 ### Basic Usage
 
 ```bash
-# Automatic mode selection
-python run_train.py
+# Single-GPU training
+python run_train.py --config-name=config_ddp_depth_ur5_microwave
 
-# Force single-GPU training
-python run_train.py train_mode=single
+# Multi-GPU training with torchrun
+torchrun --nproc_per_node=4 run_train.py --config-name=config_ddp_depth_ur5_microwave
 
-# Force distributed training with 4 GPUs  
-python run_train.py train_mode=distributed world_size=4
+# Multi-GPU training with 8 GPUs
+torchrun --nproc_per_node=8 run_train.py --config-name=config_ddp_depth_ur5_microwave
 ```
 
 ### Configuration
 
-The unified script uses `config_unified.yaml`:
+The unified script uses existing config files like `config_ddp_depth_ur5_microwave.yaml`:
 
 ```yaml
-# Training mode: "single", "distributed", or "auto"
-train_mode: auto
+# Dataset configuration
+dataset_path: /mnt/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/generate_ur5_close_microwave_717_open_gripper_close_door3_fasterclose_723_2e-4
+domains: generate_ur5_close_microwave_717_open_gripper_close_door3_fasterclose.001, generate_ur5_close_microwave_717_open_gripper_close_door3_fasterclose.002
 
-# Number of GPUs for distributed training
-world_size: 4
+# Dataset setup
+dataset:
+  _target_: ppt_learning.dataset.multi_sim_traj_dataset.MultiTrajDataset
+  action_horizon: 16
+  observation_horizon: 1
 
 # Training configuration
 train:
-  total_epochs: 100
-  total_iters: 100000
-  epoch_iters: 1000
+  total_epochs: 1200
+  total_iters: 1000000000
+  epoch_iters: 500
   last_k_checkpoints: 5
 
-# Dataset configuration
-domains: "place_crayon_phase2"
-dataset_path: "data/place_crayon_dataset"
+# Batch size (scales automatically for multi-GPU)
+batch_size: 512
 ```
 
 ## Training Modes
