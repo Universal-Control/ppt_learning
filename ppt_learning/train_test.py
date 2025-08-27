@@ -164,25 +164,26 @@ def train(
         model_ = model.module if isinstance(model, DDP) else model
 
         # Log stats (only rank 0, with aggregated metrics)
+        domain = batch["domain"][0] if isinstance(batch["domain"][0], str) else batch["domain"][0][0]
         if rank == 0:
             log_stat(
                 info_log,
                 train_step,
                 log_interval,
                 log_name,
-                batch["domain"][0],
+                domain,
                 target,
                 domain_loss,
                 output,
                 model_,
                 optimizer,
                 start_time,
-                use_wandb=not debug,
+                use_wandb=not debug and int(os.environ.get("RANK", 0)) == 0,
             )
 
             step_time = time.time() - start_time
             pbar.set_description(
-                f"Epoch: {epoch} Step: {batch_idx}/{epoch_size} Time: {step_time:.3f} {data_time:.3f} Loss: {info_log[batch['domain'][0] + '_loss'][-1]:.3f} Grad: {info_log['max_gradient'][-1]:.3f}"
+                f"Epoch: {epoch} Step: {batch_idx}/{epoch_size} Time: {step_time:.3f} {data_time:.3f} Loss: {info_log[domain + '_loss'][-1]:.3f} Grad: {info_log['max_gradient'][-1]:.3f}"
             )
         start_time = time.time()
 
@@ -246,8 +247,9 @@ def test(
 
     # Compute global average loss (only rank 0 logs)
     if rank == 0:
+        domain = batch["domain"][0] if isinstance(batch["domain"][0], str) else batch["domain"][0][0]
         pbar.set_description(
-            f"Test Epoch: {epoch} Step: {batch_idx} Domain: {batch['domain'][0]} Loss: {test_loss / (num_examples + 1):.3f}"
+            f"Test Epoch: {epoch} Step: {batch_idx} Domain: {domain} Loss: {test_loss / (num_examples + 1):.3f}"
         )
 
     return test_loss / (num_examples + 1)
