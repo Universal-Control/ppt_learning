@@ -13,16 +13,15 @@ wb_tag: ${suffix}
 
 batch_size: 512 # batch size
 
-dataset_path: /mnt/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/generate_ur5_close_microwave_717_open_gripper_close_door3_fasterclose_723_2e-4
-
 defaults:
   - env: isaacsim # rlbench # gensim2
   - network: depth
   - datasetsize: all
   - _self_
 
-domains: generate_ur5_close_microwave_717_open_gripper_close_door3_fasterclose.001, generate_ur5_close_microwave_717_open_gripper_close_door3_fasterclose.002
+domains: one_camera_higher_720_high_arm.001, one_camera_higher_720_high_arm2.001
 save_interval: 10
+dataset_path: /mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_clean_plate/one_camera_higher_720_high_arm
 
 dataset:
   _target_: ppt_learning.dataset.multi_sim_traj_dataset.MultiTrajDataset

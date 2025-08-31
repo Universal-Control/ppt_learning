@@ -67,6 +67,7 @@ def run_train(cfg: OmegaConf) -> None:
     """
     # Setup distributed training
     is_distributed, rank, local_rank, world_size = setup_distributed()
+    print(f"Process Rank: {rank}, Local Rank: {local_rank}, World Size: {world_size}")
     is_main_process = rank == 0
     
     # Register custom OmegaConf resolver for mathematical expressions
@@ -154,15 +155,15 @@ def run_train(cfg: OmegaConf) -> None:
             cfg.val_dataloader.shuffle = False
 
         train_loader = DataLoader(
-            dataset, 
+            dataset,
             sampler=train_sampler,
-            **cfg.dataloader, 
+            **cfg.dataloader,
             multiprocessing_context="fork"
         )
         test_loader = DataLoader(
-            val_dataset, 
+            val_dataset,
             sampler=val_sampler,
-            **cfg.val_dataloader, 
+            **cfg.val_dataloader,
             multiprocessing_context="fork"
         )
 
@@ -265,6 +266,8 @@ def run_train(cfg: OmegaConf) -> None:
                 opt,
                 sch,
                 epoch,
+                rank=rank,
+                world_size=world_size,
                 pcd_npoints=pcd_num_points,
                 in_channels=dataset.pcd_channels,
                 debug=cfg.debug,
@@ -275,6 +278,8 @@ def run_train(cfg: OmegaConf) -> None:
                 device,
                 test_loader,
                 epoch,
+                rank=rank,
+                world_size=world_size,
                 pcd_npoints=pcd_num_points,
                 in_channels=dataset.pcd_channels,
                 debug=cfg.debug,
@@ -305,16 +310,6 @@ def run_train(cfg: OmegaConf) -> None:
     # Synchronize all processes before evaluation
     if is_distributed:
         dist.barrier()
-
-    # Evaluate jointly trained policy (only on main process for now)
-    if is_main_process:
-        if cfg.parallel_eval:
-            total_success = train_test.eval_policy_parallel(model_without_ddp, cfg)
-        else:
-            total_success = train_test.eval_policy_sequential(model_without_ddp, cfg)
-
-        logger.info(f"Saved results to: {cfg.output_dir}")
-        logging_utils.log_results(cfg, total_success)
 
     # Cleanup distributed training
     if is_distributed:

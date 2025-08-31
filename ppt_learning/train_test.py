@@ -246,7 +246,7 @@ def test(
         num_examples += target.size(0)
 
     # Compute global average loss (only rank 0 logs)
-    if rank == 0:
+    if rank == 0 and num_examples > 0:
         domain = batch["domain"][0] if isinstance(batch["domain"][0], str) else batch["domain"][0][0]
         pbar.set_description(
             f"Test Epoch: {epoch} Step: {batch_idx} Domain: {domain} Loss: {test_loss / (num_examples + 1):.3f}"

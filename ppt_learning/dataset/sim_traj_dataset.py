@@ -268,7 +268,7 @@ class TrajDataset:
         self.normalizer = LinearNormalizer()
         self.normalizer.fit(data=data, last_n_dims=1, mode=mode, **kwargs)
         for k, v in self.normalizer.params_dict.items():
-            logger.info(f"Normalizer {k} - min: {v['input_stats'].min:.4f}, max: {v['input_stats'].max:.4f}")
+            logger.info(f"Normalizer {k} - min: {v['input_stats'].min}, max: {v['input_stats'].max}")
         return self.normalizer
 
     def append_episode(
