@@ -158,13 +158,11 @@ def run_train(cfg: OmegaConf) -> None:
             dataset,
             sampler=train_sampler,
             **cfg.dataloader,
-            multiprocessing_context="fork"
         )
         test_loader = DataLoader(
             val_dataset,
             sampler=val_sampler,
             **cfg.val_dataloader,
-            multiprocessing_context="fork"
         )
 
         if is_main_process:
