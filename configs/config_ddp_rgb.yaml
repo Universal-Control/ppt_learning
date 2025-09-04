@@ -5,22 +5,31 @@ script_name: ''
 pretrained_dir: ''
 parallel_eval: false
 env_names: [
-    "Isaac-UR5-PutBowlInMicroWaveAndClose-Joint-Mimic-Retry-v0"
-  ]
+  "Isaac-UR5-PutBowlInMicroWaveAndClose-Joint-Mimic-Retry-v0"
+]
 debug: False # Turn off to allow wandb logging
 suffix: "" # suffix for the experiment
 wb_tag: ${suffix}
 
-batch_size: 32 # batch size
+batch_size: 128  # batch size
 
 defaults:
-  - env: isaacsim # rlbench # gensim2
+  - env: isaacsim
   - network: rgb
   - datasetsize: all
   - _self_
 
+domains: example  # assume there are example.zarr under dataset_path
+save_interval: 10
+dataset_path: <path to your dataset folder>
+
 dataset:
-  ignored_keys: ["initial_state", "states", "depths", "pointcloud", "abs_gripper_pos"]
+  ignored_keys: ["language", "initial_state", "states", "images", "color", "abs_gripper_pos", "pointcloud", "wbc_target", "wbc_step", "last_action"]
+  norm_depth: false
+  augment_depth: true
+  use_lru_cache: true
+  action_horizon: 16 # observation: (observation + action) is action horizon 
+  observation_horizon: 1 # before observation horizon is observation
 
 dataloader:
   batch_size: ${batch_size}

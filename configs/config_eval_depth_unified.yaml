@@ -6,8 +6,8 @@ script_name: ''
 pretrained_dir: ${train.pretrained_dir}
 parallel_eval: false
 env_names: [
-    "Isaac-UR5-CleanPlate-Joint-GoHome-Mimic-v0"
-  ]
+  "Isaac-UR5-CleanPlate-Joint-GoHome-Mimic-v0"
+]
 debug: False # Turn off to allow wandb logging
 suffix: "" # suffix for the experiment
 
@@ -33,7 +33,7 @@ train:
   total_iters: 100000000 # maximum training steps before termination
   epoch_iters: 1000  # training steps in each epoch
   validation_iters: 100 # maximum iterations for validation
-  pretrained_dir: "/home/ubuntu/xiaoshen/code/IsaacLab-new/GR-Isaaclab/outputs/ppt_learning/ablation/main/2025-07-25_02-31-02/ur5_clean_plate/depth_ur5_clean_plate_724_random_scale" # pretrained model path for testing
+  pretrained_dir: <path to your pretrained model folder>
   model_names:
     - model.pth
     - model_1490.pth
@@ -54,12 +54,9 @@ rollout_runner:
   warmup_step: 30
   save_video: true
   task_name: "Isaac-UR5-CleanPlate-Joint-GoHome-Mimic-v0"
-  # Alternative task names:
-  # task_name: "Isaac-UR5-PutBowlInMicroWaveAndClose-Joint-GoHome-Retry-Place-OneCamera-NoCrop-Mimic-v0"
-  # task_name: "Isaac-UR5-PutBowlInMicroWaveAndClose-Joint-GoHome-OneCamera-Mimic-v0"
 
 eval_log_name: "eval_log_depth_unified"
-domains: ur5_clean_plate
+domains: ur5_clean_plate  # change this to the domain the model was trained on
 stem:
   pointcloud: 
     pretrained_path: ""
