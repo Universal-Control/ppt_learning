@@ -1,6 +1,8 @@
 # PPT Learning
 
-A unified robotic manipulation learning framework derived from [GenSim2](gensim2.github.io), providing comprehensive tools for training and evaluating robotic policies.
+PPT stands for Proprioceptive Pointcloud Transformer, derived from [GenSim2](gensim2.github.io), yet it is more than point clouds.
+
+PPT serves as a unified robotic manipulation learning framework, providing comprehensive tools for training and evaluating robotic policies.
 
 ## Overview
 
@@ -313,7 +315,6 @@ ppt_learning/
 │   ├── models/              # Model implementations
 │   ├── utils/               # Utility functions
 │   └── third_party/         # External dependencies
-├── migrate_*.py             # Migration helper scripts
 └── *_README.md              # Detailed documentation
 ```
 
