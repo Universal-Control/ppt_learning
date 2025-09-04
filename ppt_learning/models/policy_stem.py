@@ -19,7 +19,10 @@ import IPython
 from ppt_learning.utils.pcd_utils import BOUND
 from .clip.core.clip import build_model, load_clip, tokenize
 from ppt_learning.constants import (
-    DEFAULT_IMAGE_SIZE, IMGNET_MEAN, IMGNET_STD, DINOV2_FEATURE_DIM
+    DEFAULT_IMAGE_SIZE,
+    IMGNET_MEAN,
+    IMGNET_STD,
+    DINOV2_FEATURE_DIM,
 )
 
 IMGNET_TFM = transforms.Compose(
@@ -76,6 +79,7 @@ class MLP(nn.Module):
         y = y.reshape(y.shape[0], 1, y.shape[-1])  # 1 is the number of token
         return y
 
+
 class DepthCNN(nn.Module):
     def __init__(self, output_dim, output_activation=None, num_channel=1):
         super().__init__()
@@ -96,7 +100,7 @@ class DepthCNN(nn.Module):
             # Calculate the flattened size
             nn.Linear(DINOV2_FEATURE_DIM, 128),
             activation,
-            nn.Linear(128, output_dim)
+            nn.Linear(128, output_dim),
         )
 
         if output_activation == "tanh":
@@ -108,12 +112,12 @@ class DepthCNN(nn.Module):
         """
         x: dict of cameras, each with B x T x H x W x 1
         """
-        x = torch.stack([*x.values()], dim=1) # B x N x H x W x 1
+        x = torch.stack([*x.values()], dim=1)  # B x N x H x W x 1
         B, N, H, W, C = x.shape
         x = x.permute(0, 1, 4, 2, 3)
         # flatten first
         x = x.reshape(-1, C, H, W)
-        
+
         images_compressed = self.image_compression(x)
         latent = self.output_activation(images_compressed)
         latent = latent.reshape(B, -1, latent.shape[-1])  # B,  Ncam x output_dim
@@ -144,7 +148,9 @@ class ResNet(nn.Module):
 
         pretrained_model = getattr(torchvision.models, resnet_model)(weights=weights)
         if depth_only:
-            pretrained_model.conv1 = nn.Conv2d(1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False)
+            pretrained_model.conv1 = nn.Conv2d(
+                1, 64, kernel_size=(7, 7), stride=(2, 2), padding=(3, 3), bias=False
+            )
 
         num_channels = 512 if resnet_model in ("resnet18", "resnet34") else 2048
         # by default we use a separate image encoder for each view in downstream evaluation
@@ -163,7 +169,9 @@ class ResNet(nn.Module):
 
         self.rgb_only = rgb_only
         self.depth_only = depth_only
-        assert not (self.rgb_only and self.depth_only), "rgb_only and depth_only cannot be both True"
+        assert not (
+            self.rgb_only and self.depth_only
+        ), "rgb_only and depth_only cannot be both True"
 
         self.output_dim = output_dim
 
@@ -222,7 +230,12 @@ class ViT(nn.Module):
 
         self.num_of_copy = num_of_copy
         # backbone = torch.hub.load("facebookresearch/dinov2", model_name, skip_validation=True)
-        backbone = torch.hub.load(f"{PPT_DIR}/pretraned_models/dinov2/facebookresearch_dinov2_main", model_name, skip_validation=True, source="local")
+        backbone = torch.hub.load(
+            f"{PPT_DIR}/pretraned_models/dinov2/facebookresearch_dinov2_main",
+            model_name,
+            skip_validation=True,
+            source="local",
+        )
 
         self.net = backbone
         self.patch_size = patch_size
@@ -237,12 +250,16 @@ class ViT(nn.Module):
 
         self.rgb_only = rgb_only
         self.depth_only = depth_only
-        assert not (self.rgb_only and self.depth_only), "rgb_only and depth_only cannot be both True"
+        assert not (
+            self.rgb_only and self.depth_only
+        ), "rgb_only and depth_only cannot be both True"
 
         self.output_dim = output_dim
 
         if self.depth_only:
-            self.net.patch_embed.proj = nn.Conv2d(1, 384, kernel_size=(14, 14), stride=(14, 14))
+            self.net.patch_embed.proj = nn.Conv2d(
+                1, 384, kernel_size=(14, 14), stride=(14, 14)
+            )
 
         self.proj = nn.Linear(384, output_dim)
 
@@ -250,7 +267,9 @@ class ViT(nn.Module):
         """
         x: dict of (B x T) x H x W x 4 or (B x T) x H x W x 1
         """
-        x = torch.stack([*x.values()], dim=1)[..., :3]  # N x B x H x W x 4 or N x B x H x W x 1
+        x = torch.stack([*x.values()], dim=1)[
+            ..., :3
+        ]  # N x B x H x W x 4 or N x B x H x W x 1
         B, N, H, W, C = x.shape
         x = x.permute(0, 1, 4, 2, 3)
         # flatten first
@@ -321,7 +340,9 @@ class PointNet(nn.Module):
         update_openpoint_cfgs(cfg)
         self.in_channels = int(cfg.model.encoder_args.in_channels)
         self.pointnet = build_model_from_cfg(cfg.model)
-        if pretrained_path is not None and len(pretrained_path):  # load pre-train weights
+        if pretrained_path is not None and len(
+            pretrained_path
+        ):  # load pre-train weights
             load_checkpoint(self.pointnet, pretrained_path=pretrained_path)
         if not finetune:
             self.pointnet.requires_grad_(False)  # Freeze the model
@@ -336,12 +357,14 @@ class PointNet(nn.Module):
         if len(mlp_widths):
             self.activation = torch.nn.ReLU()
             modules = []
-            for i, (curr_width, next_width) in enumerate(zip(mlp_widths[:-1], mlp_widths[1:])):
+            for i, (curr_width, next_width) in enumerate(
+                zip(mlp_widths[:-1], mlp_widths[1:])
+            ):
                 modules.append(nn.Linear(curr_width, next_width))
                 if i < len(mlp_widths) - 2:
                     modules.append(nn.ReLU())
             self.mlp = nn.Sequential(*modules)
-                    
+
         self.color_pointnet = None
         if color_extra:
             cfg.model.encoder_args.in_channels = 3

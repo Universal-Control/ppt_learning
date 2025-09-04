@@ -35,6 +35,7 @@ DESK2ROBOT_Z_AXIS = 0.0
 # BOUND = [0.15, 0.8, -0.6, 0.6, DESK2ROBOT_Z_AXIS + 0.005, 0.8]
 BOUND = [0.2, 1.03, -1.2, 1.2, -0.3, 0.7]
 
+
 def colorize_depth_maps(
     depth_map, min_depth, max_depth, cmap="Spectral", valid_mask=None
 ):
@@ -74,6 +75,7 @@ def colorize_depth_maps(
         img_colored = img_colored_np
 
     return img_colored
+
 
 def rand_dist(size, min=-1.0, max=1.0):
     return (max - min) * torch.rand(size) + min
@@ -590,6 +592,7 @@ def se3_augmentation(gripper_poses_euler, point_clouds, bounds, rgbs=None):
 
     return augmented_gripper_poses_euler, augmented_point_clouds
 
+
 def vis_pcd(pcd):
     import open3d as o3d
 
@@ -602,8 +605,11 @@ def vis_pcd(pcd):
         pcd_o3d.points = o3d.utility.Vector3dVector(pcd[..., :3])
         if len(pcd.shape[-1] > 3):
             pcd_o3d.colors = o3d.utility.Vector3dVector(pcd[..., 3:])
-    frame_base = o3d.geometry.TriangleMesh.create_coordinate_frame(size=0.1, origin=[0, 0, 0]) # create a coordinate frame
+    frame_base = o3d.geometry.TriangleMesh.create_coordinate_frame(
+        size=0.1, origin=[0, 0, 0]
+    )  # create a coordinate frame
     o3d.visualization.draw_geometries([pcd_o3d, frame_base])
+
 
 def vis_depths(colors, depths, near_depth=-1.0, far_depth=-1.0):
     imgs = []
@@ -616,12 +622,13 @@ def vis_depths(colors, depths, near_depth=-1.0, far_depth=-1.0):
             depth.max() if far_depth < 0.0 else far_depth,
         )[0].transpose((1, 2, 0))
         imgs.append(img)
-    
+
     vis_img = np.concatenate(imgs, axis=1)
-    
+
     plt.imshow(vis_img)
     # plt.savefig("test.png")
     plt.show()
+
 
 def select_mask(obs, key, mask):
     if key in obs:
@@ -686,7 +693,9 @@ def pcd_downsample(
     return obs
 
 
-def fps_sampling(points, npoints=1200, device='cuda' if torch.cuda.is_available() else 'cpu'):
+def fps_sampling(
+    points, npoints=1200, device="cuda" if torch.cuda.is_available() else "cpu"
+):
     num_curr_pts = points.shape[0]
     if num_curr_pts < npoints:
         return np.random.choice(num_curr_pts, npoints, replace=True)
@@ -695,7 +704,9 @@ def fps_sampling(points, npoints=1200, device='cuda' if torch.cuda.is_available(
         fps_idx = furthest_point_sample(points[..., :3], npoints)
     except:
         npoints_tensor = torch.tensor([npoints]).to(device)
-        _, fps_idx = torch3d_ops.sample_farthest_points(points[..., :3], K=npoints_tensor)
+        _, fps_idx = torch3d_ops.sample_farthest_points(
+            points[..., :3], K=npoints_tensor
+        )
 
     return fps_idx.squeeze(0).cpu().numpy()
 
@@ -1183,7 +1194,9 @@ def pcd_downsample_torch(
 
     if bound_clip:
         mask = pcd_filter_bound_torch(obs["pos"], bound=bound)
-        obs = {k: [val[mask_val] for val, mask_val in zip(v, mask)] for k, v in obs.items()}
+        obs = {
+            k: [val[mask_val] for val, mask_val in zip(v, mask)] for k, v in obs.items()
+        }
     res_obs = {k: [] for k in obs}
     for i, pos in enumerate(obs["pos"]):
         mask = uniform_sampling_torch(pos, npoints=num)

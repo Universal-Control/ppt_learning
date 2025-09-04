@@ -40,4 +40,4 @@ TOKENIZERS_PARALLELISM = "false"
 import torch
 
 # Device Constants
-DEFAULT_DEVICE = 'cuda' if torch.cuda.is_available() else 'cpu'
+DEFAULT_DEVICE = "cuda" if torch.cuda.is_available() else "cpu"

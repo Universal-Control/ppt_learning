@@ -19,7 +19,12 @@ from collections import deque
 import wandb
 import logging
 
-from ppt_learning.utils.learning import dict_apply, batchify, sample_pcd_data, unbatchify
+from ppt_learning.utils.learning import (
+    dict_apply,
+    batchify,
+    sample_pcd_data,
+    unbatchify,
+)
 from ppt_learning.constants import DEFAULT_LOG_MAXLEN, DEFAULT_PROGRESS_LOG_MAXLEN
 
 try:
@@ -99,7 +104,7 @@ def train(
     epoch_size: Optional[int] = None,
 ) -> Dict[str, float]:
     """Training for one epoch.
-    
+
     Returns:
         Dictionary containing training statistics.
     """
@@ -110,14 +115,14 @@ def train(
     # combined_dataloader = train_loader  # WeightedDataLoader(train_loaders)
     epoch_size = len(train_loader)
     assert epoch_size > 0, "empty dataloader"
-    
+
     # Create progress bar for rank 0 only
     pbar = tqdm(
         total=epoch_size,
         position=1,
         leave=True,
         disable=(rank != 0),
-        desc=f"Epoch {epoch}"
+        desc=f"Epoch {epoch}",
     )
 
     # Iterate through batches
@@ -164,7 +169,11 @@ def train(
         model_ = model.module if isinstance(model, DDP) else model
 
         # Log stats (only rank 0, with aggregated metrics)
-        domain = batch["domain"][0] if isinstance(batch["domain"][0], str) else batch["domain"][0][0]
+        domain = (
+            batch["domain"][0]
+            if isinstance(batch["domain"][0], str)
+            else batch["domain"][0][0]
+        )
         if rank == 0:
             log_stat(
                 info_log,
@@ -204,7 +213,7 @@ def test(
     debug: bool = True,
 ) -> float:
     """Evaluate imitation losses on the test sets.
-    
+
     Returns:
         Average test loss.
     """
@@ -247,7 +256,11 @@ def test(
 
     # Compute global average loss (only rank 0 logs)
     if rank == 0 and num_examples > 0:
-        domain = batch["domain"][0] if isinstance(batch["domain"][0], str) else batch["domain"][0][0]
+        domain = (
+            batch["domain"][0]
+            if isinstance(batch["domain"][0], str)
+            else batch["domain"][0][0]
+        )
         pbar.set_description(
             f"Test Epoch: {epoch} Step: {batch_idx} Domain: {domain} Loss: {test_loss / (num_examples + 1):.3f}"
         )

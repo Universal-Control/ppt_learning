@@ -48,11 +48,11 @@ from ppt_learning.utils.pcd_utils import BOUND
 
 class TrajDataset:
     """Single trajectory dataset for robotic manipulation learning.
-    
+
     This class manages trajectory data from a single domain/task, handling
     data loading, preprocessing, augmentation, and sampling for training
     neural network policies.
-    
+
     Attributes:
         dataset_name: Name of the dataset/domain
         replay_buffer: Buffer storing trajectory data
@@ -146,9 +146,13 @@ class TrajDataset:
             self.warp_func = WarpMinMax()
 
         # Setup augmentation pipelines
-        self.img_transform = self._setup_image_augmentation(augment_img, img_augment_prob)
-        self.depth_transform = self._setup_depth_augmentation(augment_depth, img_augment_prob)
-        
+        self.img_transform = self._setup_image_augmentation(
+            augment_img, img_augment_prob
+        )
+        self.depth_transform = self._setup_depth_augmentation(
+            augment_depth, img_augment_prob
+        )
+
         self.state_keys = state_keys
         if state_keys is None:
             self.state_keys = [
@@ -156,7 +160,7 @@ class TrajDataset:
                 "eef_quat",
                 "joint_pos",
                 # "joint_vel",
-                "normalized_gripper_pos"
+                "normalized_gripper_pos",
             ]
         self.ignored_keys = ignored_keys
         if ignored_keys is None:
@@ -164,7 +168,7 @@ class TrajDataset:
                 "initial_state",
                 "states",
                 "depths",
-            ] # , "images", "color"]
+            ]  # , "images", "color"]
             # self.use_pcd = False
 
         self.voxelization = voxelization
@@ -174,6 +178,7 @@ class TrajDataset:
         if pose_transform is not None:
             if pose_transform == "quat_to_pose":
                 from ppt_learning.utils.pose_utils import quat_to_pose
+
                 self.pose_transform = quat_to_pose
             else:
                 raise NotImplementedError("Pose transform function not assigned!")
@@ -194,14 +199,10 @@ class TrajDataset:
                     store = zarr.DirectoryStore(dataset_path)
                     cache = zarr.LRUStoreCache(store=store, max_size=2**32)
                     group = zarr.open(cache, "r")
-                    self.replay_buffer = ReplayBuffer.create_from_group(
-                        group
-                    )
+                    self.replay_buffer = ReplayBuffer.create_from_group(group)
                     logger.info(f"Using LRU cache with max_size={2**38}")
                 else:
-                    self.replay_buffer = ReplayBuffer.create_from_path(
-                        dataset_path
-                    )
+                    self.replay_buffer = ReplayBuffer.create_from_path(dataset_path)
             else:
                 self.replay_buffer = ReplayBuffer.create_empty_zarr(
                     storage=zarr.DirectoryStore(path=dataset_path)
@@ -219,14 +220,16 @@ class TrajDataset:
 
     def update_pcd_transform(self, pcd_setup_cfg: Optional[Any] = None) -> None:
         """Update point cloud transformation configuration.
-        
+
         Args:
             pcd_setup_cfg: Point cloud setup configuration object
         """
         if not self.use_pcd:
             return
         if not self.pcdnet_pretrain_domain:
-            raise ValueError("pcdnet_pretrain_domain must be provided when use_pcd=True")
+            raise ValueError(
+                "pcdnet_pretrain_domain must be provided when use_pcd=True"
+            )
 
         from openpoints.transforms import build_transforms_from_cfg
 
@@ -256,11 +259,11 @@ class TrajDataset:
 
     def get_normalizer(self, mode: str = "limits", **kwargs: Any) -> LinearNormalizer:
         """Get action normalizer fitted on the dataset.
-        
+
         Args:
             mode: Normalization mode (e.g., 'limits', 'gaussian')
             **kwargs: Additional keyword arguments for normalization
-            
+
         Returns:
             Fitted LinearNormalizer instance
         """
@@ -268,17 +271,19 @@ class TrajDataset:
         self.normalizer = LinearNormalizer()
         self.normalizer.fit(data=data, last_n_dims=1, mode=mode, **kwargs)
         for k, v in self.normalizer.params_dict.items():
-            logger.info(f"Normalizer {k} - min: {v['input_stats'].min}, max: {v['input_stats'].max}")
+            logger.info(
+                f"Normalizer {k} - min: {v['input_stats'].min}, max: {v['input_stats'].max}"
+            )
         return self.normalizer
 
     def append_episode(
-        self, 
-        episode: List[Dict[str, Any]], 
-        description: str = "", 
-        env_name: Optional[str] = None
+        self,
+        episode: List[Dict[str, Any]],
+        description: str = "",
+        env_name: Optional[str] = None,
     ) -> None:
         """Append a new episode to the replay buffer.
-        
+
         Args:
             episode: List of timestep dictionaries
             description: Episode description
@@ -313,21 +318,23 @@ class TrajDataset:
 
     def get_episode(self, idx: int) -> Dict[str, Any]:
         """Get an episode by index.
-        
+
         Args:
             idx: Episode index
-            
+
         Returns:
             Episode data dictionary
         """
         return self.replay_buffer.get_episode(idx)
 
-    def _sample_to_data(self, sample: Union[ReplayBuffer, Dict[str, Any]]) -> Dict[str, np.ndarray]:
+    def _sample_to_data(
+        self, sample: Union[ReplayBuffer, Dict[str, Any]]
+    ) -> Dict[str, np.ndarray]:
         """Convert sample to normalized data dictionary.
-        
+
         Args:
             sample: Sample from replay buffer
-            
+
         Returns:
             Dictionary with action and optionally state data
         """
@@ -384,25 +391,27 @@ class TrajDataset:
 
     def __len__(self) -> int:
         """Get total number of samples in the dataset."""
-        if not hasattr(self, 'sampler') or self.sampler is None:
+        if not hasattr(self, "sampler") or self.sampler is None:
             return 0
         return len(self.sampler)
-    
+
     @property
     def num_episodes(self) -> int:
         """Get number of episodes in the dataset."""
-        if not hasattr(self, 'replay_buffer') or self.replay_buffer is None:
+        if not hasattr(self, "replay_buffer") or self.replay_buffer is None:
             return 0
         return self.replay_buffer.n_episodes
-    
-    def _validate_config(self, use_pcd: bool, pcd_channels: Optional[int], hist_action_cond: bool) -> None:
+
+    def _validate_config(
+        self, use_pcd: bool, pcd_channels: Optional[int], hist_action_cond: bool
+    ) -> None:
         """Validate dataset configuration parameters.
-        
+
         Args:
             use_pcd: Whether point clouds are used
             pcd_channels: Number of point cloud channels
             hist_action_cond: Whether using historical action conditioning
-            
+
         Raises:
             ValueError: If configuration is invalid
         """
@@ -411,8 +420,10 @@ class TrajDataset:
             if pcd_channels is None:
                 raise ValueError("pcd_channels must be provided when use_pcd=True")
             if pcd_channels not in [3, 4, 5, 6, 7]:
-                raise ValueError(f"pcd_channels must be one of [3, 4, 5, 6, 7], got {pcd_channels}")
-        
+                raise ValueError(
+                    f"pcd_channels must be one of [3, 4, 5, 6, 7], got {pcd_channels}"
+                )
+
         # Validate horizon configuration
         if not hist_action_cond:
             expected_horizon = self.observation_horizon + self.action_horizon - 1
@@ -421,70 +432,82 @@ class TrajDataset:
                     f"Horizon mismatch: got {self.horizon}, expected {expected_horizon} "
                     f"(observation_horizon={self.observation_horizon} + action_horizon={self.action_horizon} - 1)"
                 )
-    
-    def _setup_image_augmentation(self, augment_img: bool, img_augment_prob: float) -> Optional[A.Compose]:
+
+    def _setup_image_augmentation(
+        self, augment_img: bool, img_augment_prob: float
+    ) -> Optional[A.Compose]:
         """Setup image augmentation pipeline.
-        
+
         Args:
             augment_img: Whether to enable image augmentation
             img_augment_prob: Probability of applying augmentation
-            
+
         Returns:
             Albumentations composition or None
         """
         if not augment_img:
             return None
-            
-        return A.Compose([
-            A.OneOf([
-                A.GaussianBlur(
-                    blur_limit=(3, 7),
-                    sigma_limit=(0.1, 2),
-                    p=img_augment_prob,
+
+        return A.Compose(
+            [
+                A.OneOf(
+                    [
+                        A.GaussianBlur(
+                            blur_limit=(3, 7),
+                            sigma_limit=(0.1, 2),
+                            p=img_augment_prob,
+                        ),
+                        A.MotionBlur(p=img_augment_prob),
+                        A.Defocus(p=img_augment_prob),
+                        A.ColorJitter(
+                            brightness=0.2,
+                            contrast=0.2,
+                            saturation=0.2,
+                            hue=0.1,
+                            p=img_augment_prob,
+                        ),
+                        A.GaussNoise(p=img_augment_prob),
+                    ]
                 ),
-                A.MotionBlur(p=img_augment_prob),
-                A.Defocus(p=img_augment_prob),
-                A.ColorJitter(
-                    brightness=0.2,
-                    contrast=0.2,
-                    saturation=0.2,
-                    hue=0.1,
-                    p=img_augment_prob
-                ),
-                A.GaussNoise(p=img_augment_prob),
-            ]),
-        ])
-    
-    def _setup_depth_augmentation(self, augment_depth: bool, img_augment_prob: float) -> Optional[A.Compose]:
+            ]
+        )
+
+    def _setup_depth_augmentation(
+        self, augment_depth: bool, img_augment_prob: float
+    ) -> Optional[A.Compose]:
         """Setup depth augmentation pipeline.
-        
+
         Args:
             augment_depth: Whether to enable depth augmentation
             img_augment_prob: Probability of applying augmentation
-            
+
         Returns:
             Albumentations composition or None
         """
         if not augment_depth:
             return None
-            
-        return A.Compose([
-            A.OneOf([
-                A.ShiftScaleRotate(
-                    shift_limit=0.25,
-                    scale_limit=0.05,
-                    rotate_limit=2,
-                    p=img_augment_prob,
+
+        return A.Compose(
+            [
+                A.OneOf(
+                    [
+                        A.ShiftScaleRotate(
+                            shift_limit=0.25,
+                            scale_limit=0.05,
+                            rotate_limit=2,
+                            p=img_augment_prob,
+                        ),
+                    ]
                 ),
-            ]),
-        ])
+            ]
+        )
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         """Normalize observation and actions for the given index.
-        
+
         Args:
             idx: Index of the trajectory sequence to retrieve
-            
+
         Returns:
             Dictionary containing processed observations, actions, and metadata
         """
@@ -492,7 +515,7 @@ class TrajDataset:
         # start_time = time.time()
         sample = self.sampler.sample_sequence(idx)
         # print("Time used of sample:", time.time() - start_time)
-        action_sub_keys = self.action_key.split('/')
+        action_sub_keys = self.action_key.split("/")
         if len(action_sub_keys) > 1 or action_sub_keys[0] != "action":
             action = sample
             for key in action_sub_keys:
@@ -512,7 +535,11 @@ class TrajDataset:
                 if isinstance(val, (dict, OrderedDict)):
                     recursive_horizon(val)
                 else:
-                    if (key not in self.ignored_keys) and (key != "action") and (key != "action_is_pad"):
+                    if (
+                        (key not in self.ignored_keys)
+                        and (key != "action")
+                        and (key != "action_is_pad")
+                    ):
                         if key == "language":
                             data[key] = val
                         else:
@@ -520,7 +547,9 @@ class TrajDataset:
                     else:
                         if self.hist_action_cond:
                             if key in ["action", "action_is_pad"]:
-                                data[key] = val[: self.action_horizon] # including hist action
+                                data[key] = val[
+                                    : self.action_horizon
+                                ]  # including hist action
                         else:
                             if key in ["action", "action_is_pad"]:
                                 data[key] = val[
@@ -636,17 +665,17 @@ class TrajDataset:
 
     def get_state(self, sample: Union[Dict[str, Any], np.ndarray]) -> np.ndarray:
         """Extract and concatenate state information from sample.
-        
+
         Args:
             sample: Sample containing state components
-            
+
         Returns:
             Concatenated state array
         """
         res = {"state": []}
         if isinstance(sample, (dict, OrderedDict)):
             res = sample
-            res['state'] = []
+            res["state"] = []
         for key in self.state_keys:
             if key in sample.keys():
                 if len(sample[key].shape) == 1:
@@ -661,9 +690,9 @@ class TrajDataset:
 
     def transform(self, sample: Dict[str, Any], idx: int) -> None:
         """Apply transformations to sample data in-place.
-        
+
         Includes image resizing, depth normalization, and augmentations.
-        
+
         Args:
             sample: Sample dictionary to transform
             idx: Sample index (for debugging)
@@ -671,39 +700,67 @@ class TrajDataset:
         if self.resize_img and "image" in sample.keys():
             for key, val in sample["image"].items():
                 # Image shape N, H, W, C
-                sample["image"][key] = resize_image_sequence(val, (self.img_size[0], self.img_size[1]))
+                sample["image"][key] = resize_image_sequence(
+                    val, (self.img_size[0], self.img_size[1])
+                )
         if self.resize_img and "depth" in sample.keys():
             for key, val in sample["depth"].items():
                 # Image shape N, H, W, C
                 clippped_depth, _ = clip_depth(val)
                 if not _:
                     logger.warning(f"Invalid depth detected in sample")
-                sample["depth"][key] = resize_image_sequence(clippped_depth, (self.img_size[0], self.img_size[1]), interp=cv2.INTER_NEAREST)
+                sample["depth"][key] = resize_image_sequence(
+                    clippped_depth,
+                    (self.img_size[0], self.img_size[1]),
+                    interp=cv2.INTER_NEAREST,
+                )
                 if self.norm_depth:
-                    sample["depth"][key] = self.warp_func.warp(sample["depth"][key], sample["depth"][key])
+                    sample["depth"][key] = self.warp_func.warp(
+                        sample["depth"][key], sample["depth"][key]
+                    )
         if self.augment_depth and "depth" in sample.keys():
             for key, val in sample["depth"].items():
                 for step_idx in range(val.shape[0]):
-                    sample["depth"][key][step_idx] = self.depth_transform(image=val[step_idx])["image"]
+                    sample["depth"][key][step_idx] = self.depth_transform(
+                        image=val[step_idx]
+                    )["image"]
         if self.augment_img and "image" in sample.keys():
             for key, val in sample["image"].items():
                 for step_idx in range(val.shape[0]):
-                    sample["image"][key][step_idx] = self.img_transform(image=val[step_idx])["image"]
-        if self.pose_transform is not None: # Last dim is gripper
-            if len(sample['action'].shape) == 2:
-                N, A = sample['action'].shape
-                sample['action'] = np.concatenate([self.pose_transform(sample['action'][..., :-1].reshape(-1, A-1)).reshape(N, -1), sample['action'][..., -1:]], axis=-1)
-            elif len(sample['action'].shape) == 3:
-                N, L, A = sample['action'].shape
-                sample['action'] = np.concatenate([self.pose_transform(sample['action'][..., :-1].reshape(-1, A-1)).reshape(N, L, -1), sample['action'][..., -1:]], axis=-1)
+                    sample["image"][key][step_idx] = self.img_transform(
+                        image=val[step_idx]
+                    )["image"]
+        if self.pose_transform is not None:  # Last dim is gripper
+            if len(sample["action"].shape) == 2:
+                N, A = sample["action"].shape
+                sample["action"] = np.concatenate(
+                    [
+                        self.pose_transform(
+                            sample["action"][..., :-1].reshape(-1, A - 1)
+                        ).reshape(N, -1),
+                        sample["action"][..., -1:],
+                    ],
+                    axis=-1,
+                )
+            elif len(sample["action"].shape) == 3:
+                N, L, A = sample["action"].shape
+                sample["action"] = np.concatenate(
+                    [
+                        self.pose_transform(
+                            sample["action"][..., :-1].reshape(-1, A - 1)
+                        ).reshape(N, L, -1),
+                        sample["action"][..., -1:],
+                    ],
+                    axis=-1,
+                )
             else:
                 raise ValueError(f"Invalid action shape: {sample['action'].shape}")
 
     def flat_sample(self, sample: Dict[str, Any]) -> None:
         """Flatten nested sample structure in-place.
-        
+
         Moves observation data to top level and handles point cloud channels.
-        
+
         Args:
             sample: Sample dictionary to flatten
         """
@@ -761,10 +818,10 @@ class TrajDataset:
 
     def pcd_aug(self, pcd: np.ndarray) -> np.ndarray:
         """Apply augmentations to point cloud data.
-        
+
         Args:
             pcd: Point cloud array
-            
+
         Returns:
             Augmented point cloud array
         """
@@ -797,8 +854,10 @@ def delete_indices(
 
             # remove start_idx:end_idx in replay.data
 
+
 class WarpMinMax:
     EPS = 1e-3
+
     def warp(self, depth, reference, **kwargs):
         depth_min, depth_max = (
             reference.reshape(depth.shape[0], -1).min(1, keepdims=True)[0],
@@ -823,13 +882,12 @@ class WarpMinMax:
             )
         return depth * (depth_max - depth_min)[:, None, None] + depth_min[:, None, None]
 
+
 def clip_depth(depth):
     res = True
     valid_mask = np.logical_and(depth > 0.01, ~np.isnan(depth)) & (~np.isinf(depth))
     if valid_mask.sum() == 0:
-        print(
-            "No valid mask in the depth map"
-        )
+        print("No valid mask in the depth map")
         res = False
     if valid_mask.sum() != 0 and np.isnan(depth).sum() != 0:
         depth[np.isnan(depth)] = depth[valid_mask].max()
@@ -837,6 +895,7 @@ def clip_depth(depth):
         depth[np.isinf(depth)] = depth[valid_mask].max()
 
     return depth, res
+
 
 def resize_image_sequence(images, target_size, interp=cv2.INTER_AREA):
     """
@@ -864,9 +923,7 @@ def resize_image_sequence(images, target_size, interp=cv2.INTER_AREA):
 
     # Resize each image
     for i in range(N):
-        res = cv2.resize(
-            images[i], (new_W, new_H), interpolation=interp
-        )
+        res = cv2.resize(images[i], (new_W, new_H), interpolation=interp)
         if C == 1:
             output[i] = res[:, :, np.newaxis]
         else:
@@ -892,7 +949,7 @@ if __name__ == "__main__":
         use_disk=True,
         load_from_cache=True,
         use_lru_cache=True,
-        val_ratio=0.,
+        val_ratio=0.0,
         action_horizon=16,
         observation_horizon=3,
         horizon=18,
@@ -913,7 +970,9 @@ if __name__ == "__main__":
     # plt.legend()
     # plt.savefig("pos_visualization.png")
     # images = dataset.replay_buffer.data.obs.images.camera_0[73366:74103]
-    import ipdb; ipdb.set_trace()
+    import ipdb
+
+    ipdb.set_trace()
     # print(collections.Counter(dataset.replay_buffer.meta["episode_descriptions"]))
     # if "env_names" in dataset.replay_buffer.meta.keys():
     #     print(collections.Counter(dataset.replay_buffer.meta["env_names"]))

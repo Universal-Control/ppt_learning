@@ -23,9 +23,10 @@ from ranging_anything.compute_metric import (
     recover_metric_depth_ransac,
 )
 
-EPS=1e-3
+EPS = 1e-3
 TensorData = Union[np.ndarray, torch.Tensor]
 output_dir = "sim-real"
+
 
 def convert_to_torch(
     array: TensorData,
@@ -73,6 +74,7 @@ def convert_to_torch(
         tensor = tensor.type(dtype)
 
     return tensor
+
 
 class DepthModelWrapper(torch.nn.Module):
     def __init__(self, depth_model):
@@ -151,6 +153,7 @@ def save_data(depth_image, color_image, camera_dir, frame_count):
     )
     cv2.imwrite(str(camera_dir / f"color_{frame_count}.png"), color_image)
 
+
 def colorize_depth_maps(
     depth_map, min_depth, max_depth, cmap="Spectral", valid_mask=None
 ):
@@ -191,8 +194,16 @@ def colorize_depth_maps(
 
     return img_colored
 
+
 def save_vis_depth(
-    sim_depth, sim_rgb, real_depth, real_rgb, name, tag, gt_depth=None, lowres_depth=None
+    sim_depth,
+    sim_rgb,
+    real_depth,
+    real_rgb,
+    name,
+    tag,
+    gt_depth=None,
+    lowres_depth=None,
 ) -> None:
     depth_np = real_depth
     save_name = name
@@ -204,13 +215,17 @@ def save_vis_depth(
             depth_np,
             gt_depth_np.min(),
             gt_depth_np.max(),
-        )[0].transpose((1, 2, 0))
+        )[
+            0
+        ].transpose((1, 2, 0))
     else:
         save_img = colorize_depth_maps(
             depth_np,
             depth_np.min(),
             depth_np.max(),
-        )[0].transpose((1, 2, 0))
+        )[
+            0
+        ].transpose((1, 2, 0))
     save_imgs.append(copy.deepcopy(save_img))
     rgb_np = cv2.resize(
         real_rgb,
@@ -233,7 +248,9 @@ def save_vis_depth(
             depth_np,
             depth_np.min(),
             depth_np.max(),
-        )[0].transpose((1, 2, 0))
+        )[
+            0
+        ].transpose((1, 2, 0))
     save_img = np.concatenate([depth_img, save_img], axis=1)
     save_imgs.append(save_img)
     rgb_np = cv2.resize(
@@ -247,16 +264,13 @@ def save_vis_depth(
     if lowres_depth is not None:
         lowres_depth_np = lowres_depth
         tar_h, tar_w = depth_np.shape[0], depth_np.shape[1]
-        if (
-            lowres_depth_np.shape[1] != tar_w
-            or lowres_depth_np.shape[0] != tar_h
-        ):
+        if lowres_depth_np.shape[1] != tar_w or lowres_depth_np.shape[0] != tar_h:
             if (lowres_depth_np == 0.0).sum() >= 10:
                 u, v = lowres_depth_np.nonzero()
                 orig_u, orig_v = u, v
-                u, v = (u * tar_h / lowres_depth_np.shape[0]).astype(
-                    np.int32
-                ), (v * tar_w / lowres_depth_np.shape[1]).astype(np.int32)
+                u, v = (u * tar_h / lowres_depth_np.shape[0]).astype(np.int32), (
+                    v * tar_w / lowres_depth_np.shape[1]
+                ).astype(np.int32)
                 lowres_depth_np_new = np.zeros_like(depth_np)
                 lowres_depth_np_new[u, v] = lowres_depth_np[orig_u, orig_v]
                 lowres_depth_np = lowres_depth_np_new
@@ -275,9 +289,7 @@ def save_vis_depth(
         else:
             lowres_depth_np = colorize_depth_maps(
                 lowres_depth_np,
-                (
-                    lowres_depth_np.min()
-                ),
+                (lowres_depth_np.min()),
                 lowres_depth_np.max(),
             )[0].transpose((1, 2, 0))
         lowres_depth_np = cv2.resize(
@@ -285,24 +297,20 @@ def save_vis_depth(
             (depth_np.shape[1], depth_np.shape[0]),
             interpolation=cv2.INTER_LINEAR,
         )
-        save_img = np.concatenate(
-            [save_img, lowres_depth_np], axis=1
-        )
+        save_img = np.concatenate([save_img, lowres_depth_np], axis=1)
         save_imgs.append(lowres_depth_np)
-    depth_diff = sim_depth - real_depth[...,None]
+    depth_diff = sim_depth - real_depth[..., None]
     depth_diff_img = colorize_depth_maps(
-            np.abs(depth_diff),
-            0.,
-            depth_diff.max(),
-        )[0].transpose((1, 2, 0))
-    save_img = np.concatenate(
-        [save_img, depth_diff_img], axis=1
-    )
+        np.abs(depth_diff),
+        0.0,
+        depth_diff.max(),
+    )[
+        0
+    ].transpose((1, 2, 0))
+    save_img = np.concatenate([save_img, depth_diff_img], axis=1)
     save_imgs.append(depth_diff_img)
     depth_mask = np.abs(depth_diff) > 0.04
-    save_img = np.concatenate(
-        [save_img, depth_mask.repeat(3, axis=-1)], axis=1
-    )
+    save_img = np.concatenate([save_img, depth_mask.repeat(3, axis=-1)], axis=1)
     save_imgs.append(depth_mask)
 
     if gt_depth is not None:
@@ -317,18 +325,17 @@ def save_vis_depth(
             (depth_np.shape[1], depth_np.shape[0]),
             interpolation=cv2.INTER_LINEAR,
         )
-        save_img = np.concatenate(
-            [save_img, gt_depth_np], axis=1
-        )
+        save_img = np.concatenate([save_img, gt_depth_np], axis=1)
         save_imgs.append(gt_depth_np)
     img_path = join(output_dir, f"{save_name}")
     os.makedirs(os.path.dirname(img_path), exist_ok=True)
     ending = ".png"
-    if '.exr' in img_path:
+    if ".exr" in img_path:
         ending = ".exr"
     imageio.imwrite(
         img_path.replace(ending, ".jpg"), (save_img * 255.0).astype(np.uint8)
     )
+
 
 dataset_sim = TrajDataset(
     domain="debug",
@@ -337,7 +344,7 @@ dataset_sim = TrajDataset(
     use_disk=True,
     load_from_cache=True,
     use_lru_cache=True,
-    val_ratio=0.,
+    val_ratio=0.0,
     action_horizon=2,
     observation_horizon=1,
     horizon=2,
@@ -346,7 +353,18 @@ dataset_sim = TrajDataset(
     use_pcd=False,
     pcd_channels=4,
     pcdnet_pretrain_domain="scanobjectnn",
-    ignored_keys=["language", "initial_state", "states", "images", "color", "abs_gripper_pos", "pointcloud", "wbc_target", "wbc_step", "last_action"]
+    ignored_keys=[
+        "language",
+        "initial_state",
+        "states",
+        "images",
+        "color",
+        "abs_gripper_pos",
+        "pointcloud",
+        "wbc_target",
+        "wbc_step",
+        "last_action",
+    ],
 )
 
 dataset_real = TrajDataset(
@@ -356,7 +374,7 @@ dataset_real = TrajDataset(
     use_disk=True,
     load_from_cache=True,
     use_lru_cache=True,
-    val_ratio=0.,
+    val_ratio=0.0,
     action_horizon=16,
     observation_horizon=3,
     horizon=18,
@@ -366,8 +384,23 @@ dataset_real = TrajDataset(
     pcd_channels=4,
     pcdnet_pretrain_domain="scanobjectnn",
     action_key="action",
-    state_keys=["ee_positions", "ee_rotations", "joint_posistions", "joint_velocities", "gripper_state"],
-    ignored_keys=["language", "initial_state", "states", "abs_gripper_pos", "pointcloud", "wbc_target", "wbc_step", "last_action"]
+    state_keys=[
+        "ee_positions",
+        "ee_rotations",
+        "joint_posistions",
+        "joint_velocities",
+        "gripper_state",
+    ],
+    ignored_keys=[
+        "language",
+        "initial_state",
+        "states",
+        "abs_gripper_pos",
+        "pointcloud",
+        "wbc_target",
+        "wbc_step",
+        "last_action",
+    ],
 )
 
 sim_depth = dataset_sim.replay_buffer.data.obs.depths.camera_0[5:30]
@@ -379,13 +412,13 @@ cv2.imwrite("sim-real/sim_rgb.png", sim_rgb[0][..., [2, 1, 0]])
 
 device = "cuda"
 depth_model = RangeAnything(
-    block_type='featurefusiondepthblock',
+    block_type="featurefusiondepthblock",
     # encoder='vits',
     # features=64,
     # out_channels=[48, 96, 192, 384],
     warp_func=ranging_anything.depth_anything.warp_func.WarpMinMax,
     # load_pretrain_net="/mnt/bn/robot-minghuan-debug/promptanyrobot/outputs/depth_estimation/promptanyrobot_ft_vits_allsim_shape640_435/checkpoints/e024-s102400.ckpt",
-    load_pretrain_net="/mnt/bn/robot-minghuan-debug/promptanyrobot/outputs/depth_estimation/promptanyrobot_ft_vitl_allsim_shape640_435/noscannet/checkpoints_25/e025-s103376.ckpt"
+    load_pretrain_net="/mnt/bn/robot-minghuan-debug/promptanyrobot/outputs/depth_estimation/promptanyrobot_ft_vitl_allsim_shape640_435/noscannet/checkpoints_25/e025-s103376.ckpt",
 )
 depth_model = DepthModelWrapper(depth_model)
 depth_size = [504, 672]
@@ -397,24 +430,16 @@ print("Depth model applied to camera data.")
 all_pred_depths = []
 step_len = 10
 for idx in tqdm(range(0, 2, step_len)):
-    colors = real_rgb[idx:idx+step_len, ..., [2, 1, 0]]  # Convert BGR to RGB
-    colors = colors.astype(
-        np.float32
-    )  # bs, H, W, 3
-    depths = real_depth[idx:idx+step_len]
+    colors = real_rgb[idx : idx + step_len, ..., [2, 1, 0]]  # Convert BGR to RGB
+    colors = colors.astype(np.float32)  # bs, H, W, 3
+    depths = real_depth[idx : idx + step_len]
     resized_colors = []
     resized_depths = []
     masks = []
     for i in range(len(depths)):
-        color = cv2.resize(
-            colors[i], depth_size[::-1], interpolation=cv2.INTER_AREA
-        )
-        depth = cv2.resize(
-            depths[i], depth_size[::-1], interpolation=cv2.INTER_NEAREST
-        )
-        mask = np.logical_and(depth > 1e-3, ~np.isnan(depth)) & (
-            ~np.isinf(depth)
-        )
+        color = cv2.resize(colors[i], depth_size[::-1], interpolation=cv2.INTER_AREA)
+        depth = cv2.resize(depths[i], depth_size[::-1], interpolation=cv2.INTER_NEAREST)
+        mask = np.logical_and(depth > 1e-3, ~np.isnan(depth)) & (~np.isinf(depth))
         depth = interp_depth_rgb(
             depth, cv2.cvtColor(color, cv2.COLOR_RGB2GRAY), speed=5, k=4
         )
@@ -440,7 +465,7 @@ for idx in tqdm(range(0, 2, step_len)):
     time1 = time.time()
     with torch.no_grad():
         pred_depths = depth_model(
-            colors / 255., depths, masks
+            colors / 255.0, depths, masks
         )  # , absolute=False, align_scale=False)
     # torch.cuda.synchronize() if device == "cuda" else None
     # print("infer used time", time.time() - time1)
@@ -454,7 +479,19 @@ for idx in tqdm(range(0, 2, step_len)):
 # with open("all_pred_depths.pkl", "rb") as f:
 #     all_pred_depths = pickle.load(f)
 
-save_vis_depth(sim_depth[0], sim_rgb[0]/255., cv2.resize(all_pred_depths[0], real_rgb.shape[1:3][::-1], interpolation=cv2.INTER_AREA), real_rgb[0]/255., f'0.png', '', gt_depth=real_depth[0])
+save_vis_depth(
+    sim_depth[0],
+    sim_rgb[0] / 255.0,
+    cv2.resize(
+        all_pred_depths[0], real_rgb.shape[1:3][::-1], interpolation=cv2.INTER_AREA
+    ),
+    real_rgb[0] / 255.0,
+    f"0.png",
+    "",
+    gt_depth=real_depth[0],
+)
 # save_vis_depth(sim_depth[0], sim_rgb[0]/255., cv2.resize(all_pred_depths[0], sim_rgb.shape[1:3][::-1], interpolation=cv2.INTER_AREA), cv2.resize(real_rgb[0]/255., sim_rgb.shape[1:3][::-1], interpolation=cv2.INTER_AREA), f'0.png', '', gt_depth=cv2.resize(real_depth[0], sim_rgb.shape[1:3][::-1], interpolation=cv2.INTER_NEAREST))
 
-import ipdb; ipdb.set_trace()
+import ipdb
+
+ipdb.set_trace()

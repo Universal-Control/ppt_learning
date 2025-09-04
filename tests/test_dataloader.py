@@ -24,6 +24,7 @@ PPT_DIR = Path(ppt_learning.__path__[-1])
 sys.path.append(f"{PPT_DIR}/../third_party/")
 os.environ["TOKENIZERS_PARALLELISM"] = "false"
 
+
 def get_dataloader(dataset, seed, rank, world_size, **kwargs):
 
     shuffle = kwargs.pop("shuffle", False)
@@ -52,8 +53,10 @@ def run(rank: int, world_size: int, cfg: DictConfig):
 
     device = torch.device(f"cuda:{rank}")
     domain_list = [d.strip() for d in cfg.domains.split(",")]
-    
-    domain = cfg.get("dataset_path", "debug").split("/")[-1] # domain_list[0] if len(domain_list) == 1 else "_".join(domain_list)
+
+    domain = cfg.get("dataset_path", "debug").split("/")[
+        -1
+    ]  # domain_list[0] if len(domain_list) == 1 else "_".join(domain_list)
 
     output_dir_full = cfg.output_dir.split("/")
     output_dir = "/".join(output_dir_full + [domain, ""])
@@ -66,9 +69,11 @@ def run(rank: int, world_size: int, cfg: DictConfig):
     use_pcd = "pointcloud" in cfg.stem.modalities
     if use_pcd:
         cfg.dataset.use_pcd = use_pcd
-        cfg.dataset.pcdnet_pretrain_domain = cfg.rollout_runner.pcdnet_pretrain_domain = cfg.stem.pointcloud.pcd_domain
+        cfg.dataset.pcdnet_pretrain_domain = (
+            cfg.rollout_runner.pcdnet_pretrain_domain
+        ) = cfg.stem.pointcloud.pcd_domain
         cfg.rollout_runner.pcd_channels = cfg.dataset.pcd_channels
-        
+
     if cfg.dataset.get("hist_action_cond", False):
         cfg.head["hist_horizon"] = cfg.dataset.observation_horizon
     cfg.dataset.horizon = (
@@ -88,7 +93,10 @@ def run(rank: int, world_size: int, cfg: DictConfig):
         cfg.dataset.dataset_path = (
             cfg.get("dataset_path", "") + "/" + domain_list[0] + ".zarr"
             if len(domain_list) == 1
-            else [cfg.get("dataset_path", "") + "/" + domain + ".zarr" for domain in domain_list]
+            else [
+                cfg.get("dataset_path", "") + "/" + domain + ".zarr"
+                for domain in domain_list
+            ]
         )
         dataset = hydra.utils.instantiate(
             cfg.dataset,
@@ -126,11 +134,11 @@ def run(rank: int, world_size: int, cfg: DictConfig):
     if rank == 0:
         print("cfg.train.pretrained_dir:", cfg.train.pretrained_dir)
 
-    epoch_size = len(train_loader) // 8 
+    epoch_size = len(train_loader) // 8
     loaded_epoch = 0
     pbar = trange(
-            loaded_epoch + 1, loaded_epoch + 1 + cfg.train.total_epochs, position=0
-        )
+        loaded_epoch + 1, loaded_epoch + 1 + cfg.train.total_epochs, position=0
+    )
 
     if not is_eval:
         # train / test loop
@@ -141,7 +149,7 @@ def run(rank: int, world_size: int, cfg: DictConfig):
                 position=1,
                 leave=True,
                 disable=(rank != 0),
-                desc=f"Epoch {epoch}"
+                desc=f"Epoch {epoch}",
             )
 
             for i, batch in enumerate(train_loader):
@@ -150,7 +158,6 @@ def run(rank: int, world_size: int, cfg: DictConfig):
                     break
             print("Time to finish an epoch")
             # break
-            
 
     print("saved results to:", cfg.output_dir)
     dist.destroy_process_group()
@@ -160,7 +167,7 @@ def filter_ddp_args():
     """Filter out DDP-specific arguments to avoid Hydra conflicts."""
     parser = argparse.ArgumentParser(add_help=False)
     parser.add_argument("--local_rank", type=int, default=0)
-    parser.add_argument("--model", type=str, default="pcd") # ["pcd", "rgb", "PCD"])
+    parser.add_argument("--model", type=str, default="pcd")  # ["pcd", "rgb", "PCD"])
     parser.add_argument("--suffix", type=str, default="")
     args, remaining = parser.parse_known_args()
     sys.argv = [sys.argv[0]] + remaining
@@ -183,7 +190,9 @@ def main():
     cfg.wb_tag = cfg.suffix if len(cfg.suffix) else "default"
     # Ensure output_dir has a default value if not set
     if not cfg.get("output_dir"):
-        cfg.output_dir = os.path.join("outputs", model_type, datetime.now().strftime("%Y-%m-%d_%H-%M-%S"))
+        cfg.output_dir = os.path.join(
+            "outputs", model_type, datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        )
     cfg.wb_tag = cfg.suffix if len(cfg.suffix) else "default"
 
     # Determine world size (number of GPUs)

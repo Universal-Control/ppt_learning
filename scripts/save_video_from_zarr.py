@@ -28,4 +28,4 @@ zarr_root = zarr.group(store=zarr_store)
 
 images = zarr_root["data/obs/images/camera_0"]
 
-imageio.imwrite("./third.mp4", images[args.start:args.end])
+imageio.imwrite("./third.mp4", images[args.start : args.end])

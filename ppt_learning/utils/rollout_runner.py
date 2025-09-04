@@ -36,8 +36,9 @@ from pathlib import Path
 import pandas as pd
 
 import collections
+
 try:
-    collections.Iterable=collections.abc.Iterable
+    collections.Iterable = collections.abc.Iterable
 except:
     pass
 from collections import OrderedDict
@@ -62,6 +63,7 @@ except Exception as e:
 
 MAX_EP_STEPS = 100
 MAX_RLBENCH_EP_STEPS = 100
+
 
 def normalize_quaternion(q):
     norm = np.linalg.norm(q)
@@ -109,6 +111,7 @@ def flat_pcd_sample(sample, pcd_channels=4):
             raise ValueError(f"Invalid pcd_channels: {pcd_channels}")
     return sample
 
+
 def flat_dict(dct):
     """Flatten a nested dictionary."""
     flat = {}
@@ -120,6 +123,7 @@ def flat_dict(dct):
         else:
             flat[key] = value
     return flat
+
 
 def update_pcd_transform(pcdnet_pretrain_domain, pcd_setup_cfg=None):
     from openpoints.transforms import build_transforms_from_cfg
@@ -272,7 +276,7 @@ class RolloutRunner:
                                 task_description=task_description,
                                 t=t,
                             )
-                        
+
                     action[-1] = 0.0 if action[-1] < 0.5 else 1.0
                     if self.collision_pred:
                         action[-2] = 0.0 if action[-2] < 0.5 else 1.0
@@ -406,7 +410,7 @@ class RLBenchRolloutRunner:
                         t=t,
                     )
                     # plot_pred(action, obs_data["pointcloud"]["pos"], obs_data["pointcloud"]["colors"], ".")
-                    
+
                 action[-1] = 0.0 if action[-1] < 0.5 else 1.0
                 if self.collision_pred:
                     action[-2] = 0.0 if action[-2] < 0.5 else 1.0  # -2 is gripper open
@@ -470,6 +474,7 @@ def _recursive_flat_env_dim(obs: dict):
 
 class WarpMinMax:
     EPS = 1e-3
+
     def warp(self, depth, reference, **kwargs):
         depth_min, depth_max = (
             reference.reshape(depth.shape[0], -1).min(1, keepdim=True)[0],
@@ -494,18 +499,18 @@ class WarpMinMax:
             )
         return depth * (depth_max - depth_min)[:, None, None] + depth_min[:, None, None]
 
+
 def clip_depth(depth):
     valid_mask = np.logical_and(depth > 0.01, ~np.isnan(depth)) & (~np.isinf(depth))
     if valid_mask.sum() == 0:
-        print(
-            "No valid mask in the depth map"
-        )
+        print("No valid mask in the depth map")
     if valid_mask.sum() != 0 and np.isnan(depth).sum() != 0:
         depth[np.isnan(depth)] = depth[valid_mask].max()
     if valid_mask.sum() != 0 and np.isinf(depth).sum() != 0:
         depth[np.isinf(depth)] = depth[valid_mask].max()
 
     return depth
+
 
 class IsaacEnvRolloutRunner:
     def __init__(
@@ -529,7 +534,7 @@ class IsaacEnvRolloutRunner:
         max_timestep=1200,
         warmup_step=10,
         hist_action_cond=False,
-        tar_size=(224,224),
+        tar_size=(224, 224),
         norm_depth=False,
         camera_names=["camera_0"],
         joint_names=None,
@@ -551,6 +556,7 @@ class IsaacEnvRolloutRunner:
             if pose_transform is not None:
                 if self.pose_transform == "pose_to_quat":
                     from ppt_learning.utils.pose_utils import pose_to_quat
+
                     self.pose_transform = pose_to_quat
             self.hist_action_cond = hist_action_cond
             self.tar_size = tar_size
@@ -558,7 +564,7 @@ class IsaacEnvRolloutRunner:
             self.warp_func = None
             if norm_depth:
                 self.warp_func = WarpMinMax()
-                                        
+
             self.random_reset = random_reset
             self.device = device
             self.num_envs = num_envs
@@ -569,21 +575,29 @@ class IsaacEnvRolloutRunner:
                     "eef_quat",
                     "joint_pos",
                     # "joint_vel",
-                    "normalized_gripper_pos"
+                    "normalized_gripper_pos",
                 ]
             self.pcd_aug = lambda x: randomly_drop_point(add_gaussian_noise(x))
 
             from isaaclab.app import AppLauncher
             import pinocchio as pin
 
-            distributed = (world_size != 1)
+            distributed = world_size != 1
 
             app_launcher_kwargs = {
-                "headless": self.headless, "enable_cameras": True,
-                "distributed": distributed, "n_procs": world_size, "livestream": -1,
-                "xr": False, device:'cuda:0', "cpu": False,
-                "verbose": False, "info": False, "experience": '', "rendering_mode": None,
-                "kit_args":''
+                "headless": self.headless,
+                "enable_cameras": True,
+                "distributed": distributed,
+                "n_procs": world_size,
+                "livestream": -1,
+                "xr": False,
+                device: "cuda:0",
+                "cpu": False,
+                "verbose": False,
+                "info": False,
+                "experience": "",
+                "rendering_mode": None,
+                "kit_args": "",
             }
             self.app_launcher = AppLauncher(None, **app_launcher_kwargs)
             self.app = self.app_launcher.app
@@ -594,7 +608,9 @@ class IsaacEnvRolloutRunner:
             from isaaclab.envs import ManagerBasedRLEnv
             import gymnasium as gym
             from .isaac_rollout_utils import (
-                EvalStaticsCfg, joint_acc_from_vel, joint_acc_from_pos
+                EvalStaticsCfg,
+                joint_acc_from_vel,
+                joint_acc_from_pos,
             )
             from isaaclab.envs import mdp
             from isaaclab.managers import ObservationTermCfg as ObsTerm, SceneEntityCfg
@@ -607,53 +623,55 @@ class IsaacEnvRolloutRunner:
             env_cfg = parse_env_cfg(
                 self.task_name, device=self.device, num_envs=self.num_envs
             )
-            
+
             self.success_term = env_cfg.terminations.success
             env_cfg.terminations.success = None
-            
+
             env_cfg.seed = seed
             if hasattr(env_cfg, "mimic_events"):
                 delattr(env_cfg, "mimic_events")
 
             if world_size > 1:
-                env_cfg.sim.device = f'cuda:{rank}'
+                env_cfg.sim.device = f"cuda:{rank}"
                 env_cfg.seed += self.app_launcher.global_rank
                 print("self.app_launcher.global_rank:", self.app_launcher.global_rank)
-            
+
             env_cfg.observations.eval_static = EvalStaticsCfg()
             if joint_names is not None:
                 joint_names = list(joint_names)
-                env_cfg.observations.eval_static = env_cfg.observations.eval_static.replace(
-                    joint_vel=ObsTerm(
-                        func=mdp.joint_vel,
-                        params={
-                            "asset_cfg": SceneEntityCfg(
-                                "robot",
-                                joint_names=joint_names,
-                                preserve_order=True,
-                            ),
-                        },
-                    ),
-                    joint_acc_from_vel=ObsTerm(
-                        func=joint_acc_from_vel,
-                        params={
-                            "asset_cfg": SceneEntityCfg(
-                                "robot",
-                                joint_names=joint_names,
-                                preserve_order=True,
-                            ),
-                        },
-                    ),
-                    joint_acc_from_pos=ObsTerm(
-                        func=joint_acc_from_pos,
-                        params={
-                            "asset_cfg": SceneEntityCfg(
-                                "robot",
-                                joint_names=joint_names,
-                                preserve_order=True,
-                            ),
-                        },
-                    ),
+                env_cfg.observations.eval_static = (
+                    env_cfg.observations.eval_static.replace(
+                        joint_vel=ObsTerm(
+                            func=mdp.joint_vel,
+                            params={
+                                "asset_cfg": SceneEntityCfg(
+                                    "robot",
+                                    joint_names=joint_names,
+                                    preserve_order=True,
+                                ),
+                            },
+                        ),
+                        joint_acc_from_vel=ObsTerm(
+                            func=joint_acc_from_vel,
+                            params={
+                                "asset_cfg": SceneEntityCfg(
+                                    "robot",
+                                    joint_names=joint_names,
+                                    preserve_order=True,
+                                ),
+                            },
+                        ),
+                        joint_acc_from_pos=ObsTerm(
+                            func=joint_acc_from_pos,
+                            params={
+                                "asset_cfg": SceneEntityCfg(
+                                    "robot",
+                                    joint_names=joint_names,
+                                    preserve_order=True,
+                                ),
+                            },
+                        ),
+                    )
                 )
             # if joint_names is not None:
             #     env_cfg.observations.eval_static.sync_joint_names(joint_names)
@@ -663,7 +681,9 @@ class IsaacEnvRolloutRunner:
             print("Env created")
 
             if inspect.isclass(self.success_term.func):
-                self.success_term.func = self.success_term.func(cfg=self.success_term, env=self.env)
+                self.success_term.func = self.success_term.func(
+                    cfg=self.success_term, env=self.env
+                )
                 self._success_term_class = True
             else:
                 self._success_term_class = False
@@ -677,6 +697,7 @@ class IsaacEnvRolloutRunner:
         except Exception as e:
             print(f"Error initializing IsaacEnvRolloutRunner: {e}")
             import traceback
+
             traceback.print_exc()
 
     def get_state(self, sample):
@@ -695,7 +716,7 @@ class IsaacEnvRolloutRunner:
             for key in obs["depths"]:
                 if key not in self.camera_names:
                     continue
-                depth_tensor = clip_depth(obs["depths"][key]) # [1, H, W, 1]
+                depth_tensor = clip_depth(obs["depths"][key])  # [1, H, W, 1]
                 # Ensure shape is [N, C, H, W] for interpolation
                 if depth_tensor.ndim == 4:
                     # [1, H, W, 1] -> [1, 1, H, W]
@@ -707,9 +728,7 @@ class IsaacEnvRolloutRunner:
                     # [H, W] -> [1, 1, H, W]
                     depth_tensor = depth_tensor.unsqueeze(0).unsqueeze(0)
                 depth_tensor = torch.nn.functional.interpolate(
-                    depth_tensor,
-                    size=self.tar_size,
-                    mode="nearest"
+                    depth_tensor, size=self.tar_size, mode="nearest"
                 )
                 if self.norm_depth:
                     depth_tensor = self.warp_func.warp(depth_tensor, depth_tensor)
@@ -721,7 +740,7 @@ class IsaacEnvRolloutRunner:
                 "color": obs["policy_infer"]["pointcloud"][..., 1],
                 "pos": obs["policy_infer"]["pointcloud"][..., 0],
             }
-        
+
         ppt_obs = _recursive_flat_env_dim(ppt_obs)
         ppt_obs["state"] = self.get_state(obs["policy"])
 
@@ -732,7 +751,7 @@ class IsaacEnvRolloutRunner:
         policy.to(self.device)
         try:
             statics_save_dir_root = self.video_save_dir.parent / "statics" / policy_name
-            
+
             print(f"Begin eval model:{policy_name}")
             episode_num = self.episode_num  # upper bound for number of trajectories
             imgs = OrderedDict()
@@ -750,27 +769,31 @@ class IsaacEnvRolloutRunner:
                 eps_reward = 0
                 traj_length = 0
                 done = False
-                
+
                 if not self._success_term_class:
                     self.success_term.func(env, **self.success_term.params)
                 policy.reset()
                 obs, _ = env.reset()
                 if self._success_term_class:
                     self.success_term.func.reset()
-                    
+
                 task_description = ""
                 success = False
                 subtask_successes = {key: False for key in obs["subtask_terms"]}
-                
+
                 # warm up
                 for _ in range(self.warmup_step):
-                    obs, reward, terminations, timeouts, info = env.step(env.cfg.mimic_config.default_actions[None])
+                    obs, reward, terminations, timeouts, info = env.step(
+                        env.cfg.mimic_config.default_actions[None]
+                    )
 
                 obs, _ = env.reset()
 
                 # warm up
                 for _ in range(self.warmup_step):
-                    obs, reward, terminations, timeouts, info = env.step(env.cfg.mimic_config.default_actions[None])
+                    obs, reward, terminations, timeouts, info = env.step(
+                        env.cfg.mimic_config.default_actions[None]
+                    )
 
                 for t in range(self.max_timestep):
                     if self.save_video:
@@ -789,14 +812,10 @@ class IsaacEnvRolloutRunner:
                             #     cv2.putText(image, action_str_2, (50, 50*(idx+5)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
                             #     action_str_3 = f"Action: [{action[22]:.2f}, {action[23]:.2f}|"
                             #     cv2.putText(image, action_str_3, (50, 50*(idx+6)), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (0, 255, 0), 2, cv2.LINE_AA)
-                            self.video_logger.extend(
-                                key, image, category="color"
-                            )
+                            self.video_logger.extend(key, image, category="color")
                         for key in obs["depths"]:
                             depth = obs["depths"][key][0].cpu().numpy()
-                            self.video_logger.extend(
-                                key, depth, category="depth"
-                            )
+                            self.video_logger.extend(key, depth, category="depth")
 
                     traj_length += 1
 
@@ -817,7 +836,7 @@ class IsaacEnvRolloutRunner:
                                 in_channels=self.pcd_channels,
                                 task_description=task_description,
                                 t=t,
-                                hist_action_cond=self.hist_action_cond
+                                hist_action_cond=self.hist_action_cond,
                             )
                         else:
                             action = policy.get_action(
@@ -828,9 +847,9 @@ class IsaacEnvRolloutRunner:
                                 in_channels=3,
                                 task_description=task_description,
                                 t=t,
-                                hist_action_cond=self.hist_action_cond
+                                hist_action_cond=self.hist_action_cond,
                             )
-                    
+
                     if "x7" in self.task_name.lower():
                         pass
                     else:
@@ -842,13 +861,15 @@ class IsaacEnvRolloutRunner:
                         action[None]
                     )
                     statics = flat_dict(next_obs["eval_static"])
-                    statics = dict_apply(statics, lambda x: x.cpu().numpy() if isinstance(x, torch.Tensor) else x)
-                    np.savez(
-                        statics_save_dir / f"{i}-th-statistics.npz",
-                        **statics
+                    statics = dict_apply(
+                        statics,
+                        lambda x: x.cpu().numpy() if isinstance(x, torch.Tensor) else x,
                     )
+                    np.savez(statics_save_dir / f"{i}-th-statistics.npz", **statics)
                     for key in subtask_successes:
-                        subtask_successes[key] = subtask_successes[key] or next_obs["subtask_terms"][key]
+                        subtask_successes[key] = (
+                            subtask_successes[key] or next_obs["subtask_terms"][key]
+                        )
                     if self.success_term.func(env, **self.success_term.params):
                         success = True
                         terminations[0] = True
@@ -865,21 +886,32 @@ class IsaacEnvRolloutRunner:
                 total_reward += eps_reward
                 total_success += success
                 for key in subtask_successes:
-                    subtask_success_nums[key] = subtask_successes[key] + subtask_success_nums.get(key, 0)
+                    subtask_success_nums[key] = subtask_successes[
+                        key
+                    ] + subtask_success_nums.get(key, 0)
 
                 if self.save_video:
                     postfix = "success" if success else "fail"
-                    self.video_logger.save(dir_name=f"{i}-th-{postfix}", model_name=policy_name)
+                    self.video_logger.save(
+                        dir_name=f"{i}-th-{postfix}", model_name=policy_name
+                    )
                     self.video_logger.reset()
                 print(subtask_success_nums)
-                pbar.set_description(f"{self.task_name} total_success: {total_success} at rank: {self.rank}")
+                pbar.set_description(
+                    f"{self.task_name} total_success: {total_success} at rank: {self.rank}"
+                )
 
         except Exception as e:
             print(e)
             import traceback
+
             traceback.print_exc()
 
-        return total_success / episode_num, total_reward / episode_num, (imgs, subtask_success_nums, episode_num)
+        return (
+            total_success / episode_num,
+            total_reward / episode_num,
+            (imgs, subtask_success_nums, episode_num),
+        )
 
 
 class IsaacEnvWbcRolloutRunner(IsaacEnvRolloutRunner):
@@ -906,17 +938,37 @@ class IsaacEnvWbcRolloutRunner(IsaacEnvRolloutRunner):
         robot_type="ur5e",
         **kwargs,
     ):
-        from isaaclab_mimic.utils.robots.mobile_wbc_controller import MobileWbcController
-        from isaaclab_mimic.utils.robots.mobile_wbc_controller_dual import MobileDualArmWbcController
-        self.wbc_controller: MobileDualArmWbcController | MobileWbcController = wbc_controller
+        from isaaclab_mimic.utils.robots.mobile_wbc_controller import (
+            MobileWbcController,
+        )
+        from isaaclab_mimic.utils.robots.mobile_wbc_controller_dual import (
+            MobileDualArmWbcController,
+        )
+
+        self.wbc_controller: MobileDualArmWbcController | MobileWbcController = (
+            wbc_controller
+        )
         self.until_wbc_reach = until_wbc_reach
         self.robot_type = robot_type
         super().__init__(
-            task_name, episode_num, save_video, headless,
-            obs_mode, pcd_channels, pcdnet_pretrain_domain,
-            random_reset, num_envs, device,
-            seed, state_keys, video_save_dir, world_size,
-            rank, max_timestep, **kwargs,)
+            task_name,
+            episode_num,
+            save_video,
+            headless,
+            obs_mode,
+            pcd_channels,
+            pcdnet_pretrain_domain,
+            random_reset,
+            num_envs,
+            device,
+            seed,
+            state_keys,
+            video_save_dir,
+            world_size,
+            rank,
+            max_timestep,
+            **kwargs,
+        )
         self.wbc_controller.cfg.dt = self.env.unwrapped.step_dt
 
     @torch.inference_mode()
@@ -942,15 +994,17 @@ class IsaacEnvWbcRolloutRunner(IsaacEnvRolloutRunner):
 
                 policy.reset()
                 obs, _ = env.reset()
-                
+
                 # warm up
                 for _ in range(self.warmup_step):
-                    obs, reward, terminations, timeouts, info = env.step(env.cfg.mimic_config.default_actions[None])
-                
+                    obs, reward, terminations, timeouts, info = env.step(
+                        env.cfg.mimic_config.default_actions[None]
+                    )
+
                 task_description = ""
                 success = False
                 subtask_successes = {key: False for key in obs["subtask_terms"]}
-                
+
                 for t in range(self.max_timestep):
                     traj_length += 1
 
@@ -982,7 +1036,7 @@ class IsaacEnvWbcRolloutRunner(IsaacEnvRolloutRunner):
                                 task_description=task_description,
                                 t=t,
                             )
-                        
+
                     action[-1] = 0.0 if action[-1] < 0.5 else 1.0
                     if self.robot_type == "ur5e":
                         joint_action = action[:6]
@@ -1001,7 +1055,9 @@ class IsaacEnvWbcRolloutRunner(IsaacEnvRolloutRunner):
                         action[None]
                     )
                     for key in subtask_successes:
-                        subtask_successes[key] = subtask_successes[key] or next_obs["subtask_terms"][key]
+                        subtask_successes[key] = (
+                            subtask_successes[key] or next_obs["subtask_terms"][key]
+                        )
                     if self.success_term.func(env, **self.success_term.params):
                         success = True
                         terminations[0] = True
@@ -1011,7 +1067,9 @@ class IsaacEnvWbcRolloutRunner(IsaacEnvRolloutRunner):
                     if self.save_video:
                         for key in obs["images"]:
                             self.video_logger.extend(
-                                key, obs["images"][key][0].cpu().numpy(), category="color"
+                                key,
+                                obs["images"][key][0].cpu().numpy(),
+                                category="color",
                             )
                     obs = next_obs
 
@@ -1024,21 +1082,33 @@ class IsaacEnvWbcRolloutRunner(IsaacEnvRolloutRunner):
                 total_reward += eps_reward
                 total_success += success
                 for key in subtask_successes:
-                    subtask_success_nums[key] = subtask_successes[key] + subtask_success_nums.get(key, 0)
+                    subtask_success_nums[key] = subtask_successes[
+                        key
+                    ] + subtask_success_nums.get(key, 0)
 
                 if self.save_video:
                     postfix = "success" if success else "fail"
-                    self.video_logger.save(dir_name=f"{i}-th-{postfix}", model_name=policy_name)
+                    self.video_logger.save(
+                        dir_name=f"{i}-th-{postfix}", model_name=policy_name
+                    )
                     self.video_logger.reset()
                 print(subtask_success_nums)
-                pbar.set_description(f"{self.task_name} total_success: {total_success} at rank: {self.rank}")
+                pbar.set_description(
+                    f"{self.task_name} total_success: {total_success} at rank: {self.rank}"
+                )
 
         except Exception as e:
             print(e)
             import traceback
+
             traceback.print_exc()
 
-        return total_success / episode_num, total_reward / episode_num, (imgs, subtask_success_nums, episode_num)
+        return (
+            total_success / episode_num,
+            total_reward / episode_num,
+            (imgs, subtask_success_nums, episode_num),
+        )
+
 
 if __name__ == "__main__":
     # generate for all tasks

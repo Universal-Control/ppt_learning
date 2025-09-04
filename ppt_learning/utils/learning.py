@@ -25,8 +25,11 @@ from transformers import CLIPTextModel, CLIPVisionModel, AutoProcessor
 from transformers import AutoImageProcessor, Dinov2Model
 
 from diffusers.optimization import (
-    Union, SchedulerType, Optional,
-    Optimizer, TYPE_TO_SCHEDULER_FUNCTION
+    Union,
+    SchedulerType,
+    Optional,
+    Optimizer,
+    TYPE_TO_SCHEDULER_FUNCTION,
 )
 
 from ppt_learning.utils.logging_utils import module_max_gradient, log_results
@@ -70,11 +73,11 @@ ModalityType = SimpleNamespace(
 
 def recursive_in(data: Dict[str, Any], modality: str) -> bool:
     """Check if a nested modality key exists in the data dictionary.
-    
+
     Args:
         data: Dictionary to search in
         modality: Nested key path separated by '/' (e.g., 'obs/rgb/image')
-        
+
     Returns:
         True if the modality path exists, False otherwise
     """
@@ -86,11 +89,11 @@ def recursive_in(data: Dict[str, Any], modality: str) -> bool:
 
 def recursive_get(data: Dict[str, Any], modality: str) -> Any:
     """Recursively get a nested value from a dictionary using a path.
-    
+
     Args:
         data: Dictionary to search in
         modality: Nested key path separated by '/' (e.g., 'obs/rgb/image')
-        
+
     Returns:
         Value at the specified modality path
     """
@@ -102,7 +105,7 @@ def recursive_get(data: Dict[str, Any], modality: str) -> Any:
 
 def mkdir_if_missing(dst_dir: str) -> None:
     """Create directory if it doesn't exist.
-    
+
     Args:
         dst_dir: Directory path to create
     """
@@ -168,12 +171,12 @@ def get_scheduler(
     **kwargs: Any,
 ) -> torch.optim.lr_scheduler._LRScheduler:
     """Get a learning rate scheduler based on specification.
-    
+
     Args:
         schduler_spec: Configuration for scheduler instantiation
         optimizer: PyTorch optimizer to schedule
         **kwargs: Additional keyword arguments
-        
+
     Returns:
         Instantiated learning rate scheduler
     """
@@ -189,13 +192,13 @@ def get_optimizer(
     **kwargs: Any,
 ) -> torch.optim.Optimizer:
     """Get an optimizer based on specification.
-    
+
     Args:
         optimizer_spec: Configuration for optimizer instantiation
         policy: PyTorch model to optimize
         optimizer_extra: Additional optimizer configuration (unused)
         **kwargs: Additional keyword arguments
-        
+
     Returns:
         Instantiated PyTorch optimizer
     """
@@ -203,13 +206,15 @@ def get_optimizer(
     return opt_i
 
 
-def batchify(data: Dict[str, torch.Tensor], exclude: List[str] = []) -> Dict[str, torch.Tensor]:
+def batchify(
+    data: Dict[str, torch.Tensor], exclude: List[str] = []
+) -> Dict[str, torch.Tensor]:
     """Merge batchsize, seqlen, horizon into the first dimension.
-    
+
     Args:
         data: Dictionary of tensors with shape (bs, seq_len, *dim)
         exclude: List of keys to exclude from batchification
-        
+
     Returns:
         Dictionary with tensors reshaped to merge batch and sequence dimensions
     """
@@ -554,7 +559,7 @@ def get_scheduler(
     optimizer: Optimizer,
     num_warmup_steps: Optional[int] = None,
     num_training_steps: Optional[int] = None,
-    **kwargs
+    **kwargs,
 ):
     """
     Added kwargs vs diffuser's original implementation
@@ -580,13 +585,22 @@ def get_scheduler(
 
     # All other schedulers require `num_warmup_steps`
     if num_warmup_steps is None:
-        raise ValueError(f"{name} requires `num_warmup_steps`, please provide that argument.")
+        raise ValueError(
+            f"{name} requires `num_warmup_steps`, please provide that argument."
+        )
 
     if name == SchedulerType.CONSTANT_WITH_WARMUP:
         return schedule_func(optimizer, num_warmup_steps=num_warmup_steps, **kwargs)
 
     # All other schedulers require `num_training_steps`
     if num_training_steps is None:
-        raise ValueError(f"{name} requires `num_training_steps`, please provide that argument.")
+        raise ValueError(
+            f"{name} requires `num_training_steps`, please provide that argument."
+        )
 
-    return schedule_func(optimizer, num_warmup_steps=num_warmup_steps, num_training_steps=num_training_steps, **kwargs)
+    return schedule_func(
+        optimizer,
+        num_warmup_steps=num_warmup_steps,
+        num_training_steps=num_training_steps,
+        **kwargs,
+    )

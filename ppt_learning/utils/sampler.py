@@ -45,20 +45,26 @@ def create_indices(
 
         # range stops one idx before end
         for idx in range(min_start, max_start + 1):
-            buffer_start_idx = max(idx, 0) + start_idx # make sure all start idx is the same
+            buffer_start_idx = (
+                max(idx, 0) + start_idx
+            )  # make sure all start idx is the same
             if obs:
-                buffer_end_idx = min(idx + (pad_before+1), episode_length) + start_idx # pad_before+1 because we want to include the history
+                buffer_end_idx = (
+                    min(idx + (pad_before + 1), episode_length) + start_idx
+                )  # pad_before+1 because we want to include the history
             else:
                 buffer_end_idx = min(idx + sequence_length, episode_length) + start_idx
 
             start_offset = buffer_start_idx - (idx + start_idx)
             if obs:
-                end_offset = (idx + (pad_before+1) + start_idx) - buffer_end_idx
+                end_offset = (idx + (pad_before + 1) + start_idx) - buffer_end_idx
             else:
                 end_offset = (idx + sequence_length + start_idx) - buffer_end_idx
-            sample_start_idx = 0 + start_offset # make sure all start idx is the same
+            sample_start_idx = 0 + start_offset  # make sure all start idx is the same
             if obs:
-                sample_end_idx = (pad_before+1) - end_offset # pad_before+1 because we want to include the  history
+                sample_end_idx = (
+                    pad_before + 1
+                ) - end_offset  # pad_before+1 because we want to include the  history
             else:
                 sample_end_idx = sequence_length - end_offset
             if debug:
@@ -209,7 +215,7 @@ class SequenceSampler:
         result = dict()
 
         def recursive_sample(data, target_dict):
-            
+
             for key, input_arr in data.items():
                 if key in self.ignored_keys:
                     continue
@@ -287,11 +293,13 @@ class SequenceSampler:
 
         return result
 
+
 def check_key(key, ignored_keys):
     for ignored_key in ignored_keys:
         if ignored_key in key:
             return False
     return True
+
 
 def get_shape(keys, shape_meta):
     shape = shape_meta
@@ -299,6 +307,7 @@ def get_shape(keys, shape_meta):
     for key in key_lst:
         shape = shape[key]
     return shape
+
 
 def add_to_dict(d, keys, data):
     key_lst = keys.split("/")
@@ -308,16 +317,17 @@ def add_to_dict(d, keys, data):
         d = d[key]
     d[key_lst[-1]] = data
 
+
 class SequenceSamplerLance:
     def __init__(
         self,
         lance_data_path: str,
         sequence_length: int,
-        lance_dataset = None,
+        lance_dataset=None,
         pad_before: int = 0,
         pad_after: int = 0,
         keys=None,
-        keys_in_memory:list = None,
+        keys_in_memory: list = None,
         episode_mask: Optional[np.ndarray] = None,
         ignored_keys=[],
         action_key="",
@@ -328,12 +338,15 @@ class SequenceSamplerLance:
         """
         import lance
         import pickle
+
         super().__init__()
         assert sequence_length >= 1
         if lance_dataset is not None:
             self.lance_dataset = lance_dataset
         else:
-            self.lance_dataset = lance.dataset(os.path.join(lance_data_path, "data.lance"))            
+            self.lance_dataset = lance.dataset(
+                os.path.join(lance_data_path, "data.lance")
+            )
         with open(os.path.join(lance_data_path, "meta_info.pkl"), "rb") as f:
             self.meta_info = pickle.load(f)
         if keys is None:
@@ -385,11 +398,16 @@ class SequenceSamplerLance:
             if check_key(key, ignored_keys):
                 new_keys.append(key)
                 self.shape_meta[key] = get_shape(key, raw_shape_meta)
-        self.keys_in_disk = [key for key in self.keys if (key not in self.keys_in_memory) and check_key(key, ignored_keys) and key != "row_id"]
+        self.keys_in_disk = [
+            key
+            for key in self.keys
+            if (key not in self.keys_in_memory)
+            and check_key(key, ignored_keys)
+            and key != "row_id"
+        ]
         self.load_key_in_memory()
         self.keys = new_keys
         self.action_key = action_key
-
 
     def __len__(self):
         return len(self.act_indices)
@@ -398,7 +416,9 @@ class SequenceSamplerLance:
         tmp_data_in_memory = self.lance_dataset.to_table(columns=self.keys_in_memory)
         self.data_in_memory = {}
         for key in self.keys_in_memory:
-            self.data_in_memory[key] = np.stack(tmp_data_in_memory[key].to_numpy()).reshape(*self.shape_meta[key])
+            self.data_in_memory[key] = np.stack(
+                tmp_data_in_memory[key].to_numpy()
+            ).reshape(*self.shape_meta[key])
 
     def sample_sequence(self, idx):
         (
@@ -435,7 +455,7 @@ class SequenceSamplerLance:
                 sample_start_idx = obs_sample_start_idx
                 sample_end_idx = obs_sample_end_idx
                 eps_description = obs_eps_description
-   
+
             indices = list(range(buffer_start_idx, buffer_end_idx))
             row = self.lance_dataset.take(indices, columns=self.keys_in_disk)
             value = np.stack(row[key].to_numpy()).reshape(-1, *self.shape_meta[key][1:])

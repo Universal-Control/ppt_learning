@@ -25,23 +25,22 @@ from ppt_learning import train_test
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
 
 
 def setup_distributed():
     """Setup distributed training if multiple GPUs are available."""
-    if 'WORLD_SIZE' in os.environ:
-        world_size = int(os.environ['WORLD_SIZE'])
-        rank = int(os.environ['RANK'])
-        local_rank = int(os.environ['LOCAL_RANK'])
-        
+    if "WORLD_SIZE" in os.environ:
+        world_size = int(os.environ["WORLD_SIZE"])
+        rank = int(os.environ["RANK"])
+        local_rank = int(os.environ["LOCAL_RANK"])
+
         # Initialize the process group
-        dist.init_process_group(backend='nccl')
+        dist.init_process_group(backend="nccl")
         torch.cuda.set_device(local_rank)
-        
+
         return True, rank, local_rank, world_size
     else:
         return False, 0, 0, 1
@@ -61,7 +60,7 @@ def cleanup_distributed():
 def run_train(cfg: OmegaConf) -> None:
     """
     Unified training script for both single-GPU and multi-GPU training.
-    
+
     Args:
         cfg: Hydra configuration object.
     """
@@ -69,21 +68,21 @@ def run_train(cfg: OmegaConf) -> None:
     is_distributed, rank, local_rank, world_size = setup_distributed()
     print(f"Process Rank: {rank}, Local Rank: {local_rank}, World Size: {world_size}")
     is_main_process = rank == 0
-    
+
     # Register custom OmegaConf resolver for mathematical expressions
     OmegaConf.register_new_resolver("eval", eval)
 
     is_eval = cfg.train.total_epochs == 0
-    
+
     # Use appropriate device based on distributed setup
     if is_distributed:
         device = f"cuda:{local_rank}"
         torch.cuda.set_device(local_rank)
     else:
         device = "cuda" if torch.cuda.is_available() else "cpu"
-    
+
     domain_list = [d.strip() for d in cfg.domains.split(",")]
-    
+
     domain = cfg.get("dataset_path", "debug").split("/")[-1]
 
     # Only initialize wandb on main process
@@ -106,11 +105,11 @@ def run_train(cfg: OmegaConf) -> None:
         output_dir += "-".join(output_dir_full[-2:])
     if is_eval:
         output_dir += "-eval"
-    
+
     # Add rank suffix for distributed training
     if is_distributed and not is_main_process:
         output_dir += f"_rank_{rank}"
-        
+
     cfg.output_dir = output_dir
 
     use_pcd = "pointcloud" in cfg.stem.modalities
@@ -130,7 +129,10 @@ def run_train(cfg: OmegaConf) -> None:
         cfg.dataset.dataset_path = (
             cfg.get("dataset_path", "") + "/" + domain_list[0] + ".zarr"
             if len(domain_list) == 1
-            else [cfg.get("dataset_path", "") + "/" + domain + ".zarr" for domain in domain_list]
+            else [
+                cfg.get("dataset_path", "") + "/" + domain + ".zarr"
+                for domain in domain_list
+            ]
         )
         dataset = hydra.utils.instantiate(
             cfg.dataset,
@@ -148,8 +150,12 @@ def run_train(cfg: OmegaConf) -> None:
         train_sampler = None
         val_sampler = None
         if is_distributed:
-            train_sampler = DistributedSampler(dataset, num_replicas=world_size, rank=rank, shuffle=True)
-            val_sampler = DistributedSampler(val_dataset, num_replicas=world_size, rank=rank, shuffle=False)
+            train_sampler = DistributedSampler(
+                dataset, num_replicas=world_size, rank=rank, shuffle=True
+            )
+            val_sampler = DistributedSampler(
+                val_dataset, num_replicas=world_size, rank=rank, shuffle=False
+            )
             # Don't shuffle in dataloader when using DistributedSampler
             cfg.dataloader.shuffle = False
             cfg.val_dataloader.shuffle = False
@@ -188,7 +194,7 @@ def run_train(cfg: OmegaConf) -> None:
 
     # Optimizer and scheduler
     policy.finalize_modules()
-    
+
     if is_main_process:
         logger.info(f"Pretrained directory: {cfg.train.pretrained_dir}")
 
@@ -200,7 +206,9 @@ def run_train(cfg: OmegaConf) -> None:
             ), "Pretrained model not found"
             if is_main_process:
                 logger.info(f"Loading model from {cfg.train.pretrained_dir}")
-            policy.load_state_dict(torch.load(cfg.train.pretrained_dir, map_location=device))
+            policy.load_state_dict(
+                torch.load(cfg.train.pretrained_dir, map_location=device)
+            )
             loaded_epoch = int(
                 cfg.train.pretrained_dir.split("/")[-1].split(".")[0].split("_")[-1]
             )
@@ -209,7 +217,10 @@ def run_train(cfg: OmegaConf) -> None:
                 os.path.join(cfg.train.pretrained_dir, f"model.pth")
             ), "Pretrained model not found"
             policy.load_state_dict(
-                torch.load(os.path.join(cfg.train.pretrained_dir, f"model.pth"), map_location=device)
+                torch.load(
+                    os.path.join(cfg.train.pretrained_dir, f"model.pth"),
+                    map_location=device,
+                )
             )
 
         if is_main_process:
@@ -226,18 +237,30 @@ def run_train(cfg: OmegaConf) -> None:
 
     # Wrap model with DDP for distributed training
     if is_distributed:
-        policy = DDP(policy, device_ids=[local_rank], output_device=local_rank, find_unused_parameters=True)
+        policy = DDP(
+            policy,
+            device_ids=[local_rank],
+            output_device=local_rank,
+            find_unused_parameters=True,
+        )
         model_without_ddp = policy.module
     else:
         model_without_ddp = policy
 
     total_steps = cfg.train.total_epochs * len(train_loader)
-    
+
     # Only create optimizer on the actual policy (not DDP wrapper)
     opt = learning.get_optimizer(cfg.optimizer, model_without_ddp)
-    sch = learning.get_scheduler(cfg.lr_scheduler, opt, num_warmup_steps=cfg.warmup_lr.step, num_training_steps=total_steps)
+    sch = learning.get_scheduler(
+        cfg.lr_scheduler,
+        opt,
+        num_warmup_steps=cfg.warmup_lr.step,
+        num_training_steps=total_steps,
+    )
 
-    n_parameters = sum(p.numel() for p in model_without_ddp.parameters() if p.requires_grad)
+    n_parameters = sum(
+        p.numel() for p in model_without_ddp.parameters() if p.requires_grad
+    )
     if is_main_process:
         logger.info(f"Number of parameters (M): {n_parameters / 1.0e6:.2f}")
 
@@ -249,13 +272,13 @@ def run_train(cfg: OmegaConf) -> None:
             )
         else:
             pbar = range(loaded_epoch + 1, loaded_epoch + 1 + cfg.train.total_epochs)
-            
+
         for epoch in pbar:
             # Set epoch for distributed sampler
             if is_distributed:
                 train_sampler.set_epoch(epoch)
                 val_sampler.set_epoch(epoch)
-            
+
             train_stats = train_test.train(
                 cfg.log_interval,
                 policy,
@@ -269,7 +292,7 @@ def run_train(cfg: OmegaConf) -> None:
                 pcd_npoints=pcd_num_points,
                 in_channels=dataset.pcd_channels,
                 debug=cfg.debug,
-                epoch_size=cfg.train.epoch_iters
+                epoch_size=cfg.train.epoch_iters,
             )
             test_loss = train_test.test(
                 policy,
@@ -291,8 +314,8 @@ def run_train(cfg: OmegaConf) -> None:
                 else:
                     policy_path = os.path.join(cfg.output_dir, f"model.pth")
                 model_without_ddp.save(policy_path)
-                
-                if "loss" in train_stats and hasattr(pbar, 'set_description'):
+
+                if "loss" in train_stats and hasattr(pbar, "set_description"):
                     pbar.set_description(
                         f"Steps: {train_steps}. Train loss: {train_stats['loss']:.4f}. Test loss: {test_loss:.4f}"
                     )
@@ -302,7 +325,7 @@ def run_train(cfg: OmegaConf) -> None:
 
         if is_main_process:
             model_without_ddp.save(policy_path)
-            if hasattr(pbar, 'close'):
+            if hasattr(pbar, "close"):
                 pbar.close()
 
     # Synchronize all processes before evaluation

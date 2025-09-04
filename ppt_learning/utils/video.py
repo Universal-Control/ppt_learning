@@ -40,7 +40,9 @@ class videoLogger:
         else:
             self.video_save_dir = video_save_dir
 
-    def normalize_and_visualize_depth(self, depth_map, min_depth, max_depth, cmap="Spectral", valid_mask=None):
+    def normalize_and_visualize_depth(
+        self, depth_map, min_depth, max_depth, cmap="Spectral", valid_mask=None
+    ):
         """
         Colorize depth maps.
         """
@@ -77,7 +79,7 @@ class videoLogger:
         elif isinstance(depth_map, np.ndarray):
             img_colored = img_colored_np
 
-        return (np.einsum('chw->hwc', img_colored.squeeze()) * 255).astype(np.uint8)
+        return (np.einsum("chw->hwc", img_colored.squeeze()) * 255).astype(np.uint8)
 
     def extend(self, key, snaps, category):
         if key not in self._snaps[category]:
@@ -124,9 +126,17 @@ class videoLogger:
 
                 else:
 
-                    os.makedirs(self.video_save_dir / category / model_name / dir_name, exist_ok=True)
+                    os.makedirs(
+                        self.video_save_dir / category / model_name / dir_name,
+                        exist_ok=True,
+                    )
                     for key in self._snaps[category]:
                         imageio.imwrite(
-                            self.video_save_dir / category / model_name / dir_name / f"{key}.mp4", self._snaps[category][key],
+                            self.video_save_dir
+                            / category
+                            / model_name
+                            / dir_name
+                            / f"{key}.mp4",
+                            self._snaps[category][key],
                             fps=30,
                         )

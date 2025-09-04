@@ -262,8 +262,8 @@ class Diffusion(nn.Module):
         self,
         input_dim,  # condition
         output_dim,  # action dim
-        horizon, # number of steps to predict
-        hist_horizon = 0, 
+        horizon,  # number of steps to predict
+        hist_horizon=0,
         noise_scheduler_type: str = "DDPM",
         num_train_timesteps: int = 100,
         beta_schedule: str = "squaredcos_cap_v2",
@@ -293,7 +293,7 @@ class Diffusion(nn.Module):
         self.input_dim = input_dim
         self.output_dim = output_dim
         self.hist_horizon = hist_horizon
-        self.horizon = horizon # default as future horizon
+        self.horizon = horizon  # default as future horizon
         self.do_mask_loss_for_padding = do_mask_loss_for_padding
         self.random_impaint = random_impaint
         self.min_impaint_horizon = min_impaint_horizon
@@ -330,7 +330,7 @@ class Diffusion(nn.Module):
         self,
         batch_size: int,
         global_cond: Optional[Tensor] = None,
-        local_cond: Optional[Tensor] = None, # impainting the past trajectory
+        local_cond: Optional[Tensor] = None,  # impainting the past trajectory
         generator: Optional[torch.Generator] = None,
         hist_horizon: Optional[int] = None,
     ) -> Tensor:
@@ -348,7 +348,7 @@ class Diffusion(nn.Module):
         hist_horizon = self.hist_horizon if hist_horizon is None else hist_horizon
         if hist_horizon > 0 and local_cond is not None:
             # local cond the past trajectory
-            sample[..., : hist_horizon, :-1] = local_cond[..., : hist_horizon, :-1]
+            sample[..., :hist_horizon, :-1] = local_cond[..., :hist_horizon, :-1]
 
         for t in self.noise_scheduler.timesteps:
             # Predict model output.
@@ -373,7 +373,9 @@ class Diffusion(nn.Module):
         """
         batch_size = x.shape[0]
         # run sampling
-        samples = self.conditional_sample(batch_size, global_cond=x, local_cond=local_cond, hist_horizon=hist_horizon)
+        samples = self.conditional_sample(
+            batch_size, global_cond=x, local_cond=local_cond, hist_horizon=hist_horizon
+        )
 
         # Currently all future aactions
         # # `horizon` steps worth of actions (from the first observation).
@@ -389,7 +391,9 @@ class Diffusion(nn.Module):
         trajectory = target
         hist_horizon = self.hist_horizon
         if self.random_impaint:
-            hist_horizon = random.randint(self.min_impaint_horizon, self.max_impaint_horizon)
+            hist_horizon = random.randint(
+                self.min_impaint_horizon, self.max_impaint_horizon
+            )
 
         # Forward diffusion.
         # Sample noise to add to the trajectory.
@@ -406,8 +410,8 @@ class Diffusion(nn.Module):
 
         if hist_horizon > 0 and local_cond is not None:
             # impaint the past trajectory
-            noisy_trajectory[..., : hist_horizon, :] = local_cond[..., : hist_horizon, :]
-            
+            noisy_trajectory[..., :hist_horizon, :] = local_cond[..., :hist_horizon, :]
+
         # Run the denoising network (that might denoise the trajectory, or attempt to predict the noise).
         pred = self.unet(noisy_trajectory, timesteps, global_cond=x)
 
@@ -421,7 +425,11 @@ class Diffusion(nn.Module):
             raise ValueError(f"Unsupported prediction type {self.prediction_type}")
 
         if hist_horizon > 0 and local_cond is not None:
-            loss = F.mse_loss(pred[..., hist_horizon:, :], target[..., hist_horizon:, :], reduction="none")
+            loss = F.mse_loss(
+                pred[..., hist_horizon:, :],
+                target[..., hist_horizon:, :],
+                reduction="none",
+            )
         else:
             loss = F.mse_loss(pred, target, reduction="none")
 
@@ -449,7 +457,7 @@ class Diffusion(nn.Module):
 
         if local_cond is None and (self.hist_horizon > 0 or self.random_impaint):
             local_cond = target.clone()
-        
+
         """Run the batch through the model and compute the loss for training or validation."""
         loss = self.compute_loss(x, target=target, local_cond=local_cond)
         return {"loss": loss}

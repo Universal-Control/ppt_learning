@@ -5,13 +5,25 @@ import zarr
 from tqdm import tqdm
 import random
 
-ds = lance.dataset("/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/one_camera_no_crop_642_no_yaw_lance/data.lance/")
+ds = lance.dataset(
+    "/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/one_camera_no_crop_642_no_yaw_lance/data.lance/"
+)
 
 num = 100
 length = ds.count_rows()
-keys = ['actions', 'obs/eef_pos', 'obs/eef_quat', 'obs/joint_pos', 'obs/joint_vel', 'obs/normalized_gripper_pos', 'obs/pointcloud/pos']
+keys = [
+    "actions",
+    "obs/eef_pos",
+    "obs/eef_quat",
+    "obs/joint_pos",
+    "obs/joint_vel",
+    "obs/normalized_gripper_pos",
+    "obs/pointcloud/pos",
+]
 
-zarr_store = zarr.DirectoryStore("/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/one_camera_no_crop_642_no_yaw.zarr/")
+zarr_store = zarr.DirectoryStore(
+    "/mnt/bn/robot-minghuan-datasets-lq/xiaoshen/datasets/ur5_put_bowl_in_microwave_and_close/one_camera_no_crop_642_no_yaw.zarr/"
+)
 zarr_root = zarr.Group(zarr_store)
 start_time = time.time()
 for i in tqdm(range(num)):

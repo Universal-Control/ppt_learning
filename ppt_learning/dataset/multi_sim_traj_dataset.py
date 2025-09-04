@@ -25,15 +25,20 @@ from ppt_learning.utils.pcd_utils import (
 
 from ppt_learning.paths import *
 from ppt_learning.utils.pcd_utils import BOUND
-from ppt_learning.dataset.sim_traj_dataset import resize_image_sequence, clip_depth, WarpMinMax
+from ppt_learning.dataset.sim_traj_dataset import (
+    resize_image_sequence,
+    clip_depth,
+    WarpMinMax,
+)
+
 
 class MultiTrajDataset:
     """Multiple trajectory dataset for handling multi-domain simulation data.
-    
+
     This class manages multiple single trajectory datasets, enabling multi-task
     learning across different domains. It handles data loading, normalization,
     augmentation, and sampling for training multi-domain policies.
-    
+
     Key Features:
         - Multi-domain data loading and management
         - Point cloud generation from RGB-D images
@@ -150,14 +155,14 @@ class MultiTrajDataset:
                                 contrast=0.2,
                                 saturation=0.2,
                                 hue=0.1,
-                                p=img_augment_prob
+                                p=img_augment_prob,
                             ),
                             A.GaussNoise(p=img_augment_prob),
                         ],
                     ),
                 ]
             )
-            
+
         if augment_depth:
             # random translate / random affine
             self.depth_transform = A.Compose(
@@ -182,7 +187,7 @@ class MultiTrajDataset:
                 "eef_quat",
                 "joint_pos",
                 # "joint_vel",
-                "normalized_gripper_pos"
+                "normalized_gripper_pos",
             ]
         self.ignored_keys = ignored_keys
         if ignored_keys is None:
@@ -190,7 +195,7 @@ class MultiTrajDataset:
                 "initial_state",
                 "states",
                 "depths",
-            ] # , "images", "color"]
+            ]  # , "images", "color"]
             # self.use_pcd = False
 
         self.voxelization = voxelization
@@ -200,10 +205,13 @@ class MultiTrajDataset:
         if pose_transform is not None:
             if pose_transform == "quat_to_pose":
                 from ppt_learning.utils.pose_utils import quat_to_pose
+
                 self.pose_transform = quat_to_pose
             else:
-                raise NotImplementedError(f"Pose transform '{pose_transform}' not implemented")
-        
+                raise NotImplementedError(
+                    f"Pose transform '{pose_transform}' not implemented"
+                )
+
         self.update_pcd_transform()
 
         # Ensure dataset_path is a list
@@ -211,12 +219,14 @@ class MultiTrajDataset:
             dataset_path = [dataset_path]
         if isinstance(domain, str):
             domain = [domain] * len(dataset_path)
-        
+
         if len(domain) != len(dataset_path):
-            raise ValueError(f"Domain list length ({len(domain)}) must match dataset_path length ({len(dataset_path)})")
-        
+            raise ValueError(
+                f"Domain list length ({len(domain)}) must match dataset_path length ({len(dataset_path)})"
+            )
+
         self.dataset_path = dataset_path
-        self.replay_buffer: List[Optional[ReplayBuffer]] = [None] * len(dataset_path) 
+        self.replay_buffer: List[Optional[ReplayBuffer]] = [None] * len(dataset_path)
 
         # Initialize replay buffers for each dataset
         for idx, single_dpath in enumerate(dataset_path):
@@ -234,12 +244,16 @@ class MultiTrajDataset:
                 if load_from_cache:
                     if use_lru_cache:
                         store = zarr.DirectoryStore(single_dpath)
-                        cache = zarr.LRUStoreCache(store=store, max_size=2**(39-len(dataset_path)))
+                        cache = zarr.LRUStoreCache(
+                            store=store, max_size=2 ** (39 - len(dataset_path))
+                        )
                         group = zarr.open(cache, "r")
                         self.replay_buffer[idx] = ReplayBuffer.create_from_group(
                             group,
                         )
-                        logger.info(f"Using LRU cache for dataset {idx+1} with max_size={2**(39-len(dataset_path))}")
+                        logger.info(
+                            f"Using LRU cache for dataset {idx+1} with max_size={2**(39-len(dataset_path))}"
+                        )
                     else:
                         self.replay_buffer[idx] = ReplayBuffer.create_from_group(
                             zarr.open(zarr.DirectoryStore(single_dpath), "r"),
@@ -261,14 +275,16 @@ class MultiTrajDataset:
 
     def update_pcd_transform(self, pcd_setup_cfg: Optional[Any] = None) -> None:
         """Update point cloud transformation configuration.
-        
+
         Args:
             pcd_setup_cfg: Point cloud setup configuration object
         """
         if not self.use_pcd:
             return
         if not self.pcdnet_pretrain_domain:
-            raise ValueError("pcdnet_pretrain_domain must be provided when use_pcd=True")
+            raise ValueError(
+                "pcdnet_pretrain_domain must be provided when use_pcd=True"
+            )
 
         from openpoints.transforms import build_transforms_from_cfg
 
@@ -300,11 +316,11 @@ class MultiTrajDataset:
 
     def get_normalizer(self, mode: str = "limits", **kwargs: Any) -> LinearNormalizer:
         """Get normalizer fitted on combined data from all datasets.
-        
+
         Args:
             mode: Normalization mode (e.g., 'limits', 'gaussian')
             **kwargs: Additional keyword arguments for normalization
-            
+
         Returns:
             Fitted LinearNormalizer instance for multi-domain data
         """
@@ -321,15 +337,17 @@ class MultiTrajDataset:
         self.normalizer.fit(data=data, last_n_dims=1, mode=mode, **kwargs)
         # Log normalizer statistics
         for k, v in self.normalizer.params_dict.items():
-            logger.info(f"Normalizer {k} - min: {v['input_stats'].min}, max: {v['input_stats'].max}")
+            logger.info(
+                f"Normalizer {k} - min: {v['input_stats'].min}, max: {v['input_stats'].max}"
+            )
         return self.normalizer
 
     def get_episode(self, idx: int) -> Dict[str, Any]:
         """Get an episode by index across all datasets.
-        
+
         Args:
             idx: Episode index
-            
+
         Returns:
             Episode data dictionary
         """
@@ -337,12 +355,14 @@ class MultiTrajDataset:
         idx = idx - self.dataset_episodes[dataset_idx]
         return self.replay_buffer[dataset_idx].get_episode(idx)
 
-    def _sample_to_data(self, sample: Union[ReplayBuffer, Dict[str, Any]]) -> Dict[str, np.ndarray]:
+    def _sample_to_data(
+        self, sample: Union[ReplayBuffer, Dict[str, Any]]
+    ) -> Dict[str, np.ndarray]:
         """Convert sample to normalized data dictionary.
-        
+
         Args:
             sample: Sample from replay buffer
-            
+
         Returns:
             Dictionary with action and optionally state data
         """
@@ -356,7 +376,7 @@ class MultiTrajDataset:
 
     def get_training_dataset(self, val_ratio: float, seed: int) -> None:
         """Initialize training dataset with train/validation split.
-        
+
         Args:
             val_ratio: Ratio of data to use for validation
             seed: Random seed for reproducible splits
@@ -399,14 +419,16 @@ class MultiTrajDataset:
         # Calculate cumulative dataset lengths for indexing
         self.dataset_length = np.cumsum([len(sampler) for sampler in self.sampler])
         self.dataset_length = np.insert(self.dataset_length, 0, 0)
-        
+
         # Calculate cumulative episode counts
-        episode_counts = [self.replay_buffer[idx].n_episodes for idx in range(len(self.replay_buffer))]
+        episode_counts = [
+            self.replay_buffer[idx].n_episodes for idx in range(len(self.replay_buffer))
+        ]
         self.dataset_episodes = np.cumsum([0] + episode_counts)
 
-    def get_validation_dataset(self) -> List['MultiTrajDataset']:
+    def get_validation_dataset(self) -> List["MultiTrajDataset"]:
         """Create validation dataset instances.
-        
+
         Returns:
             List of validation dataset instances for each domain
         """
@@ -427,30 +449,32 @@ class MultiTrajDataset:
 
     def __len__(self) -> int:
         """Get total number of samples across all datasets."""
-        if not hasattr(self, 'sampler') or not self.sampler:
+        if not hasattr(self, "sampler") or not self.sampler:
             return 0
         return sum([len(sampler) for sampler in self.sampler])
-    
+
     @property
     def num_datasets(self) -> int:
         """Get number of datasets being managed."""
         return len(self.replay_buffer)
-    
+
     @property
     def total_episodes(self) -> int:
         """Get total number of episodes across all datasets."""
         if not self.replay_buffer or not all(self.replay_buffer):
             return 0
         return sum(rb.n_episodes for rb in self.replay_buffer if rb is not None)
-    
-    def _validate_config(self, use_pcd: bool, pcd_channels: Optional[int], hist_action_cond: bool) -> None:
+
+    def _validate_config(
+        self, use_pcd: bool, pcd_channels: Optional[int], hist_action_cond: bool
+    ) -> None:
         """Validate dataset configuration parameters.
-        
+
         Args:
             use_pcd: Whether point clouds are used
             pcd_channels: Number of point cloud channels
             hist_action_cond: Whether using historical action conditioning
-            
+
         Raises:
             ValueError: If configuration is invalid
         """
@@ -459,25 +483,27 @@ class MultiTrajDataset:
             if pcd_channels is None:
                 raise ValueError("pcd_channels must be provided when use_pcd=True")
             if pcd_channels not in [3, 4, 5, 6, 7]:
-                raise ValueError(f"pcd_channels must be one of [3, 4, 5, 6, 7], got {pcd_channels}")
+                raise ValueError(
+                    f"pcd_channels must be one of [3, 4, 5, 6, 7], got {pcd_channels}"
+                )
 
     def __getitem__(self, idx: int) -> Dict[str, Any]:
         """Get normalized observation and actions for given index.
-        
+
         Args:
             idx: Index of the sample to retrieve
-            
+
         Returns:
             Dictionary with 'domain' and 'data' keys containing processed sample
-        
+
         Raises:
             KeyError: If required action keys are not found in the sample
         """
         dataset_idx = np.searchsorted(self.dataset_length, idx, side="right") - 1
         idx = idx - self.dataset_length[dataset_idx]
         sample = self.sampler[dataset_idx].sample_sequence(idx)
-        
-        action_sub_keys = self.action_key.split('/')
+
+        action_sub_keys = self.action_key.split("/")
         if len(action_sub_keys) > 1 or action_sub_keys[0] != "action":
             action = sample
             for key in action_sub_keys:
@@ -487,7 +513,9 @@ class MultiTrajDataset:
                     except KeyError as e:
                         logger.error(f"Action key not found: {key}")
                         logger.error(f"Available keys: {list(action.keys())}")
-                        raise KeyError(f"Failed to access action key '{key}' in sample") from e
+                        raise KeyError(
+                            f"Failed to access action key '{key}' in sample"
+                        ) from e
             sample["action"] = action
             del sample[action_sub_keys[0]]
 
@@ -498,7 +526,11 @@ class MultiTrajDataset:
                 if isinstance(val, (dict, OrderedDict)):
                     recursive_horizon(val)
                 else:
-                    if (key not in self.ignored_keys) and (key != "action") and (key != "action_is_pad"):
+                    if (
+                        (key not in self.ignored_keys)
+                        and (key != "action")
+                        and (key != "action_is_pad")
+                    ):
                         if key == "language":
                             data[key] = val
                         else:
@@ -506,7 +538,9 @@ class MultiTrajDataset:
                     else:
                         if self.hist_action_cond:
                             if key in ["action", "action_is_pad"]:
-                                data[key] = val[: self.action_horizon] # including hist action
+                                data[key] = val[
+                                    : self.action_horizon
+                                ]  # including hist action
                         else:
                             if key in ["action", "action_is_pad"]:
                                 data[key] = val[
@@ -615,21 +649,23 @@ class MultiTrajDataset:
         """Load all datasets from disk into replay buffers."""
         for idx, dataset_path in enumerate(self.dataset_path):
             self.replay_buffer[idx] = ReplayBuffer.copy_from_path(dataset_path)
-            logger.info(f"Dataset {idx+1} replay buffer keys: {self.replay_buffer[idx].keys()}")
+            logger.info(
+                f"Dataset {idx+1} replay buffer keys: {self.replay_buffer[idx].keys()}"
+            )
 
     def get_state(self, sample: Union[Dict[str, Any], np.ndarray]) -> np.ndarray:
         """Extract and concatenate state information from sample.
-        
+
         Args:
             sample: Sample containing state components
-            
+
         Returns:
             Concatenated state array
         """
         res = {"state": []}
         if isinstance(sample, (dict, OrderedDict)):
             res = sample
-            res['state'] = []
+            res["state"] = []
         for key in self.state_keys:
             if key in sample.keys():
                 if len(sample[key].shape) == 1:
@@ -644,48 +680,76 @@ class MultiTrajDataset:
 
     def transform(self, sample: Dict[str, Any]) -> None:
         """Apply transformations to sample data in-place.
-        
+
         Includes image resizing, depth normalization, and augmentations.
-        
+
         Args:
             sample: Sample dictionary to transform
         """
         if self.resize_img and "image" in sample.keys():
             for key, val in sample["image"].items():
                 # Image shape N, H, W, C
-                sample["image"][key] = resize_image_sequence(val, (self.img_size[0], self.img_size[1]))
+                sample["image"][key] = resize_image_sequence(
+                    val, (self.img_size[0], self.img_size[1])
+                )
         if self.resize_img and "depth" in sample.keys():
             for key, val in sample["depth"].items():
                 # Image shape N, H, W, C
                 clippped_depth, _ = clip_depth(val)
                 if not _:
                     logger.warning(f"Invalid depth detected in sample")
-                sample["depth"][key] = resize_image_sequence(clippped_depth, (self.img_size[0], self.img_size[1]), interp=cv2.INTER_NEAREST)
+                sample["depth"][key] = resize_image_sequence(
+                    clippped_depth,
+                    (self.img_size[0], self.img_size[1]),
+                    interp=cv2.INTER_NEAREST,
+                )
                 if self.norm_depth:
-                    sample["depth"][key] = self.warp_func.warp(sample["depth"][key], sample["depth"][key])
+                    sample["depth"][key] = self.warp_func.warp(
+                        sample["depth"][key], sample["depth"][key]
+                    )
         if self.augment_depth and "depth" in sample.keys():
             for key, val in sample["depth"].items():
                 for step_idx in range(val.shape[0]):
-                    sample["depth"][key][step_idx] = self.depth_transform(image=val[step_idx])["image"]
+                    sample["depth"][key][step_idx] = self.depth_transform(
+                        image=val[step_idx]
+                    )["image"]
         if self.augment_img and "image" in sample.keys():
             for key, val in sample["image"].items():
                 for step_idx in range(val.shape[0]):
-                    sample["image"][key][step_idx] = self.img_transform(image=val[step_idx])["image"]
-        if self.pose_transform is not None: # Last dim is gripper
-            if len(sample['action'].shape) == 2:
-                N, A = sample['action'].shape
-                sample['action'] = np.concatenate([self.pose_transform(sample['action'][..., :-1].reshape(-1, A-1)).reshape(N, -1), sample['action'][..., -1:]], axis=-1)
-            elif len(sample['action'].shape) == 3:
-                N, L, A = sample['action'].shape
-                sample['action'] = np.concatenate([self.pose_transform(sample['action'][..., :-1].reshape(-1, A-1)).reshape(N, L, -1), sample['action'][..., -1:]], axis=-1)
+                    sample["image"][key][step_idx] = self.img_transform(
+                        image=val[step_idx]
+                    )["image"]
+        if self.pose_transform is not None:  # Last dim is gripper
+            if len(sample["action"].shape) == 2:
+                N, A = sample["action"].shape
+                sample["action"] = np.concatenate(
+                    [
+                        self.pose_transform(
+                            sample["action"][..., :-1].reshape(-1, A - 1)
+                        ).reshape(N, -1),
+                        sample["action"][..., -1:],
+                    ],
+                    axis=-1,
+                )
+            elif len(sample["action"].shape) == 3:
+                N, L, A = sample["action"].shape
+                sample["action"] = np.concatenate(
+                    [
+                        self.pose_transform(
+                            sample["action"][..., :-1].reshape(-1, A - 1)
+                        ).reshape(N, L, -1),
+                        sample["action"][..., -1:],
+                    ],
+                    axis=-1,
+                )
             else:
                 raise ValueError(f"Invalid action shape: {sample['action'].shape}")
 
     def flat_sample(self, sample: Dict[str, Any]) -> None:
         """Flatten nested sample structure in-place.
-        
+
         Moves observation data to top level and handles point cloud channels.
-        
+
         Args:
             sample: Sample dictionary to flatten
         """
@@ -743,10 +807,10 @@ class MultiTrajDataset:
 
     def pcd_aug(self, pcd: np.ndarray) -> np.ndarray:
         """Apply augmentations to point cloud data.
-        
+
         Args:
             pcd: Point cloud array
-            
+
         Returns:
             Augmented point cloud array
         """
@@ -766,7 +830,7 @@ def main() -> None:
         use_disk=True,
         load_from_cache=True,
         use_lru_cache=True,
-        val_ratio=0.,
+        val_ratio=0.0,
         action_horizon=16,
         observation_horizon=3,
         horizon=18,
