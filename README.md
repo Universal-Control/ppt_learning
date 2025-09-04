@@ -1,6 +1,6 @@
 # PPT Learning
 
-PPT stands for Proprioceptive Pointcloud Transformer, derived from [GenSim2](gensim2.github.io), yet it is more than point clouds.
+PPT stands for Proprioceptive Pointcloud Transformer, derived from [GenSim2](https://gensim2.github.io/), yet it is more than point clouds.
 
 PPT serves as a unified robotic manipulation learning framework, providing comprehensive tools for training and evaluating robotic policies.
 
